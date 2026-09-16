@@ -160,6 +160,28 @@ export class FlightController {
     const dt = FIXED_DT;
     this.elapsedS += dt;
 
+    // ROOT CAUSE of the taxi/ground-roll speed oscillation (bisected with a headless
+    // Rapier harness: a bare rigid body + a single constant addForce() call, no
+    // aircraft code, no ground, no gravity, reproduced the same runaway growth).
+    // RAPIER.RigidBody.addForce()/addForceAtPoint()/addTorque() accumulate into a
+    // persistent "user force" that is NOT cleared by World.step() in this engine
+    // version/binding (@dimforge/rapier3d-compat) - every call below adds onto
+    // whatever thrust/drag/lift/stability force was still queued from the previous
+    // tick. With that never reset, the net force applied grows roughly linearly
+    // with elapsed frames instead of being recomputed fresh each tick: acceleration
+    // (and therefore speed) ramps up far faster than the model intends, drag
+    // eventually catches up (it's recomputed from velocity each tick and grows with
+    // v^2) and overshoots the other way, and the cycle repeats - a large, sustained
+    // limit cycle that shows up exactly as the taxi speed "cyclically oscillating"
+    // symptom, on the ground or airborne, with or without any aero surfaces. It is
+    // not a contact-solver/single-box-collider artifact - it reproduced identically
+    // with the ground collider and gravity removed entirely. Clearing the
+    // accumulated force/torque at the start of every tick, before any of this
+    // frame's forces are added, makes each tick's applied force depend only on this
+    // tick's state again, matching the intended explicit-Euler force model.
+    this.body.resetForces(true);
+    this.body.resetTorques(true);
+
     const pos = this.body.translation();
     const rot = this.body.rotation();
     const quat = new THREE.Quaternion(rot.x, rot.y, rot.z, rot.w);
@@ -304,43 +326,6 @@ export class FlightController {
       if (onGround && controls.brake) {
         const decel = bodyVel.clone().multiplyScalar((-2.5 / gearPenalty) * this.aircraft.totalMassKg);
         this.body.addForce({ x: decel.x, y: 0, z: decel.z }, true);
-      }
-
-      // --- Ground lateral (tire cornering) resistance ---
-      // The single-box collider's low, isotropic friction (see the comment on
-      // setFriction above) gives the airframe near-zero rolling resistance, but that
-      // also means it has near-zero resistance to SIDEWAYS slip. With nothing
-      // resisting lateral motion, any tiny asymmetric torque from the contact solver
-      // (the box has no dedicated wheel contact points, so ground reaction forces
-      // aren't applied at fixed left/right points and can differ frame to frame) lets
-      // the tail/nose drift sideways; the stability PD controller above deliberately
-      // leaves yaw free, so that drift compounds into a slow yaw rotation. Once the
-      // heading rotates, the *same* forward thrust now has a lateral component in
-      // world space, which reads as a cyclic rise/fall in ground speed even though
-      // nothing about the throttle input changed - this was the residual taxi/
-      // ground-roll oscillation. Real wheels resist side-slip (cornering stiffness)
-      // far more than they resist rolling, so apply a velocity-proportional lateral
-      // damping force decomposed in the body frame: it cancels sideways slip while
-      // leaving forward rolling motion (and the explicit brake above) untouched.
-      if (onGround) {
-        const rightDir = new THREE.Vector3(1, 0, 0).applyQuaternion(quat);
-        const lateralSpeed = bodyVel.dot(rightDir);
-        if (Math.abs(lateralSpeed) > 1e-4) {
-          const LATERAL_GRIP_GAIN = 6.0; // 1/s; strong compared to the 0.04-friction rolling resistance
-          const lateralForceMag = -lateralSpeed * LATERAL_GRIP_GAIN * this.aircraft.totalMassKg;
-          const lateralForce = rightDir.clone().multiplyScalar(lateralForceMag);
-          this.body.addForce({ x: lateralForce.x, y: 0, z: lateralForce.z }, true);
-        }
-
-        // Small yaw-rate damping while grounded: opposes the same slow heading drift
-        // at its source (angular velocity) rather than only reacting to its symptom
-        // (lateral speed). Keeps the fix stable even if the contact-torque asymmetry
-        // is momentarily large, without touching rudder-authorized turning (which
-        // works by commanding aero yaw force well above this damping's magnitude).
-        const worldUp = new THREE.Vector3(0, 1, 0);
-        const yawRate = bodyAngVel.dot(worldUp);
-        const yawDampingTorque = worldUp.clone().multiplyScalar(-yawRate * 4.0 * this.aircraft.totalMassKg);
-        this.body.addTorque({ x: yawDampingTorque.x, y: yawDampingTorque.y, z: yawDampingTorque.z }, true);
       }
 
       if (controls.chuteDeployed && altitude > 2) {
