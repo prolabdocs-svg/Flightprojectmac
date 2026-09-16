@@ -10,7 +10,7 @@ export function BootScreen() {
   const [progress, setProgress] = useState(0);
 
   useEffect(() => {
-    load();
+    void load();
     let raf: number;
     const start = performance.now();
     const tick = () => {
