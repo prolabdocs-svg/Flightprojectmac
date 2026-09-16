@@ -371,6 +371,20 @@
   color: #20160a;
   border-color: #c68a2e;
 }
+.option-row-slider {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+.option-row-slider label {
+  font-size: 12px;
+  opacity: 0.85;
+}
+.option-row-slider input[type='range'] {
+  width: 100%;
+  accent-color: #c68a2e;
+}
 
 /* Tech tree */
 .tech-branch {
@@ -465,4 +479,147 @@
 .paint-card-name {
   font-weight: 700;
   font-size: 13px;
+}
+
+/* Onboarding — progress/nav/practice pads (spec 82.2, 16.2) */
+.onboarding-progress {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.onboarding-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.25);
+}
+.onboarding-dot.active {
+  background: #c68a2e;
+}
+.skip-btn {
+  margin-left: auto;
+  background: transparent;
+  border: none;
+  color: rgba(241, 239, 228, 0.6);
+  font-size: 12px;
+  text-decoration: underline;
+  cursor: pointer;
+  min-height: 44px;
+  padding: 0 6px;
+}
+.onboarding-nav {
+  margin-top: auto;
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+.practice-pads-row {
+  display: flex;
+  gap: 20px;
+  justify-content: center;
+  flex: 1;
+  align-items: center;
+}
+.practice-pad-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.practice-pad {
+  position: relative;
+  width: 140px;
+  height: 140px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  touch-action: none;
+}
+.practice-pad-cross-v,
+.practice-pad-cross-h {
+  position: absolute;
+  background: rgba(255, 255, 255, 0.15);
+}
+.practice-pad-cross-v {
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+}
+.practice-pad-cross-h {
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 1px;
+}
+.practice-pad-dot {
+  position: absolute;
+  width: 34px;
+  height: 34px;
+  margin-left: -17px;
+  margin-top: -17px;
+  border-radius: 50%;
+  background: #c68a2e;
+  box-shadow: 0 0 0 4px rgba(198, 138, 46, 0.25);
+}
+.practice-pad-label {
+  font-size: 12px;
+  opacity: 0.75;
+  text-align: center;
+}
+.stick-size-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.settings-hint {
+  font-size: 11px;
+  opacity: 0.6;
+  margin: 6px 0 0;
+}
+
+/* Accessibility (spec 55/170): comfortable touch targets scoped to Settings/Onboarding,
+   plus text-size / reduce-motion / colorblind-safe HUD opt-ins driven by data-attributes
+   set on <html> in App.tsx from the profile settings. */
+.settings-screen .option-row button,
+.settings-screen section > button,
+.onboarding-screen button {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+:root[data-text-size='small'] .settings-screen,
+:root[data-text-size='small'] .onboarding-screen {
+  font-size: 13px;
+}
+:root[data-text-size='large'] .settings-screen,
+:root[data-text-size='large'] .onboarding-screen {
+  font-size: 19px;
+}
+
+:root[data-reduce-motion='true'] * {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  scroll-behavior: auto !important;
+}
+
+/* Colorblind-safe HUD palette: swaps the amber/danger accents used across screens for a
+   blue/orange pairing that stays distinguishable under common color-vision deficiencies.
+   Screens outside this change's scope (e.g. FlightHud) can adopt the same variable. */
+:root[data-colorblind='true'] {
+  --accent-color: #3d8ff2;
+  --danger-color: #ff8c1a;
+}
+:root[data-colorblind='true'] .primary-btn,
+:root[data-colorblind='true'] .option-row button.active,
+:root[data-colorblind='true'] .settings-screen section > button.active,
+:root[data-colorblind='true'] .onboarding-dot.active {
+  background: var(--accent-color);
+  border-color: var(--accent-color);
+  color: #05121f;
+}
+:root[data-colorblind='true'] .danger-btn {
+  background: var(--danger-color);
+  color: #1a0f00;
 }

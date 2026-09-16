@@ -193,6 +193,13 @@ export interface PlayerProfile {
     stickSize: number;
     musicVolume: number;
     sfxVolume: number;
+    // Accessibility (spec 55.1/55.2/170.1/170.2). Additive — old saves are backfilled in
+    // save.ts#migrate so every screen can rely on these being present.
+    colorblindMode: boolean;
+    reduceMotion: boolean;
+    textSize: 'small' | 'normal' | 'large';
+    handedness: 'right' | 'left';
+    hasSeenOnboarding: boolean;
   };
 }
 

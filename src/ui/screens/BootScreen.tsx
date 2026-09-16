@@ -10,7 +10,7 @@ export function BootScreen() {
   const [progress, setProgress] = useState(0);
 
   useEffect(() => {
-    void load();
+    const loaded = load();
     let raf: number;
     const start = performance.now();
     const tick = () => {
@@ -20,8 +20,13 @@ export function BootScreen() {
       if (p < 1) {
         raf = requestAnimationFrame(tick);
       } else {
-        const seenOnboarding = localStorage.getItem('project-flight/onboarded');
-        goTo(seenOnboarding ? 'hangar' : 'onboarding');
+        void loaded.then(() => {
+          // Legacy localStorage flag (pre-profile-settings) OR the profile flag, so returning
+          // players on an old save still skip straight to the hangar.
+          const legacySeenOnboarding = localStorage.getItem('project-flight/onboarded');
+          const seenOnboarding = legacySeenOnboarding || useProfileStore.getState().profile.settings.hasSeenOnboarding;
+          goTo(seenOnboarding ? 'hangar' : 'onboarding');
+        });
       }
     };
     raf = requestAnimationFrame(tick);

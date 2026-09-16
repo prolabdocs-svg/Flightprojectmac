@@ -56,9 +56,22 @@ export function createDefaultProfile(): PlayerProfile {
       stickSize: 1,
       musicVolume: 0.7,
       sfxVolume: 0.8,
+      colorblindMode: false,
+      reduceMotion: false,
+      textSize: 'normal',
+      handedness: 'right',
+      hasSeenOnboarding: false,
     },
   };
 }
+
+const DEFAULT_ACCESSIBILITY_SETTINGS = {
+  colorblindMode: false,
+  reduceMotion: false,
+  textSize: 'normal' as const,
+  handedness: 'right' as const,
+  hasSeenOnboarding: false,
+};
 
 /** Migrates an older save forward. Add cases as schemaVersion increases. */
 function migrate(raw: PlayerProfile): PlayerProfile {
@@ -66,6 +79,9 @@ function migrate(raw: PlayerProfile): PlayerProfile {
   if (profile.schemaVersion < 1) {
     profile = { ...profile, schemaVersion: 1 };
   }
+  // Backfill accessibility settings added after the first save-format saves were written,
+  // so older profiles loaded from IndexedDB/localStorage don't crash on missing fields.
+  profile = { ...profile, settings: { ...DEFAULT_ACCESSIBILITY_SETTINGS, ...profile.settings } };
   return profile;
 }
 
