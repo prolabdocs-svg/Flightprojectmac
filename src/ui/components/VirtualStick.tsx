@@ -39,6 +39,8 @@ export function VirtualStick({ label, stickyY = false, springX = true, springY =
       }
       const nx = dx / RADIUS;
       const ny = -dy / RADIUS; // up = positive
+      // eslint-disable-next-line no-console
+      console.log('[DEBUG-STICK]', { clientY, cy, dy, ny, label });
       setPos({ x: nx, y: ny });
       onChange(nx, ny);
     },

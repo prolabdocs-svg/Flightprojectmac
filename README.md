@@ -158,3 +158,5 @@ public/
   invented for this scaffold — the spec explicitly says its own numbers are gameplay
   abstractions too, not real aeronautical data, and asks that this never be used as a guide for
   real aircraft.
+
+# Flightprojectmac
