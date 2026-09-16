@@ -1,0 +1,366 @@
+.screen {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom));
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  background: linear-gradient(180deg, #262a1f 0%, #1a1c15 100%);
+  color: #f1efe4;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+}
+
+.screen-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.screen-header h2 {
+  margin: 0;
+}
+
+.back-btn,
+.primary-btn,
+.secondary-btn,
+.danger-btn {
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  padding: 10px 16px;
+  font-size: 14px;
+  cursor: pointer;
+}
+.back-btn {
+  background: rgba(255, 255, 255, 0.08);
+  color: #f1efe4;
+}
+.primary-btn {
+  background: #c68a2e;
+  color: #20160a;
+  font-weight: 700;
+  border: none;
+}
+.secondary-btn {
+  background: rgba(255, 255, 255, 0.1);
+  color: #f1efe4;
+}
+.danger-btn {
+  background: #7a2626;
+  color: #fff2ea;
+  border: none;
+}
+
+/* Boot */
+.boot-screen {
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+.boot-title {
+  font-size: 34px;
+  letter-spacing: 0.08em;
+  margin-bottom: 4px;
+}
+.boot-subtitle {
+  opacity: 0.7;
+  margin-top: 0;
+}
+.boot-bar {
+  width: 220px;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-top: 20px;
+}
+.boot-bar-fill {
+  height: 100%;
+  background: #c68a2e;
+  transition: width 0.1s linear;
+}
+
+/* Onboarding */
+.mode2-diagram {
+  display: flex;
+  gap: 16px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+  padding: 14px;
+}
+.mode2-col {
+  flex: 1;
+}
+.mode2-col p {
+  font-size: 13px;
+  opacity: 0.85;
+  margin: 4px 0;
+}
+.onboarding-tip {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+/* Hangar */
+.hangar-header {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.resource-pill {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 20px;
+  padding: 6px 14px;
+  font-size: 13px;
+}
+.hangar-center {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  text-align: center;
+}
+.hangar-stats {
+  opacity: 0.75;
+  font-size: 13px;
+}
+.fly-cta {
+  background: #c68a2e;
+  border: none;
+  color: #20160a;
+  font-weight: 800;
+  font-size: 20px;
+  letter-spacing: 0.06em;
+  padding: 18px 46px;
+  border-radius: 40px;
+  margin-top: 12px;
+}
+.hangar-nav {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+.hangar-nav button {
+  background: rgba(255, 255, 255, 0.08);
+  color: #f1efe4;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 10px;
+  padding: 12px 16px;
+}
+
+/* Map */
+.region-desc {
+  opacity: 0.75;
+  font-size: 13px;
+}
+.mission-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.mission-card {
+  text-align: left;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  padding: 12px 14px;
+  color: #f1efe4;
+  position: relative;
+}
+.mission-card:disabled {
+  opacity: 0.4;
+}
+.mission-card-title {
+  font-weight: 700;
+}
+.mission-card-family {
+  font-size: 11px;
+  text-transform: uppercase;
+  opacity: 0.6;
+}
+.mission-card-reward {
+  font-size: 12px;
+  margin-top: 4px;
+  color: #d7b46a;
+}
+.mission-card-best {
+  font-size: 11px;
+  opacity: 0.7;
+}
+.mission-card-locked {
+  position: absolute;
+  right: 12px;
+  top: 12px;
+  font-size: 10px;
+  background: #444;
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+/* Briefing */
+.briefing-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  opacity: 0.9;
+}
+.briefing-bonuses {
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 13px;
+}
+.bonus-row {
+  opacity: 0.85;
+  padding: 2px 0;
+}
+
+/* Builder */
+.engineering-overlay {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 12px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+.category-tabs {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+}
+.category-tabs button {
+  background: rgba(255, 255, 255, 0.08);
+  color: #f1efe4;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 20px;
+  padding: 6px 12px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.category-tabs button.active {
+  background: #c68a2e;
+  color: #20160a;
+  border-color: #c68a2e;
+}
+.part-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.part-card {
+  text-align: left;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  padding: 10px 12px;
+  color: #f1efe4;
+  position: relative;
+}
+.part-card.installed {
+  border-color: #c68a2e;
+}
+.part-card-name {
+  font-weight: 700;
+}
+.part-card-desc {
+  font-size: 12px;
+  opacity: 0.75;
+  margin: 3px 0;
+}
+.part-card-meta {
+  font-size: 11px;
+  opacity: 0.8;
+}
+.part-card-badge {
+  position: absolute;
+  right: 10px;
+  top: 10px;
+  font-size: 10px;
+  background: #c68a2e;
+  color: #20160a;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 700;
+}
+.builder-note {
+  font-size: 11px;
+  opacity: 0.55;
+}
+
+/* Results */
+.results-screen {
+  align-items: center;
+  text-align: center;
+  justify-content: center;
+}
+.results-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  width: 100%;
+  max-width: 320px;
+}
+.results-value {
+  display: block;
+  font-size: 22px;
+  font-weight: 700;
+}
+.results-label {
+  font-size: 11px;
+  opacity: 0.65;
+}
+.results-rewards {
+  display: flex;
+  gap: 16px;
+  font-size: 18px;
+  color: #d7b46a;
+  font-weight: 700;
+}
+.results-bonuses {
+  font-size: 12px;
+  opacity: 0.8;
+}
+.results-actions {
+  display: flex;
+  gap: 10px;
+}
+
+/* Settings */
+.settings-screen section {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+.settings-screen h3 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  opacity: 0.8;
+}
+.option-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.option-row button {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #f1efe4;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+}
+.option-row button.active,
+.settings-screen section > button.active {
+  background: #c68a2e;
+  color: #20160a;
+  border-color: #c68a2e;
+}
