@@ -14,6 +14,7 @@ import { computeFlightResult } from '../../content/economy';
 import { getPaint } from '../../content/paint';
 import { FlightHud } from '../components/FlightHud';
 import { audioService } from '../../audio/audioService';
+import { getEnvironmentWind } from '../../sim/weather';
 
 const FIXED_DT = 1 / 60;
 
@@ -84,7 +85,7 @@ export function FlightScreen() {
 
       setReady(true);
 
-      const wind = new THREE.Vector3(...region.windBaseMs);
+      let elapsedFlightS = 0;
 
       // Damage-system feedback (task item 4): fire once per edge, not every frame, on the
       // damage/crash-outcome transitions FlightController now reports in telemetry.
@@ -104,7 +105,9 @@ export function FlightScreen() {
           let steps = 0;
           while (accumulator >= FIXED_DT && steps < 8) {
             const controls = getResolvedControls();
+            const wind = getEnvironmentWind(region, elapsedFlightS);
             telem = controller.step(controls, wind);
+            elapsedFlightS += FIXED_DT;
             accumulator -= FIXED_DT;
             steps++;
           }
@@ -146,6 +149,7 @@ export function FlightScreen() {
         const pos = controller.body.translation();
         const rot = controller.body.rotation();
         scene.syncAircraft(new THREE.Vector3(pos.x, pos.y, pos.z), new THREE.Quaternion(rot.x, rot.y, rot.z, rot.w), frameDt);
+        scene.updateEnvironment(elapsedFlightS, getEnvironmentWind(region, elapsedFlightS));
         scene.render();
 
         rafRef.current = requestAnimationFrame(loop);

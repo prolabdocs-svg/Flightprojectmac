@@ -170,6 +170,18 @@ export interface RegionDefinition {
   windBaseMs: Vec3;
   groundColor: string;
   skyColor: string;
+  /** Environmental profile consumed by the renderer and the flight wind model.  Keeping
+   * this as data lets content add regions without introducing renderer conditionals. */
+  environment: {
+    timeOfDay: 'morning' | 'afternoon' | 'overcast' | 'sunset';
+    weather: 'clear' | 'windy' | 'overcast' | 'rain';
+    terrain: 'meadow' | 'quarry';
+    /** Peak horizontal gust added to windBaseMs, in m/s. */
+    gustStrengthMs: number;
+    /** Slow gust cycle, in seconds. */
+    gustPeriodS: number;
+    cloudCover: number;
+  };
   /** Spec 12.1/5: regions unlock progressively. Undefined = unlocked from the start
    * (Region 1). Otherwise this region unlocks once `requiredMissionId` has been
    * completed at least once. */

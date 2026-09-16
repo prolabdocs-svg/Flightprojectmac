@@ -3,6 +3,7 @@
 
 import * as THREE from 'three';
 import type { RegionDefinition } from '../core/types';
+import { WorldEnvironment } from './WorldEnvironment';
 
 export class FlightScene {
   scene = new THREE.Scene();
@@ -14,6 +15,7 @@ export class FlightScene {
   private cameraPos = new THREE.Vector3(0, 6, 15);
   private shakeTimeRemainingS = 0;
   private shakeMagnitude = 0;
+  private readonly environment: WorldEnvironment;
   // Scratch vectors reused every frame in syncAircraft() to avoid per-frame GC churn.
   private readonly scratchBehind = new THREE.Vector3();
   private readonly scratchDesiredPos = new THREE.Vector3();
@@ -60,12 +62,8 @@ export class FlightScene {
     const ambient = new THREE.AmbientLight(0x33302a, 0.25);
     this.scene.add(ambient);
 
-    // Ground: subtle roughness variation so it isn't a flat matte plane.
-    const groundGeo = new THREE.PlaneGeometry(6000, 6000, 1, 1);
-    const groundMat = new THREE.MeshStandardMaterial({ color: region.groundColor, roughness: 0.95, metalness: 0.02 });
-    const ground = new THREE.Mesh(groundGeo, groundMat);
-    ground.rotation.x = -Math.PI / 2;
-    this.scene.add(ground);
+    this.environment = new WorldEnvironment(region);
+    this.scene.add(this.environment.root);
 
     // Simple runway strip
     const runwayGeo = new THREE.PlaneGeometry(24, 400);
@@ -311,6 +309,12 @@ export class FlightScene {
 
   render() {
     this.renderer.render(this.scene, this.camera);
+  }
+
+  /** Advances presentation-only environmental cues.  Flight forces are updated in
+   * FlightScreen from the same deterministic air-state, keeping render and sim aligned. */
+  updateEnvironment(elapsedS: number, wind: THREE.Vector3) {
+    this.environment.update(elapsedS, wind);
   }
 
   dispose() {

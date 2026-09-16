@@ -55,6 +55,11 @@ full-screen, landscape-oriented, and touch-first.
 
 ## What's implemented
 
+- **Data-driven region environment kits:** regions now own an authored weather/terrain profile,
+  deterministic gust model shared by renderer and physics, mobile-friendly procedural terrain
+  relief, moving cloud cover and a readable windsock. The Field and Scrap Valley have distinct
+  calm-meadow / gusty-quarry air and visual treatment.
+
 - **Full screen flow** (spec section 82, subset): Boot → Onboarding (Mode 2 explainer) → Main
   Hangar → Map/mission list → Mission briefing → Flight (HUD + 3D) → Results → back to Hangar,
   plus a Builder/editor-de-montaje screen and a Settings screen with a Pause overlay during
