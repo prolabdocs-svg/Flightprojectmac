@@ -19,4 +19,10 @@ describe('environment wind', () => {
     const quarryDelta = getEnvironmentWind(SCRAP_VALLEY, 2).distanceTo(new THREE.Vector3(...SCRAP_VALLEY.windBaseMs));
     expect(quarryDelta).toBeGreaterThan(fieldDelta);
   });
+
+  it('blends an authored thermal into the local air mass', () => {
+    const base = getEnvironmentWind(THE_FIELD, 0, new THREE.Vector3(500, 0, 500));
+    const thermal = getEnvironmentWind(THE_FIELD, 0, new THREE.Vector3(-75, 0, 245));
+    expect(thermal.y).toBeGreaterThan(base.y + 1);
+  });
 });

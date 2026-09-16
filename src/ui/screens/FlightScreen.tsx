@@ -105,7 +105,8 @@ export function FlightScreen() {
           let steps = 0;
           while (accumulator >= FIXED_DT && steps < 8) {
             const controls = getResolvedControls();
-            const wind = getEnvironmentWind(region, elapsedFlightS);
+            const bodyPosition = controller.body.translation();
+            const wind = getEnvironmentWind(region, elapsedFlightS, new THREE.Vector3(bodyPosition.x, bodyPosition.y, bodyPosition.z));
             telem = controller.step(controls, wind);
             elapsedFlightS += FIXED_DT;
             accumulator -= FIXED_DT;
@@ -149,7 +150,7 @@ export function FlightScreen() {
         const pos = controller.body.translation();
         const rot = controller.body.rotation();
         scene.syncAircraft(new THREE.Vector3(pos.x, pos.y, pos.z), new THREE.Quaternion(rot.x, rot.y, rot.z, rot.w), frameDt);
-        scene.updateEnvironment(elapsedFlightS, getEnvironmentWind(region, elapsedFlightS));
+        scene.updateEnvironment(elapsedFlightS, getEnvironmentWind(region, elapsedFlightS, new THREE.Vector3(pos.x, pos.y, pos.z)));
         scene.render();
 
         rafRef.current = requestAnimationFrame(loop);

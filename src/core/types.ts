@@ -182,6 +182,15 @@ export interface RegionDefinition {
     gustPeriodS: number;
     cloudCover: number;
   };
+  /** Local air masses are authored as soft cylinders, rather than hard-coded in the
+   * simulation. They blend at their edge so crossing a boundary never jolts the aircraft. */
+  windVolumes?: Array<{
+    id: string;
+    center: Vec3;
+    radiusM: number;
+    heightM: number;
+    windDeltaMs: Vec3;
+  }>;
   /** Spec 12.1/5: regions unlock progressively. Undefined = unlocked from the start
    * (Region 1). Otherwise this region unlocks once `requiredMissionId` has been
    * completed at least once. */

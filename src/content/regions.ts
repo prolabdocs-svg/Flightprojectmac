@@ -12,6 +12,9 @@ export const THE_FIELD: RegionDefinition = {
     timeOfDay: 'afternoon', weather: 'clear', terrain: 'meadow',
     gustStrengthMs: 0.8, gustPeriodS: 11, cloudCover: 0.22,
   },
+  windVolumes: [
+    { id: 'field_midday_thermal', center: [-75, 0, 245], radiusM: 95, heightM: 260, windDeltaMs: [0, 1.15, 0.18] },
+  ],
 };
 
 // Región 2 — SCRAP VALLEY (spec 12.3): deshuesadero/cantera, turbulencia entre
@@ -29,6 +32,10 @@ export const SCRAP_VALLEY: RegionDefinition = {
     timeOfDay: 'overcast', weather: 'windy', terrain: 'quarry',
     gustStrengthMs: 2.6, gustPeriodS: 6, cloudCover: 0.72,
   },
+  windVolumes: [
+    { id: 'scrap_crane_rotor', center: [-25, 0, 300], radiusM: 72, heightM: 105, windDeltaMs: [1.3, -0.55, 0.7] },
+    { id: 'scrap_quarry_lift', center: [95, 0, 180], radiusM: 120, heightM: 180, windDeltaMs: [-0.4, 0.85, 0.25] },
+  ],
   unlockRequirement: { requiredMissionId: 'field_distance_01' },
 };
 
