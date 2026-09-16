@@ -107,13 +107,18 @@ export class FlightScene {
     this.scene.add(towerTank);
 
     const treeMat = new THREE.MeshStandardMaterial({ color: '#3f6b34', roughness: 0.9, metalness: 0 });
+    // One draw call for the repeated vegetation instead of one per tree (GDD §41.4).
+    const trees = new THREE.InstancedMesh(new THREE.ConeGeometry(2.8, 9, 6), treeMat, 40);
+    const treeMatrix = new THREE.Matrix4();
     for (let i = 0; i < 40; i++) {
-      const tree = new THREE.Mesh(new THREE.ConeGeometry(2.2 + Math.random(), 7 + Math.random() * 3, 6), treeMat);
       const angle = Math.random() * Math.PI * 2;
       const dist = 80 + Math.random() * 500;
-      tree.position.set(Math.cos(angle) * dist, 3.5, 150 + Math.sin(angle) * dist);
-      this.scene.add(tree);
+      const scale = 0.8 + Math.random() * 0.4;
+      treeMatrix.compose(new THREE.Vector3(Math.cos(angle) * dist, 4.5 * scale, 150 + Math.sin(angle) * dist), new THREE.Quaternion(), new THREE.Vector3(scale, scale, scale));
+      trees.setMatrixAt(i, treeMatrix);
     }
+    trees.instanceMatrix.needsUpdate = true;
+    this.scene.add(trees);
   }
 
   /** Region 2 landmarks (spec 12.3): scrapyard piles, a gantry crane, and fictional
