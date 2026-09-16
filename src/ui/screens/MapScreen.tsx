@@ -58,6 +58,9 @@ export function MapScreen() {
 
       <p className="region-desc">{region.description}</p>
       <div className="mission-list">
+        {missions.length === 0 && (
+          <p className="region-desc">Contratos de esta región en preparación. Completa las regiones anteriores para desbloquear su paquete de vuelo.</p>
+        )}
         {missions.map((m) => {
           const best = profile.completedMissions[m.id]?.bestScore;
           const locked = !isMissionUnlocked(region.id, m.id, profile);

@@ -175,7 +175,7 @@ export interface RegionDefinition {
   environment: {
     timeOfDay: 'morning' | 'afternoon' | 'overcast' | 'sunset';
     weather: 'clear' | 'windy' | 'overcast' | 'rain';
-    terrain: 'meadow' | 'quarry';
+    terrain: 'meadow' | 'quarry' | 'canyon' | 'forest' | 'coast' | 'industrial' | 'desert' | 'range';
     /** Peak horizontal gust added to windBaseMs, in m/s. */
     gustStrengthMs: number;
     /** Slow gust cycle, in seconds. */
