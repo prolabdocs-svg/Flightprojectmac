@@ -1,19 +1,20 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, Suspense, lazy } from 'react';
 import { useGameStore } from './state/gameStore';
 import { useProfileStore } from './state/profileStore';
 import { audioService } from './audio/audioService';
-import { BootScreen } from './ui/screens/BootScreen';
-import { OnboardingScreen } from './ui/screens/OnboardingScreen';
-import { HangarScreen } from './ui/screens/HangarScreen';
-import { MapScreen } from './ui/screens/MapScreen';
-import { BriefingScreen } from './ui/screens/BriefingScreen';
-import { BuilderScreen } from './ui/screens/BuilderScreen';
-import { TechTreeScreen } from './ui/screens/TechTreeScreen';
-import { PaintScreen } from './ui/screens/PaintScreen';
-import { SettingsScreen } from './ui/screens/SettingsScreen';
-import { FlightScreen } from './ui/screens/FlightScreen';
-import { ResultsScreen } from './ui/screens/ResultsScreen';
 import { PauseOverlay } from './ui/components/PauseOverlay';
+
+const BootScreen = lazy(() => import('./ui/screens/BootScreen').then((m) => ({ default: m.BootScreen })));
+const OnboardingScreen = lazy(() => import('./ui/screens/OnboardingScreen').then((m) => ({ default: m.OnboardingScreen })));
+const HangarScreen = lazy(() => import('./ui/screens/HangarScreen').then((m) => ({ default: m.HangarScreen })));
+const MapScreen = lazy(() => import('./ui/screens/MapScreen').then((m) => ({ default: m.MapScreen })));
+const BriefingScreen = lazy(() => import('./ui/screens/BriefingScreen').then((m) => ({ default: m.BriefingScreen })));
+const BuilderScreen = lazy(() => import('./ui/screens/BuilderScreen').then((m) => ({ default: m.BuilderScreen })));
+const TechTreeScreen = lazy(() => import('./ui/screens/TechTreeScreen').then((m) => ({ default: m.TechTreeScreen })));
+const PaintScreen = lazy(() => import('./ui/screens/PaintScreen').then((m) => ({ default: m.PaintScreen })));
+const SettingsScreen = lazy(() => import('./ui/screens/SettingsScreen').then((m) => ({ default: m.SettingsScreen })));
+const FlightScreen = lazy(() => import('./ui/screens/FlightScreen').then((m) => ({ default: m.FlightScreen })));
+const ResultsScreen = lazy(() => import('./ui/screens/ResultsScreen').then((m) => ({ default: m.ResultsScreen })));
 
 export default function App() {
   const screen = useGameStore((s) => s.screen);
@@ -67,17 +68,23 @@ export default function App() {
 
   return (
     <div className="app-root">
-      {screen === 'boot' && <BootScreen />}
-      {screen === 'onboarding' && <OnboardingScreen />}
-      {screen === 'hangar' && <HangarScreen />}
-      {screen === 'map' && <MapScreen />}
-      {screen === 'briefing' && <BriefingScreen />}
-      {screen === 'builder' && <BuilderScreen />}
-      {screen === 'techtree' && <TechTreeScreen />}
-      {screen === 'paint' && <PaintScreen />}
-      {screen === 'settings' && <SettingsScreen />}
-      {screen === 'run' && <FlightScreen />}
-      {screen === 'results' && <ResultsScreen />}
+      <Suspense
+        fallback={
+          <div className="screen-loading" aria-busy="true" style={{ position: 'fixed', inset: 0, background: '#05121f' }} />
+        }
+      >
+        {screen === 'boot' && <BootScreen />}
+        {screen === 'onboarding' && <OnboardingScreen />}
+        {screen === 'hangar' && <HangarScreen />}
+        {screen === 'map' && <MapScreen />}
+        {screen === 'briefing' && <BriefingScreen />}
+        {screen === 'builder' && <BuilderScreen />}
+        {screen === 'techtree' && <TechTreeScreen />}
+        {screen === 'paint' && <PaintScreen />}
+        {screen === 'settings' && <SettingsScreen />}
+        {screen === 'run' && <FlightScreen />}
+        {screen === 'results' && <ResultsScreen />}
+      </Suspense>
       {screen === 'run' && paused && <PauseOverlay />}
     </div>
   );

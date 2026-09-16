@@ -69,23 +69,31 @@ export function FlightHud({ telemetry, mission, paused, onPause }: FlightHudProp
 
   const speedKmh = Math.round(telemetry.speedMs * 3.6);
   const altFt = Math.round(telemetry.altitudeM * 3.281);
+  const fuelPct = Math.round(telemetry.fuelFraction * 100);
+  const rpmFrac = telemetry.rpm / ENGINE_RPM_REDLINE;
+
+  // Functional color coding only (spec 83.2): green nominal / amber caution / red
+  // critical, never relying on color alone — the unit label + numeric value are
+  // always present alongside the tint.
+  const fuelStatus = fuelPct <= 12 ? 'critical' : fuelPct <= 28 ? 'caution' : 'nominal';
+  const rpmStatus = rpmFrac >= 0.97 ? 'critical' : rpmFrac >= 0.88 ? 'caution' : 'nominal';
 
   return (
     <div className="flight-hud">
       <div className="hud-top">
-        <div className="hud-readout">
+        <div className="hud-readout hud-readout-nav">
           <span className="hud-value">{speedKmh}</span>
           <span className="hud-unit">km/h</span>
         </div>
-        <div className="hud-readout">
+        <div className="hud-readout hud-readout-nav">
           <span className="hud-value">{altFt}</span>
           <span className="hud-unit">ft ALT</span>
         </div>
-        <div className="hud-readout">
-          <span className="hud-value">{Math.round(telemetry.fuelFraction * 100)}%</span>
+        <div className={`hud-readout hud-readout-${fuelStatus}`}>
+          <span className="hud-value">{fuelPct}%</span>
           <span className="hud-unit">FUEL</span>
         </div>
-        <div className="hud-readout">
+        <div className={`hud-readout hud-readout-${rpmStatus}`}>
           <span className="hud-value">{Math.round(telemetry.rpm)}</span>
           <span className="hud-unit">RPM</span>
         </div>

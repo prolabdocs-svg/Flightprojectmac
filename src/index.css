@@ -1,6 +1,37 @@
 :root {
   color-scheme: dark;
+  /* Design tokens — "taller + RC transmitter + flight notebook" visual language
+     (spec 83.1). Warm workshop neutrals with a hangar-lamp amber accent; the
+     functional color-coding set below follows spec 83.2 exactly (never relies
+     on color alone — see icon/shape usage at call sites). */
   --bg: #14150f;
+  --bg-elevated: #1c1e16;
+  --surface: rgba(255, 255, 255, 0.06);
+  --surface-strong: rgba(255, 255, 255, 0.1);
+  --border: rgba(255, 255, 255, 0.14);
+  --border-strong: rgba(255, 255, 255, 0.22);
+  --text: #f1efe4;
+  --text-dim: rgba(241, 239, 228, 0.7);
+  --text-faint: rgba(241, 239, 228, 0.5);
+
+  /* Workshop accent (stencil amber — labels, primary CTAs, selection state). */
+  --accent: #c68a2e;
+  --accent-strong: #e0a33f;
+  --on-accent: #20160a;
+
+  /* Functional color coding (spec 83.2): function, not decoration. */
+  --status-neutral: #f1efe4;
+  --status-nominal: #4caf6c;
+  --status-caution: #e0a93a;
+  --status-critical: #e2503f;
+  --status-nav: #4fb8e0;
+  --status-engineering: #d7c23a;
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
+  --font-ui: 'Inter', 'Segoe UI', system-ui, sans-serif;
+  --font-technical: 'Courier New', ui-monospace, monospace;
 }
 
 * {
