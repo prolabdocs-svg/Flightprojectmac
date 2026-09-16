@@ -5,10 +5,10 @@ A physics-based DIY-aircraft builder & flying game for mobile browsers, scaffold
 a garage, fly it with a virtual RC "Mode 2" transmitter, and improve it with cash/RP earned
 from flights.
 
-This is a **vertical-slice implementation**, not the full 82-screen, 8-region, 8-tier scope
-described in the spec. It follows the spec's own recommended tech stack and architecture, and
-implements one region, one airframe, a handful of parts/missions, and the full screen flow
-end‑to‑end so the core loop (garage → fly → results → garage) is actually playable.
+This is a **vertical-slice implementation**, not the full production scope in the spec. It
+follows the recommended stack and architecture, with an end-to-end core loop (garage → fly →
+results → garage). The Field and Scrap Valley are playable; the remaining six regions are
+authored campaign data awaiting their mission packs and streamed prop kits.
 
 ## Tech stack (per the spec's own "31.1 Stack recomendado")
 
@@ -25,9 +25,8 @@ for:
 - **Vite** for dev/build.
 - **React 19** for menu/HUD UI only.
 - **Zustand** for UI/game state (input state, macro screen state, player profile).
-- **localStorage**-backed save repository behind a `SaveRepository` interface (spec calls for
-  IndexedDB; localStorage was used for simplicity in this pass — see TODO below — but the
-  interface makes swapping the backing store a one-file change).
+- **IndexedDB**-backed save repository behind a `SaveRepository` interface, with a one-time
+  migration from the legacy localStorage save.
 - **PWA**: `manifest.json` + a minimal hand-written service worker (`public/sw.js`) implementing
   cache-on-demand for the app shell (spec 46.2 describes a fuller strategy — precache manifest,
   stale-while-revalidate, network-first for API — this is a deliberately small first pass).
@@ -80,9 +79,9 @@ full-screen, landscape-oriented, and touch-first.
   data, and a resolver that aggregates installed parts into total mass, center of mass, drag,
   and the list of active aero surfaces. One frame ("Frame Zero", Tier 0) with two options per
   category is implemented. `src/content/parts.ts`, `src/content/assembly.ts`.
-- **One region** ("The Field", spec 12.2) rendered with a ground plane, a grass runway strip,
-  a barn + water tower landmark, and scattered trees — no imported 3D assets, everything is
-  primitive Three.js geometry standing in for real art (see TODO).
+- **World streaming**: eight authored campaign regions carry environment, weather, gust, cloud,
+  and local wind-volume data. The Field and Scrap Valley are playable; chunk scheduling and
+  instanced vegetation keep the first-world rendering bounded on mobile.
 - **Three missions** covering three of the spec's mission families (Distance Run, Precision
   Landing, STOL Challenge), with optional bonus objectives (no-damage, fuel remaining, landing
   quality) feeding into the reward calculation. `src/content/missions.ts`,
@@ -91,8 +90,11 @@ full-screen, landscape-oriented, and touch-first.
   base + distance + landing quality + bonuses, with a floor so a crash never zeroes your
   reward), a simple part shop inside the Builder screen, and mission best-scores tracked per
   profile.
-- **Save system** (spec 44): a versioned `PlayerProfile` persisted to `localStorage` on every
-  mutation, loaded on boot, with a `resetProfile` action in Settings.
+- **Progression/customization**: a research-point tech tree gates relevant parts, and a Paint
+  screen provides purchasable fabric/tube color presets applied to the flight scene.
+- **Save system** (spec 44): a versioned `PlayerProfile` persisted to IndexedDB on every
+  mutation, loaded at boot, and migrated from the legacy localStorage key when present.
+- **Audio**: Web Audio engine, UI, and result cues with saved music/SFX volume controls.
 - **PWA shell**: manifest + service worker precaching the app shell for offline boot.
 - **Flight HUD** (spec 24/82.12): speed/altitude/fuel/RPM readouts, mission distance banner,
   crash/landed state banner, secondary controls (engine start/stop, brake, flaps, emergency
@@ -110,15 +112,13 @@ marked extension points:
   while full mission and art packs beyond The Field/Scrap Valley remain production work.
 - **Damage/detachment is implemented for primary aero surfaces**, but it is not yet a full
   per-module repair and visual-asset system.
-- **No tech tree, no Parts Market beyond the Builder's inline buy button, no Workshop upgrades,
-  no Paint/Customization, no Inventory screen** (spec 82.7–82.11) — the Builder screen covers a
-  simplified version of part swapping/buying only.
+- **Workshop breadth is still limited.** The tech tree, Builder part market, and Paint screen
+  are implemented, but a full inventory/workshop-upgrade loop is not.
 - **No replay/ghost system, no Daily Challenge, no Leaderboards, no cloud save/auth** (spec
   26–29, 45, 50). The `SaveRepository` interface exists so cloud sync can be added without
   touching game logic.
-- **No real 3D art/audio assets.** The aircraft, terrain props, etc. are primitive Three.js
-  geometry, not the tube-frame/fabric-wing DIY aesthetic described in the Art Bible sections —
-  treat everything visual as a placeholder for an art pass.
+- **No final 3D art assets.** The aircraft and terrain props are primitive Three.js geometry,
+  rather than the finished tube-frame/fabric-wing art direction; treat visuals as placeholders.
 - **No gamepad/USB transmitter support** (spec 7.6) — touch only.
 - **Flight model is unbalanced/untuned.** It's internally consistent (soft stall, lift/drag
   curves, thrust falloff with speed, a stability term) but the constants have not been tuned
@@ -127,8 +127,6 @@ marked extension points:
   (`clSlope`) first.
 - **No WebGPU renderer / dynamic quality tiers** (spec 21/40/48) — plain WebGL2 via
   `THREE.WebGLRenderer`, fixed quality.
-- **IndexedDB save was simplified to `localStorage`** for this pass, behind the
-  `SaveRepository` interface in `src/save/save.ts` so it's a contained change later.
 - **Fixed timestep is implemented (60Hz accumulator loop) but Rapier's own `world.step()` is
   called without a custom substep count** — fine for this slice, worth revisiting for
   high-speed impacts per spec 8.3.
@@ -143,7 +141,7 @@ src/
   sim/                    Simulation layer: Rapier bootstrap, aerodynamics, flight controller
   input/                  RC Mode 2 input state (Zustand) + expo/rate curves
   render/FlightScene.ts   Vanilla Three.js scene (terrain, landmarks, aircraft, chase camera)
-  save/save.ts            Save repository (localStorage) + profile schema/migration
+  save/save.ts            IndexedDB save repository + legacy migration
   state/                  Zustand stores: macro screen state, player profile
   ui/screens/             One component per full-screen UI surface (spec section 82)
   ui/components/          Virtual joystick, Flight HUD, Pause overlay
@@ -156,9 +154,8 @@ public/
 - Interpreted "que pueda correr en mobile" as "runs in a mobile browser", matching the spec's
   own stated primary platform, rather than switching to a native React Native/Expo stack the
   spec doesn't ask for.
-- Picked one region and one aircraft tier to make the slice playable rather than stubbing
-  every region/tier shallowly.
-- Used localStorage instead of IndexedDB for the save system (see TODO above).
+- Prioritized playable Field/Scrap Valley content while defining the remaining campaign-region
+  contract as data for future streamed mission and prop packs.
 - Aircraft/part numeric values (mass, power, drag, etc.) are original gameplay abstractions
   invented for this scaffold — the spec explicitly says its own numbers are gameplay
   abstractions too, not real aeronautical data, and asks that this never be used as a guide for

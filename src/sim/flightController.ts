@@ -199,10 +199,6 @@ export class FlightController {
       // --- Fuel & engine ---
       const throttleTarget = controls.engineOn ? controls.throttle : 0;
       this.throttleSmoothed += (throttleTarget - this.throttleSmoothed) * Math.min(1, dt / Math.max(0.05, this.aircraft.engine?.responseTime ?? 0.3));
-      if (Math.random() < 0.01) {
-        // eslint-disable-next-line no-console
-        console.log('[DEBUG-STEP] hasEngine=' + !!this.aircraft.engine + ' massKg=' + this.aircraft.totalMassKg + ' throttle=' + controls.throttle + ' throttleSmoothed=' + this.throttleSmoothed.toFixed(3) + ' engineOn=' + controls.engineOn);
-      }
 
       if (this.aircraft.engine && this.fuelL > 0 && controls.engineOn) {
         const burnRate = (this.aircraft.engine.maxPowerKw / 9) * 1.1 * this.throttleSmoothed; // L/min approx
@@ -222,11 +218,6 @@ export class FlightController {
         const enginePoint = bodyPos.clone().add(new THREE.Vector3(0, 0, 2.1).applyQuaternion(quat));
         const force = forward.multiplyScalar(thrustN);
         this.body.addForceAtPoint({ x: force.x, y: force.y, z: force.z }, { x: enginePoint.x, y: enginePoint.y, z: enginePoint.z }, true);
-        if (Math.random() < 0.02) {
-          const lv = this.body.linvel();
-          // eslint-disable-next-line no-console
-          console.log('[DEBUG-THRUST] thrustN=' + thrustN.toFixed(1) + ' availableW=' + availableW.toFixed(0) + ' linvel=' + JSON.stringify(lv) + ' bodyType=' + this.body.bodyType() + ' isSleeping=' + this.body.isSleeping() + ' mass=' + this.body.mass());
-        }
       }
 
       // --- Aerodynamic surfaces ---
@@ -342,13 +333,7 @@ export class FlightController {
       }
     }
 
-    const preStepVel = this.body.linvel();
     this.world.step();
-    const postStepVel = this.body.linvel();
-    if (Math.random() < 0.02) {
-      // eslint-disable-next-line no-console
-      console.log('[DEBUG-VEL] pre=' + JSON.stringify(preStepVel) + ' post=' + JSON.stringify(postStepVel));
-    }
 
     // --- Safety clamps (spec 8.3 allows limiting extreme high-speed/contact events).
     // These are a last-resort net on top of the tuned constants above, not a substitute
