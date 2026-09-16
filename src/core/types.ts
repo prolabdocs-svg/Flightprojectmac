@@ -170,6 +170,10 @@ export interface RegionDefinition {
   windBaseMs: Vec3;
   groundColor: string;
   skyColor: string;
+  /** Spec 12.1/5: regions unlock progressively. Undefined = unlocked from the start
+   * (Region 1). Otherwise this region unlocks once `requiredMissionId` has been
+   * completed at least once. */
+  unlockRequirement?: { requiredMissionId: string };
 }
 
 export interface PlayerProfile {

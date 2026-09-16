@@ -44,7 +44,19 @@ export class FlightScene {
     runway.position.set(0, 0.02, 150);
     this.scene.add(runway);
 
-    // Landmarks: barn + water tower, so the world isn't a flat void.
+    // Landmarks: region-specific, so the world isn't a flat void (spec 12.2/12.3).
+    if (region.id === 'scrap_valley') {
+      this.buildScrapValleyLandmarks();
+    } else {
+      this.buildTheFieldLandmarks();
+    }
+
+    this.buildAircraftPlaceholder(paint);
+    this.scene.add(this.aircraftGroup);
+  }
+
+  /** Region 1 landmarks (spec 12.2): barn, water tower, scattered trees. */
+  private buildTheFieldLandmarks() {
     const barn = new THREE.Mesh(
       new THREE.BoxGeometry(14, 10, 18),
       new THREE.MeshStandardMaterial({ color: '#8c3b32' }),
@@ -69,9 +81,72 @@ export class FlightScene {
       tree.position.set(Math.cos(angle) * dist, 3.5, 150 + Math.sin(angle) * dist);
       this.scene.add(tree);
     }
+  }
 
-    this.buildAircraftPlaceholder(paint);
-    this.scene.add(this.aircraftGroup);
+  /** Region 2 landmarks (spec 12.3): scrapyard piles, a gantry crane, and fictional
+   * power lines as low-altitude obstacles ("turbulencia entre estructuras"). All
+   * primitive Three.js geometry, matching the placeholder-art approach used for
+   * Region 1 (see README "No real 3D art/audio assets"). */
+  private buildScrapValleyLandmarks() {
+    const scrapMat = new THREE.MeshStandardMaterial({ color: '#6b6558', roughness: 1, metalness: 0.2 });
+    const rustMat = new THREE.MeshStandardMaterial({ color: '#8a4a2c', roughness: 0.95, metalness: 0.3 });
+    const craneMat = new THREE.MeshStandardMaterial({ color: '#c9a227', roughness: 0.7, metalness: 0.4 });
+
+    // Gantry crane landmark near the delivery/landing target, playing the barn's role.
+    const craneGroup = new THREE.Group();
+    craneGroup.position.set(-25, 0, 300);
+    const legGeo = new THREE.CylinderGeometry(0.5, 0.5, 16, 8);
+    for (const x of [-9, 9]) {
+      const leg = new THREE.Mesh(legGeo, craneMat);
+      leg.position.set(x, 8, 0);
+      craneGroup.add(leg);
+    }
+    const beam = new THREE.Mesh(new THREE.BoxGeometry(20, 1.2, 1.2), craneMat);
+    beam.position.set(0, 16, 0);
+    craneGroup.add(beam);
+    this.scene.add(craneGroup);
+
+    // Scattered scrap piles: irregular stacked boxes, playing the water tower's role
+    // as a second distant landmark plus general clutter.
+    for (let i = 0; i < 22; i++) {
+      const pileGroup = new THREE.Group();
+      const boxCount = 2 + Math.floor(Math.random() * 3);
+      for (let b = 0; b < boxCount; b++) {
+        const size = 1.5 + Math.random() * 2.5;
+        const box = new THREE.Mesh(new THREE.BoxGeometry(size, size * 0.7, size), Math.random() > 0.5 ? scrapMat : rustMat);
+        box.position.set((Math.random() - 0.5) * 3, size * 0.35 * (b + 1), (Math.random() - 0.5) * 3);
+        box.rotation.y = Math.random() * Math.PI;
+        pileGroup.add(box);
+      }
+      const angle = Math.random() * Math.PI * 2;
+      const dist = 60 + Math.random() * 480;
+      pileGroup.position.set(Math.cos(angle) * dist, 0, 150 + Math.sin(angle) * dist);
+      this.scene.add(pileGroup);
+    }
+
+    // Fictional power lines strung between poles as low-altitude obstacles/skill gaps
+    // (spec 12.3 "líneas eléctricas ficticias como obstáculos").
+    const poleMat = new THREE.MeshStandardMaterial({ color: '#4a4238', roughness: 0.9 });
+    const poleGeo = new THREE.CylinderGeometry(0.25, 0.3, 18, 6);
+    const wireMat = new THREE.LineBasicMaterial({ color: '#222222' });
+    const polePositions: [number, number][] = [
+      [80, 60],
+      [80, 140],
+      [80, 220],
+      [80, 300],
+    ];
+    let prevTop: THREE.Vector3 | null = null;
+    for (const [x, z] of polePositions) {
+      const pole = new THREE.Mesh(poleGeo, poleMat);
+      pole.position.set(x, 9, z);
+      this.scene.add(pole);
+      const top = new THREE.Vector3(x, 17.5, z);
+      if (prevTop) {
+        const wireGeo = new THREE.BufferGeometry().setFromPoints([prevTop, top]);
+        this.scene.add(new THREE.Line(wireGeo, wireMat));
+      }
+      prevTop = top;
+    }
   }
 
   /** Placeholder DIY-tube aircraft mesh (no imported assets yet — see README TODO). */

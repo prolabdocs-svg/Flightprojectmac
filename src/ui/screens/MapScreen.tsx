@@ -1,14 +1,32 @@
+import { useState } from 'react';
 import { useGameStore } from '../../state/gameStore';
 import { useProfileStore } from '../../state/profileStore';
-import { MISSIONS } from '../../content/missions';
-import { THE_FIELD } from '../../content/regions';
+import { getRegionMissions } from '../../content/missions';
+import { REGIONS, isRegionUnlocked } from '../../content/regions';
+import type { PlayerProfile } from '../../core/types';
 import './Screens.css';
 
-// Spec 82.4 Map: region + mission cards with best score / rewards preview.
+/** A mission is unlocked once it's the first mission of its region, or once the
+ * previous mission in that region's campaign order has been completed at least once
+ * (spec 12.1's progressive-region structure, applied within a region's own mission
+ * list too). */
+function isMissionUnlocked(regionId: string, missionId: string, profile: PlayerProfile): boolean {
+  const regionMissions = getRegionMissions(regionId);
+  const idx = regionMissions.findIndex((m) => m.id === missionId);
+  if (idx <= 0) return true;
+  const prevMission = regionMissions[idx - 1];
+  return Boolean(profile.completedMissions[prevMission.id]);
+}
+
+// Spec 82.4 Map: region selector + mission cards with best score / rewards preview.
 export function MapScreen() {
   const goTo = useGameStore((s) => s.goTo);
   const selectMission = useGameStore((s) => s.selectMission);
   const profile = useProfileStore((s) => s.profile);
+  const [selectedRegionId, setSelectedRegionId] = useState(REGIONS[0].id);
+
+  const region = REGIONS.find((r) => r.id === selectedRegionId) ?? REGIONS[0];
+  const missions = getRegionMissions(region.id);
 
   return (
     <div className="screen map-screen">
@@ -16,13 +34,33 @@ export function MapScreen() {
         <button className="back-btn" onClick={() => goTo('hangar')}>
           ← Taller
         </button>
-        <h2>{THE_FIELD.name}</h2>
+        <h2>{region.name}</h2>
       </header>
-      <p className="region-desc">{THE_FIELD.description}</p>
+
+      {REGIONS.length > 1 && (
+        <div className="region-tabs">
+          {REGIONS.map((r) => {
+            const unlocked = isRegionUnlocked(r, profile);
+            return (
+              <button
+                key={r.id}
+                className={`region-tab${r.id === selectedRegionId ? ' region-tab-active' : ''}`}
+                disabled={!unlocked}
+                onClick={() => setSelectedRegionId(r.id)}
+              >
+                {r.name}
+                {!unlocked && ' 🔒'}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      <p className="region-desc">{region.description}</p>
       <div className="mission-list">
-        {MISSIONS.map((m) => {
+        {missions.map((m) => {
           const best = profile.completedMissions[m.id]?.bestScore;
-          const locked = !profile.unlockedMissions.includes(m.id) && m.id !== MISSIONS[0].id;
+          const locked = !isMissionUnlocked(region.id, m.id, profile);
           return (
             <button
               key={m.id}

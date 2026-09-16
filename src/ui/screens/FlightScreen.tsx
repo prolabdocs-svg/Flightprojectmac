@@ -6,7 +6,7 @@ import { useProfileStore } from '../../state/profileStore';
 import { useMode2Store, getResolvedControls } from '../../input/mode2Store';
 import { resolveAircraft } from '../../content/assembly';
 import { getMission } from '../../content/missions';
-import { THE_FIELD } from '../../content/regions';
+import { THE_FIELD, getRegion } from '../../content/regions';
 import { initPhysics, createWorld } from '../../sim/physics';
 import { FlightController, type FlightTelemetry } from '../../sim/flightController';
 import { FlightScene } from '../../render/FlightScene';
@@ -55,8 +55,10 @@ export function FlightScreen() {
       const controller = new FlightController(world, aircraft, spawn, mission?.spawnHeadingDeg ?? 0);
       controllerRef.current = controller;
 
+      const region = mission ? getRegion(mission.regionId) : THE_FIELD;
+
       const paint = getPaint(profile.selectedPaintId);
-      const scene = new FlightScene(canvasRef.current, THE_FIELD, paint && {
+      const scene = new FlightScene(canvasRef.current, region, paint && {
         fabricColor: paint.fabricColor,
         tubeColor: paint.tubeColor,
       });
@@ -81,7 +83,7 @@ export function FlightScreen() {
 
       setReady(true);
 
-      const wind = new THREE.Vector3(...THE_FIELD.windBaseMs);
+      const wind = new THREE.Vector3(...region.windBaseMs);
 
       const loop = () => {
         if (disposed) return;

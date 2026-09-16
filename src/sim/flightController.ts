@@ -45,6 +45,13 @@ export interface FlightTelemetry {
 
 const FIXED_DT = 1 / 60;
 const GROUND_LEVEL_Y = 0;
+// The main collider's half-height (see halfExtents.y below): the body origin rests at
+// this height above the ground plane when the aircraft's belly/wheels are touching down.
+// "altitude" is reported/thresholded relative to the belly, not the rigid-body origin,
+// otherwise a resting aircraft never reads as grounded (a real bug that broke taxi/
+// landing/crash state detection: 0.8 m of body-origin height is always > the old 0.6 m
+// grounded threshold).
+const GROUND_REST_OFFSET_M = 0.8;
 
 export class FlightController {
   world: RAPIER.World;
@@ -81,16 +88,23 @@ export class FlightController {
       .setTranslation(spawnPos.x, spawnPos.y, spawnPos.z)
       .setRotation({ x: quat.x, y: quat.y, z: quat.z, w: quat.w })
       .setLinearDamping(0.02)
-      .setAngularDamping(1.8)
-      .setCcdEnabled(true);
+      .setAngularDamping(4.0)
+      .setCcdEnabled(false);
     this.body = world.createRigidBody(bodyDesc);
 
     // Approximate fuselage + wing bounding box as a single compound-ish cuboid collider.
     const halfExtents = { x: 5.2, y: 0.8, z: 2.6 };
     const colliderDesc = RAPIER.ColliderDesc.cuboid(halfExtents.x, halfExtents.y, halfExtents.z)
       .setDensity(0.001) // mass is set explicitly below
-      .setFriction(0.7 * aircraft.groundFrictionMul)
-      .setRestitution(0.05);
+      // The collider approximates the whole airframe as one box resting flat on the runway
+      // (no separate rolling wheel colliders), so a friction coefficient in the 0.7-0.85
+      // range (appropriate for a sliding block) made Rapier's contact solver apply huge
+      // ground friction forces (~0.5x aircraft weight) any time the box was in contact -
+      // this was the dominant, unrealistic force driving the taxi/ground speed
+      // oscillation seen during tuning. A low value here approximates rolling resistance
+      // on wheels; deliberate stopping is handled by the explicit wheel-brake force below.
+      .setFriction(0.04 * aircraft.groundFrictionMul)
+      .setRestitution(0.0);
     this.collider = world.createCollider(colliderDesc, this.body);
 
     this.body.setAdditionalMass(aircraft.totalMassKg, true);
@@ -133,9 +147,9 @@ export class FlightController {
     const bodyVel = new THREE.Vector3(linvel.x, linvel.y, linvel.z);
     const bodyAngVel = new THREE.Vector3(angvel.x, angvel.y, angvel.z);
 
-    const altitude = Math.max(0, pos.y - GROUND_LEVEL_Y);
+    const altitude = Math.max(0, pos.y - GROUND_LEVEL_Y - GROUND_REST_OFFSET_M);
     const rho = airDensityAtAltitude(altitude);
-    const onGround = altitude < 0.6;
+    const onGround = altitude < 0.3;
 
     if (!this.crashed && !this.landed) {
       // --- Fuel & engine ---
@@ -152,7 +166,7 @@ export class FlightController {
 
       // --- Propulsion ---
       if (this.aircraft.engine && this.fuelL > 0) {
-        const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(quat);
+        const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(quat);
         const availableW = this.aircraft.engine.maxPowerKw * 1000 * this.throttleSmoothed * this.aircraft.engine.propEfficiency;
         const forwardSpeed = Math.max(0, bodyVel.dot(forward));
         const staticThrust = availableW / 30;
@@ -169,12 +183,18 @@ export class FlightController {
         const r = worldPos.clone().sub(bodyPos);
         const pointVel = bodyVel.clone().add(bodyAngVel.clone().cross(r));
         const airVel = pointVel.clone().sub(windWorld);
-        const speed = airVel.length();
-        if (speed < 0.05) continue;
+        // Clamp the local airspeed used for force magnitude: an unclamped ω×r term at a
+        // surface far from the CoM (e.g. a wingtip during a fast roll) grows the local
+        // point velocity, and since aero force scales with V^2, that can runaway under
+        // explicit integration. This keeps forces bounded to a still-generous envelope
+        // (252 km/h air) without touching the AoA/direction math below.
+        const rawSpeed = airVel.length();
+        if (rawSpeed < 0.05) continue;
+        const speed = Math.min(rawSpeed, 70);
 
         const invQuat = quat.clone().invert();
         const localFlow = airVel.clone().applyQuaternion(invQuat);
-        const forwardSpeed = -localFlow.z;
+        const forwardSpeed = localFlow.z;
         const verticalFlow = localFlow.y;
         const lateralFlow = localFlow.x;
 
@@ -214,13 +234,27 @@ export class FlightController {
 
       // --- Empirical stability term (spec 8.6): a small self-leveling torque so the
       // arcade model stays pleasant on mobile instead of tumbling indefinitely.
+      // This is a proper PD controller (proportional restoring torque + derivative
+      // damping on pitch/roll rate) rather than proportional-only, which oscillated
+      // and could diverge under explicit integration. Full gain applies on the
+      // ground (approximating tricycle-gear resistance to pitch/roll) and tapers in
+      // with airspeed once airborne.
       {
-        const forwardSpeed = Math.max(0, bodyVel.dot(new THREE.Vector3(0, 0, -1).applyQuaternion(quat)));
+        const forwardSpeed = Math.max(0, bodyVel.dot(new THREE.Vector3(0, 0, 1).applyQuaternion(quat)));
         const localUp = new THREE.Vector3(0, 1, 0).applyQuaternion(quat);
         const worldUp = new THREE.Vector3(0, 1, 0);
         const correctionAxis = new THREE.Vector3().crossVectors(localUp, worldUp);
-        const stabilityGain = 0.9 * Math.min(1, forwardSpeed / 12) * this.aircraft.totalMassKg;
-        const torque = correctionAxis.multiplyScalar(stabilityGain);
+        const speedFactor = onGround ? 1 : Math.min(1, forwardSpeed / 12);
+        const stabilityGain = 1.6 * speedFactor * this.aircraft.totalMassKg;
+
+        // Damping: oppose pitch/roll rate only (leave yaw free for rudder turns).
+        const yawComponent = worldUp.clone().multiplyScalar(bodyAngVel.dot(worldUp));
+        const pitchRollRate = bodyAngVel.clone().sub(yawComponent);
+        const dampingGain = 5.0 * this.aircraft.totalMassKg;
+
+        const torque = correctionAxis
+          .multiplyScalar(stabilityGain)
+          .addScaledVector(pitchRollRate, -dampingGain);
         this.body.addTorque({ x: torque.x, y: torque.y, z: torque.z }, true);
       }
 
@@ -249,17 +283,37 @@ export class FlightController {
 
     this.world.step();
 
+    // --- Safety clamps (spec 8.3 allows limiting extreme high-speed/contact events).
+    // These are a last-resort net on top of the tuned constants above, not a substitute
+    // for them: normal flight should stay well inside these bounds.
+    {
+      const av = this.body.angvel();
+      const angSpeed = Math.hypot(av.x, av.y, av.z);
+      const maxAngSpeed = 6; // rad/s
+      if (angSpeed > maxAngSpeed) {
+        const scale = maxAngSpeed / angSpeed;
+        this.body.setAngvel({ x: av.x * scale, y: av.y * scale, z: av.z * scale }, true);
+      }
+      const lv = this.body.linvel();
+      const linSpeed = Math.hypot(lv.x, lv.y, lv.z);
+      const maxLinSpeed = 90; // m/s (~324 km/h), well above the tuned cruise/dive envelope
+      if (linSpeed > maxLinSpeed) {
+        const scale = maxLinSpeed / linSpeed;
+        this.body.setLinvel({ x: lv.x * scale, y: lv.y * scale, z: lv.z * scale }, true);
+      }
+    }
+
     // --- Post-step bookkeeping ---
     const newPos = this.body.translation();
     const newLinvel = this.body.linvel();
     const speedNow = Math.hypot(newLinvel.x, newLinvel.y, newLinvel.z);
-    const altitudeNow = Math.max(0, newPos.y);
+    const altitudeNow = Math.max(0, newPos.y - GROUND_LEVEL_Y - GROUND_REST_OFFSET_M);
     this.distanceM = Math.hypot(newPos.x - this.spawnPos.x, newPos.z - this.spawnPos.z);
     this.maxAltitudeM = Math.max(this.maxAltitudeM, altitudeNow);
     this.maxSpeedMs = Math.max(this.maxSpeedMs, speedNow);
 
     const verticalSpeed = newLinvel.y;
-    const groundedNow = altitudeNow < 0.6;
+    const groundedNow = altitudeNow < 0.3;
 
     if (!this.crashed && !this.landed) {
       if (groundedNow && this.lastVerticalSpeed < -8) {

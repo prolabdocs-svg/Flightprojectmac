@@ -1,6 +1,6 @@
 import { useGameStore } from '../../state/gameStore';
 import { getMission } from '../../content/missions';
-import { THE_FIELD } from '../../content/regions';
+import { getRegion } from '../../content/regions';
 import './Screens.css';
 
 // Spec 82.5 Mission briefing: fits on one mobile screen, single START action.
@@ -24,7 +24,7 @@ export function BriefingScreen() {
       </header>
       <p>{mission.description}</p>
       <ul className="briefing-list">
-        <li>Región: {THE_FIELD.name}</li>
+        <li>Región: {getRegion(mission.regionId).name}</li>
         <li>Viento base: suave</li>
         <li>Recompensa base: ${mission.rewardBaseCash} · {mission.rewardBaseRp} RP</li>
         {mission.minDistanceM && <li>Distancia objetivo: {mission.minDistanceM} m</li>}

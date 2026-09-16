@@ -52,8 +52,52 @@ export const MISSIONS: MissionDefinition[] = [
       { id: 'no_damage', label: 'Sin daños', check: 'noDamage', rewardCash: 25, rewardRp: 5 },
     ],
   },
+  // Región 2 — SCRAP VALLEY (spec 12.3): "aterrizajes en espacios limitados" and
+  // "contratos de entrega" become a tight precision landing and a delivery-run distance
+  // mission, both flavored around the junkyard/quarry setting and its cross-structure
+  // turbulence (region windBaseMs is stronger/gustier than The Field's).
+  {
+    id: 'scrap_delivery_01',
+    regionId: 'scrap_valley',
+    family: 'distanceRun',
+    name: 'Contrato de entrega',
+    description:
+      'Lleva piezas rescatadas al otro extremo del deshuesadero, sorteando líneas eléctricas y grúas oxidadas.',
+    spawnPoint: [0, 1.2, 0],
+    spawnHeadingDeg: 0,
+    minDistanceM: 420,
+    rewardBaseCash: 140,
+    rewardBaseRp: 25,
+    bonuses: [
+      { id: 'no_damage', label: 'Sin daños', check: 'noDamage', rewardCash: 35, rewardRp: 5 },
+      { id: 'fuel_50', label: 'Combustible > 50%', check: 'fuelRemaining', value: 0.5, rewardCash: 20, rewardRp: 0 },
+    ],
+  },
+  {
+    id: 'scrap_precision_01',
+    regionId: 'scrap_valley',
+    family: 'precisionLanding',
+    name: 'Aterrizaje entre la chatarra',
+    description:
+      'Posa el avión en el claro despejado junto a la grúa, entre pilas de chatarra apiladas a ambos lados.',
+    spawnPoint: [0, 1.2, 0],
+    spawnHeadingDeg: 0,
+    targetPoint: [-25, 0, 300],
+    targetRadiusM: 14,
+    rewardBaseCash: 160,
+    rewardBaseRp: 30,
+    bonuses: [
+      { id: 'landing_quality', label: 'Aterrizaje suave', check: 'landingQuality', value: 0.75, rewardCash: 40, rewardRp: 5 },
+      { id: 'no_damage', label: 'Sin daños', check: 'noDamage', rewardCash: 25, rewardRp: 0 },
+    ],
+  },
 ];
 
 export function getMission(id: string): MissionDefinition | undefined {
   return MISSIONS.find((m) => m.id === id);
+}
+
+/** Missions belonging to a single region, in campaign order. */
+export function getRegionMissions(regionId: string): MissionDefinition[] {
+  return MISSIONS.filter((m) => m.regionId === regionId);
 }
