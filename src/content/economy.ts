@@ -49,6 +49,11 @@ export function computeFlightResult(mission: MissionDefinition | null, telemetry
   if (telemetry.crashed) {
     rewardCash = Math.max(10, rewardCash * 0.4);
     rewardCash = Math.max(10, rewardCash - CRASH_PENALTY_CAP_CASH * 0);
+  } else if (telemetry.crashOutcome === 'hardLanding') {
+    // Damage system (src/sim/damageSystem.ts): a hard-but-survivable impact damages parts
+    // without tripping the full `crashed` flag. Lighter penalty than a total loss, still
+    // capped so a rough landing never wipes out the run (spec 14.2 catastrophicRepairPenaltyCap).
+    rewardCash = Math.max(15, rewardCash * 0.75);
   }
 
   return {
@@ -64,5 +69,8 @@ export function computeFlightResult(mission: MissionDefinition | null, telemetry
     rewardCash: Math.round(rewardCash),
     rewardRp: Math.round(rewardRp),
     bonusesAchieved,
+    crashOutcome: telemetry.crashOutcome,
+    damagedPartIds: telemetry.damagedPartIds,
+    detachedPartIds: telemetry.detachedPartIds,
   };
 }

@@ -220,6 +220,11 @@ export interface FlightResult {
   rewardCash: number;
   rewardRp: number;
   bonusesAchieved: string[];
+  /** Damage system (src/sim/damageSystem.ts). Optional so older callers/fixtures that
+   * only set the original fields keep compiling. */
+  crashOutcome?: 'none' | 'hardLanding' | 'totalLoss';
+  damagedPartIds?: string[];
+  detachedPartIds?: string[];
 }
 
 export type ThreeVec3 = Vector3;

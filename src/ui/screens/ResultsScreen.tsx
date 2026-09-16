@@ -12,7 +12,7 @@ export function ResultsScreen() {
   // Spec 23.8 "record moment: sting breve" — placeholder success/fail stinger.
   useEffect(() => {
     if (!result) return;
-    audioService.playTone(result.crashed ? 'fail' : 'success');
+    audioService.playTone(result.crashed ? 'fail' : result.crashOutcome === 'hardLanding' ? 'transition' : 'success');
   }, [result]);
 
   if (!result) {
@@ -20,9 +20,19 @@ export function ResultsScreen() {
     return null;
   }
 
+  const hasDamage = (result.damagedPartIds?.length ?? 0) > 0 || (result.detachedPartIds?.length ?? 0) > 0;
+
   return (
     <div className="screen results-screen">
-      <h2>{result.crashed ? 'Accidente' : result.landed ? 'Vuelo completado' : 'Vuelo interrumpido'}</h2>
+      <h2>
+        {result.crashed
+          ? 'Pérdida total'
+          : result.crashOutcome === 'hardLanding'
+            ? 'Aterrizaje forzoso'
+            : result.landed
+              ? 'Vuelo completado'
+              : 'Vuelo interrumpido'}
+      </h2>
       <div className="results-grid">
         <div>
           <span className="results-value">{result.distanceM.toFixed(0)} m</span>
@@ -50,6 +60,14 @@ export function ResultsScreen() {
       {result.bonusesAchieved.length > 0 && (
         <div className="results-bonuses">
           Bonos logrados: {result.bonusesAchieved.join(', ')}
+        </div>
+      )}
+
+      {hasDamage && (
+        <div className="results-bonuses">
+          {(result.detachedPartIds?.length ?? 0) > 0
+            ? `Piezas desprendidas: ${result.detachedPartIds!.join(', ')}`
+            : `Piezas dañadas: ${result.damagedPartIds!.join(', ')}`}
         </div>
       )}
 

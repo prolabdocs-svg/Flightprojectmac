@@ -13,6 +13,7 @@ import { FlightScene } from '../../render/FlightScene';
 import { computeFlightResult } from '../../content/economy';
 import { getPaint } from '../../content/paint';
 import { FlightHud } from '../components/FlightHud';
+import { audioService } from '../../audio/audioService';
 
 const FIXED_DT = 1 / 60;
 
@@ -85,6 +86,12 @@ export function FlightScreen() {
 
       const wind = new THREE.Vector3(...region.windBaseMs);
 
+      // Damage-system feedback (task item 4): fire once per edge, not every frame, on the
+      // damage/crash-outcome transitions FlightController now reports in telemetry.
+      let lastCrashOutcome: FlightTelemetry['crashOutcome'] = 'none';
+      let lastDamagedCount = 0;
+      let lastDetachedCount = 0;
+
       const loop = () => {
         if (disposed) return;
         const now = performance.now();
@@ -103,6 +110,28 @@ export function FlightScreen() {
           }
           if (telem) {
             setTelemetry(telem);
+
+            // Impact feedback: screen shake + stinger the moment damage/crash severity
+            // escalates, and re-tint/hide the placeholder wing/tail meshes to reflect the
+            // functional damage FlightController is already applying to aero forces.
+            if (telem.crashOutcome !== lastCrashOutcome && telem.crashOutcome !== 'none') {
+              const magnitude = telem.crashOutcome === 'totalLoss' ? 0.55 : 0.22;
+              scene.triggerImpactShake(magnitude, telem.crashOutcome === 'totalLoss' ? 0.6 : 0.35);
+              audioService.playTone(telem.crashOutcome === 'totalLoss' ? 'fail' : 'transition');
+            }
+            lastCrashOutcome = telem.crashOutcome;
+
+            if (telem.damagedPartIds.length !== lastDamagedCount || telem.detachedPartIds.length !== lastDetachedCount) {
+              const wingDamaged = telem.damagedPartIds.some((id) => id !== 'elevator' && id !== 'rudder');
+              const wingDetached = telem.detachedPartIds.some((id) => id !== 'elevator' && id !== 'rudder');
+              const tailDamaged = telem.damagedPartIds.some((id) => id === 'elevator' || id === 'rudder');
+              const tailDetached = telem.detachedPartIds.some((id) => id === 'elevator' || id === 'rudder');
+              scene.setPartVisualState('wing', wingDamaged, wingDetached);
+              scene.setPartVisualState('tail', tailDamaged, tailDetached);
+              lastDamagedCount = telem.damagedPartIds.length;
+              lastDetachedCount = telem.detachedPartIds.length;
+            }
+
             if ((telem.crashed || telem.landed) && endTimerRef.current === null) {
               endTimerRef.current = window.setTimeout(() => {
                 const result = computeFlightResult(mission, telem!);
@@ -116,7 +145,7 @@ export function FlightScreen() {
 
         const pos = controller.body.translation();
         const rot = controller.body.rotation();
-        scene.syncAircraft(new THREE.Vector3(pos.x, pos.y, pos.z), new THREE.Quaternion(rot.x, rot.y, rot.z, rot.w));
+        scene.syncAircraft(new THREE.Vector3(pos.x, pos.y, pos.z), new THREE.Quaternion(rot.x, rot.y, rot.z, rot.w), frameDt);
         scene.render();
 
         rafRef.current = requestAnimationFrame(loop);

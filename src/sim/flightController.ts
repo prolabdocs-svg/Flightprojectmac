@@ -5,6 +5,16 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import type { ResolvedAircraft } from '../content/assembly';
 import { airDensityAtAltitude, dynamicPressure, liftDragCurve } from './aero';
+import {
+  applyGroundImpact,
+  createDamageState,
+  getAeroEffectivenessMultiplier,
+  getGroundHandlingPenalty,
+  listDamagedPartIds,
+  listDetachedPartIds,
+  type CrashOutcome,
+  type DamageState,
+} from './damageSystem';
 
 export type FlightState =
   | 'prestart'
@@ -41,6 +51,12 @@ export interface FlightTelemetry {
   landingQuality: number;
   rpm: number;
   onGround: boolean;
+  /** Damage system (src/sim/damageSystem.ts): 'none' below the impact-safe threshold,
+   * 'hardLanding' for a damaging but survivable impact, 'totalLoss' once it crosses the
+   * same vertical-speed threshold that already sets `crashed`. */
+  crashOutcome: CrashOutcome;
+  damagedPartIds: string[];
+  detachedPartIds: string[];
 }
 
 const FIXED_DT = 1 / 60;
@@ -73,6 +89,8 @@ export class FlightController {
   private elapsedS = 0;
   private lastVerticalSpeed = 0;
   private rpm = 0;
+  private wasGrounded = true;
+  private damageState: DamageState;
 
   constructor(world: RAPIER.World, aircraft: ResolvedAircraft, spawnPos: THREE.Vector3, spawnHeadingDeg: number) {
     this.world = world;
@@ -108,6 +126,8 @@ export class FlightController {
     this.collider = world.createCollider(colliderDesc, this.body);
 
     this.body.setAdditionalMass(aircraft.totalMassKg, true);
+
+    this.damageState = createDamageState(aircraft.aeroSurfaces.map((s) => s.id));
   }
 
   getState() {
@@ -131,6 +151,8 @@ export class FlightController {
     this.landingQuality = 0;
     this.elapsedS = 0;
     this.throttleSmoothed = 0;
+    this.wasGrounded = true;
+    this.damageState = createDamageState(this.aircraft.aeroSurfaces.map((s) => s.id));
   }
 
   /** Advances one fixed physics tick. Wind is a world-space m/s vector. */
@@ -178,6 +200,11 @@ export class FlightController {
 
       // --- Aerodynamic surfaces ---
       for (const surf of this.aircraft.aeroSurfaces) {
+        // Damage system (spec 142.2 "damaged aero"): a detached surface contributes
+        // nothing; a damaged one produces degraded lift/drag. See damageSystem.ts.
+        const damageMul = getAeroEffectivenessMultiplier(this.damageState, surf.id);
+        if (damageMul <= 0) continue;
+
         const localPos = new THREE.Vector3(...surf.localPosition);
         const worldPos = bodyPos.clone().add(localPos.clone().applyQuaternion(quat));
         const r = worldPos.clone().sub(bodyPos);
@@ -224,8 +251,8 @@ export class FlightController {
 
         const { cl, cd } = liftDragCurve(aoaDeg, surf.stallPositiveDeg, surf.stallNegativeDeg, surf.parasiticCd, surf.inducedDragFactor);
         const q = dynamicPressure(rho, speed);
-        const liftMag = q * surf.areaM2 * cl;
-        const dragMag = q * surf.areaM2 * cd;
+        const liftMag = q * surf.areaM2 * cl * damageMul;
+        const dragMag = q * surf.areaM2 * cd * damageMul;
 
         const dragDirWorld = airVel.clone().normalize().multiplyScalar(-1);
         const force = liftDirWorld.multiplyScalar(liftMag).add(dragDirWorld.multiplyScalar(dragMag));
@@ -271,9 +298,49 @@ export class FlightController {
       }
 
       // --- Wheel brake (simple linear damping boost while on ground) ---
+      // Damaged/detached gear (damageSystem.ts) makes braking less effective, standing in
+      // for a busted wheel/strut without touching the rest of the ground-roll tuning.
+      const gearPenalty = getGroundHandlingPenalty(this.damageState);
       if (onGround && controls.brake) {
-        const decel = bodyVel.clone().multiplyScalar(-2.5 * this.aircraft.totalMassKg);
+        const decel = bodyVel.clone().multiplyScalar((-2.5 / gearPenalty) * this.aircraft.totalMassKg);
         this.body.addForce({ x: decel.x, y: 0, z: decel.z }, true);
+      }
+
+      // --- Ground lateral (tire cornering) resistance ---
+      // The single-box collider's low, isotropic friction (see the comment on
+      // setFriction above) gives the airframe near-zero rolling resistance, but that
+      // also means it has near-zero resistance to SIDEWAYS slip. With nothing
+      // resisting lateral motion, any tiny asymmetric torque from the contact solver
+      // (the box has no dedicated wheel contact points, so ground reaction forces
+      // aren't applied at fixed left/right points and can differ frame to frame) lets
+      // the tail/nose drift sideways; the stability PD controller above deliberately
+      // leaves yaw free, so that drift compounds into a slow yaw rotation. Once the
+      // heading rotates, the *same* forward thrust now has a lateral component in
+      // world space, which reads as a cyclic rise/fall in ground speed even though
+      // nothing about the throttle input changed - this was the residual taxi/
+      // ground-roll oscillation. Real wheels resist side-slip (cornering stiffness)
+      // far more than they resist rolling, so apply a velocity-proportional lateral
+      // damping force decomposed in the body frame: it cancels sideways slip while
+      // leaving forward rolling motion (and the explicit brake above) untouched.
+      if (onGround) {
+        const rightDir = new THREE.Vector3(1, 0, 0).applyQuaternion(quat);
+        const lateralSpeed = bodyVel.dot(rightDir);
+        if (Math.abs(lateralSpeed) > 1e-4) {
+          const LATERAL_GRIP_GAIN = 6.0; // 1/s; strong compared to the 0.04-friction rolling resistance
+          const lateralForceMag = -lateralSpeed * LATERAL_GRIP_GAIN * this.aircraft.totalMassKg;
+          const lateralForce = rightDir.clone().multiplyScalar(lateralForceMag);
+          this.body.addForce({ x: lateralForce.x, y: 0, z: lateralForce.z }, true);
+        }
+
+        // Small yaw-rate damping while grounded: opposes the same slow heading drift
+        // at its source (angular velocity) rather than only reacting to its symptom
+        // (lateral speed). Keeps the fix stable even if the contact-torque asymmetry
+        // is momentarily large, without touching rudder-authorized turning (which
+        // works by commanding aero yaw force well above this damping's magnitude).
+        const worldUp = new THREE.Vector3(0, 1, 0);
+        const yawRate = bodyAngVel.dot(worldUp);
+        const yawDampingTorque = worldUp.clone().multiplyScalar(-yawRate * 4.0 * this.aircraft.totalMassKg);
+        this.body.addTorque({ x: yawDampingTorque.x, y: yawDampingTorque.y, z: yawDampingTorque.z }, true);
       }
 
       if (controls.chuteDeployed && altitude > 2) {
@@ -315,6 +382,14 @@ export class FlightController {
     const verticalSpeed = newLinvel.y;
     const groundedNow = altitudeNow < 0.3;
 
+    // Damage system: register a fresh touchdown/impact (not sustained ground contact) the
+    // moment the airframe transitions from airborne to grounded, using the pre-contact
+    // vertical speed as the impact-severity proxy (damageSystem.ts applyGroundImpact).
+    if (groundedNow && !this.wasGrounded) {
+      this.damageState = applyGroundImpact(this.damageState, this.lastVerticalSpeed);
+    }
+    this.wasGrounded = groundedNow;
+
     if (!this.crashed && !this.landed) {
       if (groundedNow && this.lastVerticalSpeed < -8) {
         this.crashed = true;
@@ -349,6 +424,9 @@ export class FlightController {
       landingQuality: this.landingQuality,
       rpm: this.rpm,
       onGround,
+      crashOutcome: this.damageState.outcome,
+      damagedPartIds: listDamagedPartIds(this.damageState),
+      detachedPartIds: listDetachedPartIds(this.damageState),
     };
   }
 }
