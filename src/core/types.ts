@@ -75,6 +75,40 @@ export interface PartDefinition {
   engine?: EngineSpec;
   /** Rolling resistance / friction multiplier for gear parts. */
   groundFrictionMul?: number;
+  /** If set, this part is hidden/locked in the Builder until this tech node is unlocked (spec 15, 82.9). */
+  requiresTechId?: string;
+}
+
+/** Tech tree node (spec section 15 "Árbol tecnológico" + 153.4 "Tech graph"). */
+export type TechCategory =
+  | 'airframe'
+  | 'aerodynamics'
+  | 'control'
+  | 'power'
+  | 'ground'
+  | 'instruments'
+  | 'safety';
+
+export interface TechNodeDef {
+  id: string;
+  category: TechCategory;
+  name: string;
+  description: string;
+  costRp: number;
+  /** Prerequisite tech node ids that must already be unlocked. */
+  requires: string[];
+  /** Part ids this node unlocks for purchase/installation in the Builder. */
+  unlocksPartIds: string[];
+}
+
+/** Paint/customization preset (spec 82.11 "Paint/Customization"). */
+export interface PaintPreset {
+  id: string;
+  name: string;
+  fabricColor: string;
+  tubeColor: string;
+  priceCash: number;
+  tier: number;
 }
 
 export interface Hardpoint {
@@ -147,6 +181,9 @@ export interface PlayerProfile {
   reputation: number;
   ownedParts: string[];
   unlockedMissions: string[];
+  unlockedTech: string[];
+  ownedPaintIds: string[];
+  selectedPaintId: string;
   completedMissions: Record<string, { bestScore: number; attempts: number }>;
   currentBuild: AircraftBuild;
   settings: {

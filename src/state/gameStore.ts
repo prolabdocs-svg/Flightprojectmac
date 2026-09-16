@@ -11,6 +11,8 @@ export type Screen =
   | 'map'
   | 'briefing'
   | 'builder'
+  | 'techtree'
+  | 'paint'
   | 'settings'
   | 'run'
   | 'results';

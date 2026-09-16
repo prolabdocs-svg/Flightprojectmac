@@ -5,6 +5,8 @@ import { HangarScreen } from './ui/screens/HangarScreen';
 import { MapScreen } from './ui/screens/MapScreen';
 import { BriefingScreen } from './ui/screens/BriefingScreen';
 import { BuilderScreen } from './ui/screens/BuilderScreen';
+import { TechTreeScreen } from './ui/screens/TechTreeScreen';
+import { PaintScreen } from './ui/screens/PaintScreen';
 import { SettingsScreen } from './ui/screens/SettingsScreen';
 import { FlightScreen } from './ui/screens/FlightScreen';
 import { ResultsScreen } from './ui/screens/ResultsScreen';
@@ -22,6 +24,8 @@ export default function App() {
       {screen === 'map' && <MapScreen />}
       {screen === 'briefing' && <BriefingScreen />}
       {screen === 'builder' && <BuilderScreen />}
+      {screen === 'techtree' && <TechTreeScreen />}
+      {screen === 'paint' && <PaintScreen />}
       {screen === 'settings' && <SettingsScreen />}
       {screen === 'run' && <FlightScreen />}
       {screen === 'results' && <ResultsScreen />}

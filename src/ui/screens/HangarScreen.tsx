@@ -40,6 +40,8 @@ export function HangarScreen() {
       <nav className="hangar-nav">
         <button onClick={() => goTo('map')}>Mapa / Misiones</button>
         <button onClick={() => goTo('builder')}>Taller</button>
+        <button onClick={() => goTo('techtree')}>Árbol tecnológico</button>
+        <button onClick={() => goTo('paint')}>Pintura</button>
         <button onClick={() => goTo('settings')}>Ajustes</button>
       </nav>
     </div>

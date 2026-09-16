@@ -13,7 +13,7 @@ export class FlightScene {
   private cameraLookTarget = new THREE.Vector3();
   private cameraPos = new THREE.Vector3(0, 6, 15);
 
-  constructor(canvas: HTMLCanvasElement, region: RegionDefinition) {
+  constructor(canvas: HTMLCanvasElement, region: RegionDefinition, paint?: { fabricColor: string; tubeColor: string }) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = false;
@@ -70,14 +70,14 @@ export class FlightScene {
       this.scene.add(tree);
     }
 
-    this.buildAircraftPlaceholder();
+    this.buildAircraftPlaceholder(paint);
     this.scene.add(this.aircraftGroup);
   }
 
   /** Placeholder DIY-tube aircraft mesh (no imported assets yet — see README TODO). */
-  private buildAircraftPlaceholder() {
-    const tubeMat = new THREE.MeshStandardMaterial({ color: '#b8b2a4', metalness: 0.3, roughness: 0.6 });
-    const fabricMat = new THREE.MeshStandardMaterial({ color: '#d8cf9a', side: THREE.DoubleSide, roughness: 0.9 });
+  private buildAircraftPlaceholder(paint?: { fabricColor: string; tubeColor: string }) {
+    const tubeMat = new THREE.MeshStandardMaterial({ color: paint?.tubeColor ?? '#b8b2a4', metalness: 0.3, roughness: 0.6 });
+    const fabricMat = new THREE.MeshStandardMaterial({ color: paint?.fabricColor ?? '#d8cf9a', side: THREE.DoubleSide, roughness: 0.9 });
     const engineMat = new THREE.MeshStandardMaterial({ color: '#33322f', roughness: 0.5, metalness: 0.4 });
     const wheelMat = new THREE.MeshStandardMaterial({ color: '#181818', roughness: 0.9 });
 

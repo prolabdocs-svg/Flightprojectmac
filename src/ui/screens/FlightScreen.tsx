@@ -11,6 +11,7 @@ import { initPhysics, createWorld } from '../../sim/physics';
 import { FlightController, type FlightTelemetry } from '../../sim/flightController';
 import { FlightScene } from '../../render/FlightScene';
 import { computeFlightResult } from '../../content/economy';
+import { getPaint } from '../../content/paint';
 import { FlightHud } from '../components/FlightHud';
 
 const FIXED_DT = 1 / 60;
@@ -54,7 +55,11 @@ export function FlightScreen() {
       const controller = new FlightController(world, aircraft, spawn, mission?.spawnHeadingDeg ?? 0);
       controllerRef.current = controller;
 
-      const scene = new FlightScene(canvasRef.current, THE_FIELD);
+      const paint = getPaint(profile.selectedPaintId);
+      const scene = new FlightScene(canvasRef.current, THE_FIELD, paint && {
+        fabricColor: paint.fabricColor,
+        tubeColor: paint.tubeColor,
+      });
       scene.setTargetMarker(mission?.targetPoint, mission?.targetRadiusM ?? 20);
       sceneRef.current = scene;
 

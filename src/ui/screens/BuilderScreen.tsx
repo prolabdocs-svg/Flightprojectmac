@@ -3,8 +3,14 @@ import { useGameStore } from '../../state/gameStore';
 import { useProfileStore } from '../../state/profileStore';
 import { FRAME_ZERO, PARTS, getPart } from '../../content/parts';
 import { installPart, resolveAircraft } from '../../content/assembly';
+import { TECH_NODES } from '../../content/techtree';
 import type { PartCategory } from '../../core/types';
 import './Screens.css';
+
+// Assumed reference airspeed (m/s) used only for the Builder's static thrust-to-weight
+// estimate. Not used by the actual flight sim (see sim/flightController.ts).
+const REFERENCE_SPEED_MS = 15;
+const G = 9.81;
 
 // Spec 82.6 Builder: hardpoint-based part swapping with mass/CoM + stat comparison.
 // Free-form CAD is out of scope for V1 per spec 11.3.
@@ -20,7 +26,19 @@ export function BuilderScreen() {
   const options = hardpoint ? PARTS.filter((p) => hardpoint.accepts.includes(p.id)) : [];
   const installedId = profile.currentBuild.installed[category];
 
-  const handleSelect = (partId: string, priceCash: number) => {
+  // Live stat readout: static thrust estimate at a reference speed, and thrust/weight.
+  const thrustN = aircraft.engine
+    ? (aircraft.engine.maxPowerKw * 1000 * aircraft.engine.propEfficiency) / REFERENCE_SPEED_MS
+    : 0;
+  const weightN = aircraft.totalMassKg * G;
+  const thrustToWeight = weightN > 0 ? thrustN / weightN : 0;
+  const dragEstimateN =
+    0.5 * 1.2 * REFERENCE_SPEED_MS * REFERENCE_SPEED_MS * aircraft.totalDragArea * aircraft.totalDragCoefficient;
+
+  const isPartLocked = (techId?: string) => !!techId && !profile.unlockedTech.includes(techId);
+
+  const handleSelect = (partId: string, priceCash: number, requiresTechId?: string) => {
+    if (isPartLocked(requiresTechId)) return;
     const owned = profile.ownedParts.includes(partId);
     if (!owned) {
       const ok = buyPart(partId, priceCash);
@@ -44,6 +62,9 @@ export function BuilderScreen() {
           CoM: ({aircraft.centerOfMass[0].toFixed(2)}, {aircraft.centerOfMass[1].toFixed(2)}, {aircraft.centerOfMass[2].toFixed(2)})
         </span>
         <span>Drag area: {aircraft.totalDragArea.toFixed(2)} m²</span>
+        <span>Drag estimado ({REFERENCE_SPEED_MS} m/s): {dragEstimateN.toFixed(0)} N</span>
+        <span>Empuje estimado: {thrustN.toFixed(0)} N</span>
+        <span>Empuje/Peso: {thrustToWeight.toFixed(2)}</span>
         <span>Combustible: {aircraft.fuelCapacityL} L</span>
       </div>
 
@@ -59,14 +80,23 @@ export function BuilderScreen() {
         {options.map((p) => {
           const owned = profile.ownedParts.includes(p.id);
           const isInstalled = installedId === p.id;
+          const locked = isPartLocked(p.requiresTechId);
+          const techNode = p.requiresTechId ? TECH_NODES.find((n) => n.id === p.requiresTechId) : undefined;
           return (
-            <button key={p.id} className={`part-card ${isInstalled ? 'installed' : ''}`} onClick={() => handleSelect(p.id, p.priceCash)}>
+            <button
+              key={p.id}
+              className={`part-card ${isInstalled ? 'installed' : ''} ${locked ? 'locked' : ''}`}
+              disabled={locked}
+              onClick={() => handleSelect(p.id, p.priceCash, p.requiresTechId)}
+            >
               <div className="part-card-name">{p.name}</div>
               <div className="part-card-desc">{p.description}</div>
               <div className="part-card-meta">
                 {p.physics.massKg} kg · Tier {p.tier} · {owned ? 'En inventario' : `$${p.priceCash}`}
               </div>
+              {locked && <div className="part-card-meta">Requiere tech: {techNode?.name ?? p.requiresTechId}</div>}
               {isInstalled && <div className="part-card-badge">INSTALADO</div>}
+              {locked && <div className="part-card-badge part-card-badge-locked">BLOQUEADO</div>}
             </button>
           );
         })}

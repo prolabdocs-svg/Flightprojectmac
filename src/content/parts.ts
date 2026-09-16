@@ -98,6 +98,24 @@ export const ENGINE_MEDIUM: EngineSpec = {
   propEfficiency: 0.66,
 };
 
+export const ENGINE_EFFICIENT: EngineSpec = {
+  ...ENGINE_SMALL,
+  id: 'engine_efficient',
+  name: 'Field Twin 15hp Eficiente',
+  maxPowerKw: 11,
+  responseTime: 0.28,
+  propEfficiency: 0.74,
+};
+
+export const WING_C_EFFICIENT: AeroSurfaceSpec = {
+  ...WING_A,
+  id: 'wing_root_main',
+  areaM2: 12.5,
+  spanM: 9.4,
+  inducedDragFactor: 0.036,
+  parasiticCd: 0.021,
+};
+
 export const PARTS: PartDefinition[] = [
   {
     id: 'engine_small',
@@ -241,6 +259,63 @@ export const PARTS: PartDefinition[] = [
     },
     groundFrictionMul: 1.35,
   },
+  {
+    id: 'engine_efficient',
+    category: 'engine',
+    name: 'Field Twin 15hp Eficiente',
+    description: 'Carburador reajustado y hélice de mejor rendimiento. Menos potencia pico que el 18hp, pero mejor eficiencia de propulsión.',
+    tier: 2,
+    priceCash: 1200,
+    physics: {
+      massKg: 29,
+      localCenterOfMass: [0, 0, 2.1],
+      dragArea: 0.17,
+      dragCoefficient: 0.85,
+      structuralStrength: 62,
+      impactTolerance: 41,
+      mountStrength: 72,
+    },
+    engine: ENGINE_EFFICIENT,
+    requiresTechId: 'power_efficient',
+  },
+  {
+    id: 'wing_c_efficient',
+    category: 'wingSet',
+    name: 'Ala eficiente de perfil pulido',
+    description: 'Costillas optimizadas y tela mejor tensada. Menos drag parásito a igual superficie.',
+    tier: 2,
+    priceCash: 900,
+    physics: {
+      massKg: 44,
+      localCenterOfMass: [0, 0.3, 0],
+      dragArea: 0.045,
+      dragCoefficient: 0.045,
+      structuralStrength: 53,
+      impactTolerance: 31,
+      mountStrength: 56,
+    },
+    aeroSurfaces: [WING_C_EFFICIENT, AILERON_L, AILERON_R],
+    requiresTechId: 'aero_efficient_wing',
+  },
+  {
+    id: 'gear_reinforced',
+    category: 'landingGear',
+    name: 'Tren reforzado con suspensión',
+    description: 'Amortiguación mejorada sobre el tren de campo. Reduce el impacto de aterrizajes duros.',
+    tier: 2,
+    priceCash: 800,
+    physics: {
+      massKg: 22,
+      localCenterOfMass: [0, -0.6, 0.3],
+      dragArea: 0.055,
+      dragCoefficient: 0.85,
+      structuralStrength: 65,
+      impactTolerance: 70,
+      mountStrength: 72,
+    },
+    groundFrictionMul: 1.4,
+    requiresTechId: 'ground_suspension',
+  },
 ];
 
 export const FRAME_ZERO: FrameDefinition = {
@@ -248,10 +323,10 @@ export const FRAME_ZERO: FrameDefinition = {
   name: 'Frame Zero',
   tier: 0,
   hardpoints: [
-    { id: 'engineMountRear', category: 'engine', accepts: ['engine_small', 'engine_medium'] },
-    { id: 'wingRoot', category: 'wingSet', accepts: ['wing_a_basic', 'wing_b_highlift'] },
+    { id: 'engineMountRear', category: 'engine', accepts: ['engine_small', 'engine_medium', 'engine_efficient'] },
+    { id: 'wingRoot', category: 'wingSet', accepts: ['wing_a_basic', 'wing_b_highlift', 'wing_c_efficient'] },
     { id: 'tankBay', category: 'fuelTank', accepts: ['tank_8', 'tank_12'] },
-    { id: 'gearMain', category: 'landingGear', accepts: ['gear_light', 'gear_field'] },
+    { id: 'gearMain', category: 'landingGear', accepts: ['gear_light', 'gear_field', 'gear_reinforced'] },
   ],
   basePhysics: {
     massKg: 95,

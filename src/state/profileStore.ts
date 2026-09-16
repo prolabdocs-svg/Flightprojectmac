@@ -1,13 +1,17 @@
 import { create } from 'zustand';
 import type { AircraftBuild, FlightResult, PlayerProfile } from '../core/types';
-import { createDefaultProfile, saveRepository } from '../save/save';
+import { createDefaultProfile, saveRepository, whenSaveRepositoryReady } from '../save/save';
+import { canUnlockTech } from '../content/techtree';
 
 interface ProfileState {
   profile: PlayerProfile;
-  load: () => void;
+  load: () => Promise<void>;
   persist: () => void;
   setBuild: (build: AircraftBuild) => void;
   buyPart: (partId: string, priceCash: number) => boolean;
+  unlockTech: (nodeId: string, costRp: number) => boolean;
+  buyPaint: (paintId: string, priceCash: number) => boolean;
+  selectPaint: (paintId: string) => void;
   applyFlightResult: (result: FlightResult) => void;
   updateSettings: (patch: Partial<PlayerProfile['settings']>) => void;
   resetProfile: () => void;
@@ -16,7 +20,8 @@ interface ProfileState {
 export const useProfileStore = create<ProfileState>((set, get) => ({
   profile: createDefaultProfile(),
 
-  load: () => {
+  load: async () => {
+    await whenSaveRepositoryReady();
     const loaded = saveRepository.load();
     set({ profile: loaded ?? createDefaultProfile() });
   },
@@ -37,6 +42,41 @@ export const useProfileStore = create<ProfileState>((set, get) => ({
     set({ profile: { ...profile, cash: profile.cash - priceCash, ownedParts: [...profile.ownedParts, partId] } });
     get().persist();
     return true;
+  },
+
+  unlockTech: (nodeId, costRp) => {
+    const { profile } = get();
+    if (!canUnlockTech(profile.unlockedTech, nodeId)) return false;
+    if (profile.researchPoints < costRp) return false;
+    set({
+      profile: {
+        ...profile,
+        researchPoints: profile.researchPoints - costRp,
+        unlockedTech: [...profile.unlockedTech, nodeId],
+      },
+    });
+    get().persist();
+    return true;
+  },
+
+  buyPaint: (paintId, priceCash) => {
+    const { profile } = get();
+    if (profile.ownedPaintIds.includes(paintId)) return true;
+    if (profile.cash < priceCash) return false;
+    set({
+      profile: {
+        ...profile,
+        cash: profile.cash - priceCash,
+        ownedPaintIds: [...profile.ownedPaintIds, paintId],
+      },
+    });
+    get().persist();
+    return true;
+  },
+
+  selectPaint: (paintId) => {
+    set((s) => ({ profile: { ...s.profile, selectedPaintId: paintId } }));
+    get().persist();
   },
 
   applyFlightResult: (result) => {
