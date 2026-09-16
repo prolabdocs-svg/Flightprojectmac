@@ -1,4 +1,6 @@
+import { useEffect } from 'react';
 import { useGameStore } from '../../state/gameStore';
+import { audioService } from '../../audio/audioService';
 import './Screens.css';
 
 // Spec 82.14 Results: score, rewards, damage, next action.
@@ -6,6 +8,12 @@ export function ResultsScreen() {
   const goTo = useGameStore((s) => s.goTo);
   const result = useGameStore((s) => s.lastResult);
   const selectMission = useGameStore((s) => s.selectMission);
+
+  // Spec 23.8 "record moment: sting breve" — placeholder success/fail stinger.
+  useEffect(() => {
+    if (!result) return;
+    audioService.playTone(result.crashed ? 'fail' : 'success');
+  }, [result]);
 
   if (!result) {
     goTo('hangar');
