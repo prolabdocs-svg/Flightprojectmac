@@ -106,10 +106,10 @@ localization, etc.). None of that is realistic to build "from scratch" in one pa
 scaffold focuses on making the **core loop real and playable** and leaves the rest as clearly
 marked extension points:
 
-- **Only Tier 0 ("Frame Zero") and Region 1 ("The Field")** exist. Tiers 1–7 and Regions 2–8
-  (spec sections 5 and 12) are not implemented.
-- **No damage/detachment system** (spec section 10). Aircraft either lands or "crashes" (a
-  binary state based on vertical impact speed) — no per-module integrity, no parts breaking off.
+- **Only Tier 0–1 aircraft content is playable.** The eight-region campaign catalog is authored,
+  while full mission and art packs beyond The Field/Scrap Valley remain production work.
+- **Damage/detachment is implemented for primary aero surfaces**, but it is not yet a full
+  per-module repair and visual-asset system.
 - **No tech tree, no Parts Market beyond the Builder's inline buy button, no Workshop upgrades,
   no Paint/Customization, no Inventory screen** (spec 82.7–82.11) — the Builder screen covers a
   simplified version of part swapping/buying only.
