@@ -114,7 +114,11 @@ describe('createTerrainQueryService', () => {
     expect(sample.elevationM).toBe(terrain.getElevation(1200, 900));
     expect(sample.slopeDeg).toBe(terrain.getSlopeDeg(1200, 900));
     expect(sample.surfaceId).toBe('grass');
-    expect(sample.dominantBiomeId).toBe('temperate_grassland');
+    // WLD-04: dominantBiomeId is now derived from the blend, not a flat per-region lookup,
+    // so it can legitimately drift from the region's anchor biome at a given point.
+    expect(sample.dominantBiomeId).toBe(
+      Object.entries(sample.biomeWeights).sort((a, b) => b[1] - a[1])[0][0],
+    );
     expect(sample.waterDepthM).toBe(0);
     expect(sample.emergencyLandingSuitability).toBeGreaterThanOrEqual(0);
     expect(sample.emergencyLandingSuitability).toBeLessThanOrEqual(1);
@@ -130,5 +134,26 @@ describe('createTerrainQueryService', () => {
     const flat = terrain.sample(0, 0).emergencyLandingSuitability;
     const rough = terrain.sample(1200, 900).emergencyLandingSuitability;
     expect(rough).toBeLessThan(flat);
+  });
+
+  it('sample().biomeWeights sums to ~1 and dominantBiomeId is the highest-weight key', () => {
+    const terrain = createTerrainQueryService(THE_FIELD);
+    const sample = terrain.sample(1200, 900);
+    const total = Object.values(sample.biomeWeights).reduce((sum, w) => sum + w, 0);
+    expect(total).toBeCloseTo(1, 5);
+    const highest = Object.entries(sample.biomeWeights).sort((a, b) => b[1] - a[1])[0][0];
+    expect(sample.dominantBiomeId).toBe(highest);
+  });
+
+  it('getBiomeWeights matches sample().biomeWeights (computed once, not twice)', () => {
+    const terrain = createTerrainQueryService(THE_FIELD);
+    expect(terrain.getBiomeWeights(1200, 900)).toEqual(terrain.sample(1200, 900).biomeWeights);
+  });
+
+  it('biome weights near a water body differ from weights far from it', () => {
+    const terrain = createTerrainQueryService(getRegion('backcountry'));
+    const near = terrain.getBiomeWeights(300, 145); // near the backcountry lake edge
+    const far = terrain.getBiomeWeights(-5000, -5000);
+    expect(near).not.toEqual(far);
   });
 });

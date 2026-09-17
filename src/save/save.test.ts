@@ -75,6 +75,6 @@ describe('SaveRepository (IndexedDB-backed)', () => {
     await reloaded.whenSaveRepositoryReady();
     const loaded = reloaded.saveRepository.load();
     expect(loaded?.homeBase).toEqual({ runwayLevel: 0, hangarLevel: 0 });
-    expect(loaded?.schemaVersion).toBe(2);
+    expect(loaded?.schemaVersion).toBe(mod.SAVE_SCHEMA_VERSION);
   });
 });

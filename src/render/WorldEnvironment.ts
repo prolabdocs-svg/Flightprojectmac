@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { RegionDefinition } from '../core/types';
 import { createTerrainQueryService, type TerrainQueryService } from '../world/terrainQuery';
+import { BIOME_COLORS } from '../world/biomeWeights';
 import { createSeededRandom } from '../core/seededRandom';
 import { getAmbientTrafficPose } from '../world/ambientTraffic';
 
@@ -45,17 +46,33 @@ export class WorldEnvironment {
       pos.setZ(i, height);
     }
     geo.computeVertexNormals();
-    // Vertex colour variation breaks the flat-debug-plane read without texture memory.
-    // It is deterministic, follows elevation, and costs no additional draw call.
+    // Vertex colour blends real biome weights from TerrainQueryService (spec §250, DoD
+    // "region readable from altitude") instead of an ad hoc pattern, plus a light regional tint.
     const colors = new Float32Array(pos.count * 3);
     const base = new THREE.Color(this.region.groundColor);
-    const dry = base.clone().lerp(new THREE.Color('#b38a52'), this.region.environment.terrain === 'quarry' ? .35 : .13);
-    const lush = base.clone().lerp(new THREE.Color('#315c36'), .26);
+    const biomeColorCache = new Map<string, THREE.Color>();
+    const getBiomeColor = (biomeId: string): THREE.Color => {
+      let c = biomeColorCache.get(biomeId);
+      if (!c) {
+        c = new THREE.Color(BIOME_COLORS[biomeId] ?? this.region.groundColor);
+        biomeColorCache.set(biomeId, c);
+      }
+      return c;
+    };
     const color = new THREE.Color();
     for (let i = 0; i < pos.count; i++) {
-      const x = pos.getX(i), z = -pos.getY(i), elevation = pos.getZ(i);
-      const pattern = Math.sin(x * .017 + z * .012) * .5 + Math.sin(x * .049 - z * .032) * .5;
-      color.copy(pattern > .27 || elevation > 16 ? dry : lush).lerp(base, .36 + Math.abs(pattern) * .36);
+      const x = pos.getX(i), z = -pos.getY(i);
+      const weights = this.terrainQuery.getBiomeWeights(x, z);
+      color.setRGB(0, 0, 0);
+      for (const biomeId in weights) {
+        const w = weights[biomeId];
+        if (w <= 0) continue;
+        const bc = getBiomeColor(biomeId);
+        color.r += bc.r * w;
+        color.g += bc.g * w;
+        color.b += bc.b * w;
+      }
+      color.lerp(base, 0.12);
       colors.set([color.r, color.g, color.b], i * 3);
     }
     geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
