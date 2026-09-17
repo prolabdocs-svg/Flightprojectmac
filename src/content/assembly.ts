@@ -14,6 +14,7 @@ export interface ResolvedAircraft {
   groundFrictionMul: number;
   totalDragArea: number;
   totalDragCoefficient: number;
+  gearPartId?: string;
 }
 
 export function defaultBuild(): AircraftBuild {
@@ -73,6 +74,7 @@ export function resolveAircraft(build: AircraftBuild, frames: FrameDefinition[] 
     groundFrictionMul,
     totalDragArea: dragArea,
     totalDragCoefficient: dragCoefficient,
+    gearPartId: build.installed.landingGear,
   };
 }
 

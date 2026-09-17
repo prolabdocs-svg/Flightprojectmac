@@ -9,6 +9,7 @@ import { resolveAircraft, defaultBuild } from '../content/assembly';
 import { getRegion } from '../content/regions';
 import { createTerrainQueryService } from '../world/terrainQuery';
 import type { AircraftBuild } from '../core/types';
+import type { Obstacle } from '../world/obstacles';
 
 export const NEUTRAL: ResolvedControls = {
   throttle: 0, rudder: 0, pitch: 0, roll: 0,
@@ -22,13 +23,13 @@ export interface Sample extends FlightTelemetry {
   vsMs: number;
 }
 
-export async function createHarness(opts: { build?: AircraftBuild; regionId?: string; wind?: THREE.Vector3; spawn?: THREE.Vector3; headingDeg?: number } = {}) {
+export async function createHarness(opts: { build?: AircraftBuild; regionId?: string; wind?: THREE.Vector3; spawn?: THREE.Vector3; headingDeg?: number; obstacles?: Obstacle[] } = {}) {
   await initPhysics();
   const world = createWorld();
   const region = getRegion(opts.regionId ?? 'the_field');
   const terrain = createTerrainQueryService(region);
   const spawn = opts.spawn ?? new THREE.Vector3(0, terrain.getElevation(0, 0) + 1.2, 0);
-  const fc = new FlightController(world, resolveAircraft(opts.build ?? defaultBuild()), spawn, opts.headingDeg ?? 0, terrain);
+  const fc = new FlightController(world, resolveAircraft(opts.build ?? defaultBuild()), spawn, opts.headingDeg ?? 0, terrain, undefined, opts.obstacles);
   const wind = opts.wind ?? new THREE.Vector3();
   let t = 0;
   const log: Sample[] = [];
@@ -37,11 +38,12 @@ export async function createHarness(opts: { build?: AircraftBuild; regionId?: st
     const r = fc.body.rotation();
     const q = new THREE.Quaternion(r.x, r.y, r.z, r.w);
     const fwd = new THREE.Vector3(0, 0, 1).applyQuaternion(q);
-    const right = new THREE.Vector3(1, 0, 0).applyQuaternion(q);
+    const left = new THREE.Vector3(1, 0, 0).applyQuaternion(q);
+    const up = new THREE.Vector3(0, 1, 0).applyQuaternion(q);
     return {
       pitchDeg: THREE.MathUtils.radToDeg(Math.asin(THREE.MathUtils.clamp(fwd.y, -1, 1))),
-      // Positive = right wing down.
-      rollDeg: THREE.MathUtils.radToDeg(Math.asin(THREE.MathUtils.clamp(-right.y, -1, 1))),
+      // Positive = right wing down (left wing is local +X).
+      rollDeg: THREE.MathUtils.radToDeg(Math.atan2(left.y, up.y)),
     };
   };
 

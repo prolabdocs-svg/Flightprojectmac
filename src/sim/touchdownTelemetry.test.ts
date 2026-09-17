@@ -30,7 +30,8 @@ describe('computeRollPitchDeg', () => {
     const level = computeRollPitchDeg(heading);
     const banked = computeRollPitchDeg(combined);
     expect(level.rollDeg).toBeCloseTo(0, 3);
-    expect(Math.abs(banked.rollDeg)).toBeCloseTo(20, 3);
+    // Rotating +20deg about +Z lifts the left (+X) wing: a right-wing-down bank.
+    expect(banked.rollDeg).toBeCloseTo(20, 3);
   });
 });
 
@@ -41,7 +42,8 @@ describe('computeCrosswindMs', () => {
   });
 
   it('reads a pure lateral wind as the full crosswind component', () => {
-    const wind = new THREE.Vector3(7, 0, 0);
+    // Right wing is -X for a +Z-facing aircraft, so wind toward -X is a +7 right crosswind.
+    const wind = new THREE.Vector3(-7, 0, 0);
     expect(computeCrosswindMs(wind, IDENTITY)).toBeCloseTo(7, 5);
   });
 

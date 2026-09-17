@@ -92,6 +92,7 @@ export const ENGINE_SMALL: EngineSpec = {
   reliabilityClass: 1,
   propEfficiency: 0.62,
   propDiameterM: 1.27,
+  fuelBurnLpm: 4,
 };
 
 export const ENGINE_MEDIUM: EngineSpec = {
@@ -101,6 +102,7 @@ export const ENGINE_MEDIUM: EngineSpec = {
   maxPowerKw: 13.5,
   responseTime: 0.3,
   propEfficiency: 0.66,
+  fuelBurnLpm: 5.2,
 };
 
 export const ENGINE_EFFICIENT: EngineSpec = {
@@ -110,6 +112,7 @@ export const ENGINE_EFFICIENT: EngineSpec = {
   maxPowerKw: 11,
   responseTime: 0.28,
   propEfficiency: 0.74,
+  fuelBurnLpm: 3.3,
 };
 
 export const WING_C_EFFICIENT: AeroSurfaceSpec = {
@@ -379,6 +382,8 @@ export const FRAME_TRAILBLAZER: FrameDefinition = {
   },
   baseAeroSurfaces: [ELEVATOR, RUDDER],
   defaultLoadout: { ...FRAME_ZERO.defaultLoadout },
+  // Stiffer, better-rigged airframe: crisper roll, steadier in pitch and gusts.
+  handling: { rollAuthority: 7.4, rollDamping: 4.6, pitchStability: 21, yawStability: 7.5, dihedral: 4 },
 };
 
 export const FRAMES: FrameDefinition[] = [FRAME_ZERO, FRAME_TRAILBLAZER];

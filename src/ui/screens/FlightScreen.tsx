@@ -31,6 +31,7 @@ import { getEnvironmentWind } from '../../sim/weather';
 import { FixedStepClock } from '../../core/fixedStepClock';
 import { createTerrainQueryService } from '../../world/terrainQuery';
 import { getHomeBaseBenefits } from '../../content/homeBase';
+import { getRegionObstacles } from '../../world/obstacles';
 
 const FIXED_DT = 1 / 60;
 
@@ -102,7 +103,7 @@ export function FlightScreen() {
       const runwayConditions = !runwayAirfield && region.id === 'the_field'
         ? { ...baseRunwayConditions, roughness: Math.max(0.04, baseRunwayConditions.roughness - getHomeBaseBenefits(profile.homeBase).runwayRoughnessReduction) }
         : baseRunwayConditions;
-      const controller = new FlightController(world, aircraft, spawn, mission?.spawnHeadingDeg ?? 0, terrainQuery, runwayConditions);
+      const controller = new FlightController(world, aircraft, spawn, mission?.spawnHeadingDeg ?? 0, terrainQuery, runwayConditions, getRegionObstacles(region.id));
       controllerRef.current = controller;
 
       const paint = getPaint(profile.selectedPaintId);

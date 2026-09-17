@@ -14,7 +14,7 @@ export interface QuatLike {
 /**
  * Extracts bank (roll) and nose-up/down (pitch) angles, in degrees, from a body
  * orientation quaternion. Assumes the aircraft's local forward axis is +Z, local up is
- * +Y and local right is +X (matches FlightController's rigid body setup).
+ * +Y and local right is -X (Three.js right-handed; see world/compass.ts).
  *
  * pitchDeg: positive = nose up.
  * rollDeg: positive = right wing down.
@@ -22,7 +22,7 @@ export interface QuatLike {
 export function computeRollPitchDeg(quat: QuatLike): { rollDeg: number; pitchDeg: number } {
   const q = new THREE.Quaternion(quat.x, quat.y, quat.z, quat.w);
   const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(q);
-  const right = new THREE.Vector3(1, 0, 0).applyQuaternion(q);
+  const right = new THREE.Vector3(-1, 0, 0).applyQuaternion(q);
 
   const pitchDeg = THREE.MathUtils.radToDeg(Math.asin(THREE.MathUtils.clamp(forward.y, -1, 1)));
 
@@ -40,6 +40,6 @@ export function computeRollPitchDeg(quat: QuatLike): { rollDeg: number; pitchDeg
  */
 export function computeCrosswindMs(windWorld: THREE.Vector3, quat: QuatLike): number {
   const q = new THREE.Quaternion(quat.x, quat.y, quat.z, quat.w);
-  const right = new THREE.Vector3(1, 0, 0).applyQuaternion(q);
+  const right = new THREE.Vector3(-1, 0, 0).applyQuaternion(q);
   return windWorld.dot(right);
 }

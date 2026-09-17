@@ -51,6 +51,8 @@ export interface EngineSpec {
   reliabilityClass: number;
   propEfficiency: number;
   propDiameterM: number;
+  /** Fuel flow at full throttle, L/min (gameplay abstraction). */
+  fuelBurnLpm?: number;
 }
 
 export type PartCategory =
@@ -131,6 +133,8 @@ export interface FrameDefinition {
   basePhysics: PartPhysics;
   baseAeroSurfaces: AeroSurfaceSpec[];
   defaultLoadout: Partial<Record<PartCategory, string>>;
+  /** Per-airframe handling overrides (see sim/flightModel.ts HandlingSpec). */
+  handling?: Partial<Record<'pitchAuthority' | 'rollAuthority' | 'yawAuthority' | 'pitchDamping' | 'rollDamping' | 'yawDamping' | 'pitchStability' | 'yawStability' | 'dihedral', number>>;
 }
 
 export interface AircraftBuild {
