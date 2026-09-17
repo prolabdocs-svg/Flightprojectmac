@@ -8,7 +8,19 @@ import { resolveAircraft } from '../../content/assembly';
 import { getMission } from '../../content/missions';
 import { THE_FIELD, getRegion } from '../../content/regions';
 import { initPhysics, createWorld } from '../../sim/physics';
-import { FlightController, type FlightTelemetry } from '../../sim/flightController';
+import { FlightController, DEFAULT_RUNWAY_CONDITIONS, type FlightTelemetry } from '../../sim/flightController';
+import { getAirfield, type RunwaySurface } from '../../world/airfields';
+
+/** Roughness (0-1, see landingValidator.ts) per runway surface. Airfields don't store this
+ * directly, so it's derived here from surface type — unpaved surfaces are inherently
+ * rougher underfoot than tarmac/salt. */
+const SURFACE_ROUGHNESS: Record<RunwaySurface, number> = {
+  tarmac: 0.1,
+  salt: 0.15,
+  gravel: 0.35,
+  dirt: 0.4,
+  grass: 0.3,
+};
 import { FlightScene } from '../../render/FlightScene';
 import { computeFlightResult } from '../../content/economy';
 import { getPaint } from '../../content/paint';
@@ -57,7 +69,14 @@ export function FlightScreen() {
       const spawn = mission
         ? new THREE.Vector3(...mission.spawnPoint)
         : new THREE.Vector3(0, 1.2, 0);
-      const controller = new FlightController(world, aircraft, spawn, mission?.spawnHeadingDeg ?? 0);
+      const destinationAirfield = mission?.destinationAirfieldId ? getAirfield(mission.destinationAirfieldId) : undefined;
+      // AirfieldDefinition (src/world/airfields.ts, owned by other work) doesn't carry an
+      // explicit roughness value, so surface type stands in for it here: unpaved surfaces
+      // are inherently rougher than tarmac/salt.
+      const runwayConditions = destinationAirfield
+        ? { surface: destinationAirfield.surface, roughness: SURFACE_ROUGHNESS[destinationAirfield.surface] }
+        : DEFAULT_RUNWAY_CONDITIONS;
+      const controller = new FlightController(world, aircraft, spawn, mission?.spawnHeadingDeg ?? 0, runwayConditions);
       controllerRef.current = controller;
 
       const region = mission ? getRegion(mission.regionId) : THE_FIELD;

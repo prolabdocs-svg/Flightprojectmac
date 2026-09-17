@@ -15,6 +15,12 @@ import {
   type CrashOutcome,
   type DamageState,
 } from './damageSystem';
+import { computeCrosswindMs, computeRollPitchDeg } from './touchdownTelemetry';
+import { validateLanding, type LandingTelemetry, type RunwayConditions } from '../world/landingValidator';
+
+/** Used when a mission has no destinationAirfieldId (or none is provided) — a mid-tolerance
+ * surface so an un-linked mission's landing scoring isn't unrealistically easy or hard. */
+export const DEFAULT_RUNWAY_CONDITIONS: RunwayConditions = { surface: 'grass', roughness: 0.4 };
 
 export type FlightState =
   | 'prestart'
@@ -57,6 +63,9 @@ export interface FlightTelemetry {
   crashOutcome: CrashOutcome;
   damagedPartIds: string[];
   detachedPartIds: string[];
+  /** Reasons the touchdown failed validateLanding() (src/world/landingValidator.ts), e.g.
+   * 'verticalSpeed'/'roll'/'pitch'/'crosswind'. Empty before any landing/on a clean one. */
+  landingFailures: string[];
 }
 
 const FIXED_DT = 1 / 60;
@@ -92,12 +101,25 @@ export class FlightController {
   private rpm = 0;
   private wasGrounded = true;
   private damageState: DamageState;
+  private runwayConditions: RunwayConditions;
+  /** Captured the instant the airframe transitions airborne -> grounded (see step()'s
+   * touchdown edge below); null until the first such transition this flight. */
+  private touchdownTelemetry: LandingTelemetry | null = null;
+  private landingFailures: string[] = [];
+  private lastWindWorld = new THREE.Vector3();
 
-  constructor(world: RAPIER.World, aircraft: ResolvedAircraft, spawnPos: THREE.Vector3, spawnHeadingDeg: number) {
+  constructor(
+    world: RAPIER.World,
+    aircraft: ResolvedAircraft,
+    spawnPos: THREE.Vector3,
+    spawnHeadingDeg: number,
+    runwayConditions: RunwayConditions = DEFAULT_RUNWAY_CONDITIONS,
+  ) {
     this.world = world;
     this.aircraft = aircraft;
     this.spawnPos = spawnPos.clone();
     this.spawnHeadingDeg = spawnHeadingDeg;
+    this.runwayConditions = runwayConditions;
     this.fuelCapacityL = aircraft.fuelCapacityL;
     this.fuelL = aircraft.fuelCapacityL;
 
@@ -155,12 +177,15 @@ export class FlightController {
     this.throttleSmoothed = 0;
     this.wasGrounded = true;
     this.damageState = createDamageState(this.aircraft.aeroSurfaces.map((s) => s.id));
+    this.touchdownTelemetry = null;
+    this.landingFailures = [];
   }
 
   /** Advances one fixed physics tick. Wind is a world-space m/s vector. */
   step(controls: ResolvedControls, windWorld: THREE.Vector3) {
     const dt = FIXED_DT;
     this.elapsedS += dt;
+    this.lastWindWorld.copy(windWorld);
 
     // ROOT CAUSE of the taxi/ground-roll speed oscillation (bisected with a headless
     // Rapier harness: a bare rigid body + a single constant addForce() call, no
@@ -359,6 +384,7 @@ export class FlightController {
 
     // --- Post-step bookkeeping ---
     const newPos = this.body.translation();
+    const newRot = this.body.rotation();
     const newLinvel = this.body.linvel();
     const speedNow = Math.hypot(newLinvel.x, newLinvel.y, newLinvel.z);
     const altitudeNow = Math.max(0, newPos.y - GROUND_LEVEL_Y - GROUND_REST_OFFSET_M);
@@ -374,6 +400,19 @@ export class FlightController {
     // vertical speed as the impact-severity proxy (damageSystem.ts applyGroundImpact).
     if (groundedNow && !this.wasGrounded) {
       this.damageState = applyGroundImpact(this.damageState, this.lastVerticalSpeed);
+
+      // Real touchdown telemetry (spec world-graph foundation's landingValidator, task:
+      // wire it into the sim instead of leaving it dead code): sampled at the exact
+      // airborne->grounded transition, using the same pre-contact vertical speed the
+      // damage system uses as its impact-severity proxy.
+      const { rollDeg, pitchDeg } = computeRollPitchDeg(newRot);
+      this.touchdownTelemetry = {
+        verticalSpeedMs: this.lastVerticalSpeed,
+        groundSpeedMs: Math.hypot(newLinvel.x, newLinvel.z),
+        rollDeg,
+        pitchDeg,
+        crosswindMs: computeCrosswindMs(this.lastWindWorld, newRot),
+      };
     }
     this.wasGrounded = groundedNow;
 
@@ -384,7 +423,16 @@ export class FlightController {
       } else if (groundedNow && this.elapsedS > 1.2 && this.maxAltitudeM > 1.5 && speedNow < 6) {
         this.landed = true;
         this.state = 'stopped';
-        this.landingQuality = Math.max(0, 1 - Math.abs(this.lastVerticalSpeed) / 6);
+        const telemetryForValidation: LandingTelemetry = this.touchdownTelemetry ?? {
+          verticalSpeedMs: this.lastVerticalSpeed,
+          groundSpeedMs: speedNow,
+          rollDeg: 0,
+          pitchDeg: 0,
+          crosswindMs: 0,
+        };
+        const landingResult = validateLanding(telemetryForValidation, this.runwayConditions);
+        this.landingQuality = landingResult.qualityScore;
+        this.landingFailures = landingResult.failures;
       } else if (!groundedNow && this.maxAltitudeM > 1.5) {
         this.state = 'airborne';
       } else if (groundedNow) {
@@ -414,6 +462,7 @@ export class FlightController {
       crashOutcome: this.damageState.outcome,
       damagedPartIds: listDamagedPartIds(this.damageState),
       detachedPartIds: listDetachedPartIds(this.damageState),
+      landingFailures: this.landingFailures,
     };
   }
 }
