@@ -7,7 +7,9 @@ export class FloatingOrigin {
   private origin = new THREE.Vector3();
   private readonly registered = new Set<THREE.Object3D>();
 
-  constructor(private readonly rebaseThresholdM = 5000) {}
+  private readonly rebaseThresholdM: number;
+
+  constructor(rebaseThresholdM = 5000) { this.rebaseThresholdM = rebaseThresholdM; }
 
   register(object: THREE.Object3D) { this.registered.add(object); }
   unregister(object: THREE.Object3D) { this.registered.delete(object); }
