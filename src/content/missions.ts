@@ -1,7 +1,16 @@
 import type { MissionDefinition } from '../core/types';
 
+/** Optional world-graph references, layered on top of MissionDefinition without
+ * touching its existing local-coordinate fields (FlightScreen still consumes
+ * spawnPoint/targetPoint directly). Lets the map/route UI show which airfields a
+ * mission connects while missions keep flying purely off local coordinates. */
+export interface MissionAirfieldLinks {
+  originAirfieldId?: string;
+  destinationAirfieldId?: string;
+}
+
 // Familias implementadas en este slice: Distance Run, Precision Landing, STOL Challenge (spec 13.2).
-export const MISSIONS: MissionDefinition[] = [
+export const MISSIONS: Array<MissionDefinition & MissionAirfieldLinks> = [
   {
     id: 'field_distance_01',
     regionId: 'the_field',
@@ -11,6 +20,7 @@ export const MISSIONS: MissionDefinition[] = [
     spawnPoint: [0, 1.2, 0],
     spawnHeadingDeg: 0,
     minDistanceM: 300,
+    originAirfieldId: 'field_home',
     rewardBaseCash: 60,
     rewardBaseRp: 10,
     bonuses: [
@@ -28,6 +38,8 @@ export const MISSIONS: MissionDefinition[] = [
     spawnHeadingDeg: 0,
     targetPoint: [40, 0, 260],
     targetRadiusM: 18,
+    originAirfieldId: 'field_home',
+    destinationAirfieldId: 'field_north_strip',
     rewardBaseCash: 90,
     rewardBaseRp: 15,
     bonuses: [
