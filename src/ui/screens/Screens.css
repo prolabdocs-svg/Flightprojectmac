@@ -395,6 +395,17 @@
   font-size: 12px;
   opacity: 0.8;
 }
+.results-costs {
+  display: flex;
+  gap: 16px;
+  font-size: 13px;
+  color: var(--danger, #d16b6b);
+  opacity: 0.9;
+}
+.results-costs .results-net {
+  color: inherit;
+  font-weight: 700;
+}
 .results-actions {
   display: flex;
   gap: 10px;

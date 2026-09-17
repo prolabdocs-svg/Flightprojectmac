@@ -246,6 +246,13 @@ export interface FlightResult {
   crashOutcome?: 'none' | 'hardLanding' | 'totalLoss';
   damagedPartIds?: string[];
   detachedPartIds?: string[];
+  /** Operating costs (economy.ts#computeOperatingCosts). Optional so older
+   * callers/fixtures that only set the original reward fields keep compiling. */
+  fuelCost?: number;
+  repairCost?: number;
+  /** rewardCash minus fuelCost/repairCost (after the "never wipe out progress" floor).
+   * This, not rewardCash, is what should actually be added to the player's cash. */
+  netCash?: number;
 }
 
 export type ThreeVec3 = Vector3;

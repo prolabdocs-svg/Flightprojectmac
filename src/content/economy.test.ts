@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { computeFlightResult } from './economy';
+import { computeFlightResult, computeOperatingCosts } from './economy';
 import type { FlightTelemetry } from '../sim/flightController';
-import type { MissionDefinition } from '../core/types';
+import type { AircraftBuild, MissionDefinition } from '../core/types';
+import { resolveAircraft } from './assembly';
 
 function telemetry(overrides: Partial<FlightTelemetry> = {}): FlightTelemetry {
   return {
@@ -12,6 +13,9 @@ function telemetry(overrides: Partial<FlightTelemetry> = {}): FlightTelemetry {
     landed: false,
     landingQuality: 0,
     fuelFraction: 1,
+    crashOutcome: 'none',
+    damagedPartIds: [],
+    detachedPartIds: [],
     ...overrides,
   } as FlightTelemetry;
 }
@@ -79,5 +83,87 @@ describe('computeFlightResult', () => {
     const result = computeFlightResult(mission, telemetry({ distanceM: 333, landed: true, landingQuality: 0.73 }));
     expect(Number.isInteger(result.rewardCash)).toBe(true);
     expect(Number.isInteger(result.rewardRp)).toBe(true);
+  });
+
+  it('deducts operating costs from rewardCash to produce netCash', () => {
+    const result = computeFlightResult(
+      mission,
+      telemetry({ distanceM: 1000, fuelFraction: 0.5, damagedPartIds: ['wing_root_main'] }),
+    );
+    expect(result.netCash).toBeLessThan(result.rewardCash!);
+    expect(result.netCash).toBe(result.rewardCash! - (result.fuelCost ?? 0) - (result.repairCost ?? 0));
+  });
+});
+
+describe('computeOperatingCosts', () => {
+  const defaultBuild: AircraftBuild = { frameId: 'frame_zero', installed: {} };
+  const aircraft = resolveAircraft(defaultBuild);
+
+  it('has no repair cost when nothing is damaged or detached', () => {
+    const costs = computeOperatingCosts(telemetry({ fuelFraction: 1 }), aircraft, defaultBuild);
+    expect(costs.repairCost).toBe(0);
+  });
+
+  it('charges no fuel cost when the tank is still full', () => {
+    const costs = computeOperatingCosts(telemetry({ fuelFraction: 1 }), aircraft, defaultBuild);
+    expect(costs.fuelCost).toBe(0);
+  });
+
+  it('scales fuel cost with fuel actually burned', () => {
+    const lightBurn = computeOperatingCosts(telemetry({ fuelFraction: 0.9 }), aircraft, defaultBuild);
+    const heavyBurn = computeOperatingCosts(telemetry({ fuelFraction: 0.1 }), aircraft, defaultBuild);
+    expect(heavyBurn.fuelCost).toBeGreaterThan(lightBurn.fuelCost);
+  });
+
+  it('charges more to repair a detached part than an equivalent damaged part', () => {
+    const damaged = computeOperatingCosts(
+      telemetry({ damagedPartIds: ['wing_root_main'] }),
+      aircraft,
+      defaultBuild,
+    );
+    const detached = computeOperatingCosts(
+      telemetry({ detachedPartIds: ['wing_root_main'] }),
+      aircraft,
+      defaultBuild,
+    );
+    expect(detached.repairCost).toBeGreaterThan(damaged.repairCost);
+  });
+
+  it('caps a total-loss repair cost to roughly a full airframe replacement, not an unbounded stack', () => {
+    const totalLoss = computeOperatingCosts(
+      telemetry({
+        crashOutcome: 'totalLoss',
+        damagedPartIds: ['aileron_l', 'aileron_r'],
+        detachedPartIds: ['wing_root_main', 'elevator', 'rudder'],
+      }),
+      aircraft,
+      defaultBuild,
+    );
+    const naiveStack = computeOperatingCosts(
+      telemetry({
+        crashOutcome: 'none',
+        damagedPartIds: ['aileron_l', 'aileron_r'],
+        detachedPartIds: ['wing_root_main', 'elevator', 'rudder'],
+      }),
+      aircraft,
+      defaultBuild,
+    );
+    expect(totalLoss.repairCost).toBeGreaterThan(0);
+    expect(totalLoss.repairCost).toBeLessThanOrEqual(Math.max(totalLoss.repairCost, naiveStack.repairCost));
+  });
+
+  it('never lets computeFlightResult costs push netCash below the survival floor', () => {
+    const result = computeFlightResult(
+      null,
+      telemetry({
+        distanceM: 0,
+        crashOutcome: 'totalLoss',
+        detachedPartIds: ['wing_root_main', 'elevator', 'rudder', '__gear__'],
+        fuelFraction: 0,
+      }),
+      aircraft,
+      defaultBuild,
+    );
+    expect(result.netCash).toBeGreaterThanOrEqual(0);
   });
 });

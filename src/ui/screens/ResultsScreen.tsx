@@ -57,6 +57,14 @@ export function ResultsScreen() {
         <span>+{result.rewardRp} RP</span>
       </div>
 
+      {((result.fuelCost ?? 0) > 0 || (result.repairCost ?? 0) > 0) && (
+        <div className="results-costs">
+          {(result.fuelCost ?? 0) > 0 && <span>Combustible: -${result.fuelCost}</span>}
+          {(result.repairCost ?? 0) > 0 && <span>Reparaciones: -${result.repairCost}</span>}
+          <span className="results-net">Neto: ${result.netCash ?? result.rewardCash}</span>
+        </div>
+      )}
+
       {result.bonusesAchieved.length > 0 && (
         <div className="results-bonuses">
           Bonos logrados: {result.bonusesAchieved.join(', ')}
