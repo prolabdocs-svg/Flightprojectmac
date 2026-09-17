@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { RegionDefinition } from '../core/types';
+import { createTerrainQueryService, type TerrainQueryService } from '../world/terrainQuery';
 
 /** Presentation-only region kit.  Simulation reads the matching data profile through
  * sim/weather.ts, so visual density can be changed independently of flight behaviour. */
@@ -9,9 +10,11 @@ export class WorldEnvironment {
   private readonly windSock: THREE.Mesh;
   private readonly rain: THREE.Points | null;
   private readonly region: RegionDefinition;
+  readonly terrainQuery: TerrainQueryService;
 
   constructor(region: RegionDefinition) {
     this.region = region;
+    this.terrainQuery = createTerrainQueryService(region);
     this.root.name = `environment:${region.id}`;
     this.addTerrain();
     this.addClouds();
@@ -24,15 +27,14 @@ export class WorldEnvironment {
     const segments = 96;
     const geo = new THREE.PlaneGeometry(size, size, segments, segments);
     const pos = geo.attributes.position;
-    // A deterministic height field keeps the runway neighbourhood flat while providing
-    // readable distant hills. It is render-only: the initial slice keeps its stable
-    // simple ground collider until heightfield collision is introduced per region.
+    // Elevation now comes from the shared TerrainQueryService (src/world/terrainQuery.ts) so
+    // the visual mesh and the physics ground collider (see FlightScreen.tsx) can never drift
+    // apart. This plane is authored in local (x, y) space and rotated -90deg about X below,
+    // which maps local x -> world x and local y -> world -z (see terrainQuery.ts for detail).
     for (let i = 0; i < pos.count; i++) {
-      const x = pos.getX(i);
-      const y = pos.getY(i);
-      const radius = Math.hypot(x, y - 150);
-      const roughness = this.region.environment.terrain === 'quarry' ? 1.9 : 0.75;
-      const height = radius < 190 ? 0 : (Math.sin(x * 0.004) * 18 + Math.cos(y * 0.005) * 14 + Math.sin((x + y) * 0.008) * 9) * roughness;
+      const localX = pos.getX(i);
+      const localY = pos.getY(i);
+      const height = this.terrainQuery.getElevation(localX, -localY);
       pos.setZ(i, height);
     }
     geo.computeVertexNormals();

@@ -15,6 +15,7 @@ import { getPaint } from '../../content/paint';
 import { FlightHud } from '../components/FlightHud';
 import { audioService } from '../../audio/audioService';
 import { getEnvironmentWind } from '../../sim/weather';
+import { createTerrainQueryService } from '../../world/terrainQuery';
 
 const FIXED_DT = 1 / 60;
 
@@ -47,17 +48,33 @@ export function FlightScreen() {
       if (disposed || !canvasRef.current) return;
 
       const world = createWorld();
+
+      const region = mission ? getRegion(mission.regionId) : THE_FIELD;
+      // TerrainQueryService (src/world/terrainQuery.ts) is the single authority for ground
+      // elevation: WorldEnvironment's visual mesh and this spawn-height calculation both
+      // sample it, so they can never drift apart.
+      //
+      // NEXT STEP (not done in this pass): replace this flat collider with a
+      // RAPIER.ColliderDesc.heightfield(...) sampled from `terrainQuery`, so the physics
+      // ground actually matches the visual relief everywhere, not just at the spawn point.
+      // A heightfield attempt was tried here and reliably crashed the Rapier wasm module
+      // ("memory access out of bounds") as soon as the aircraft body was simulated against
+      // it, even with a conservative 65x65 sample grid — likely a sign convention or
+      // row/column-major mismatch in how @dimforge/rapier3d-compat@0.20 expects the heights
+      // buffer laid out relative to world axes, which needs to be verified against a working
+      // Rapier heightfield example (not blind extrapolation from the .d.ts alone) before
+      // shipping. Given flight-feel correctness is the higher priority for this change, the
+      // flat collider is kept and only the spawn height is corrected via TerrainQueryService.
+      const terrainQuery = createTerrainQueryService(region);
       const groundDesc = RAPIER.ColliderDesc.cuboid(3000, 0.5, 3000).setTranslation(0, -0.5, 0).setFriction(0.85);
       world.createCollider(groundDesc);
 
       const aircraft = resolveAircraft(profile.currentBuild);
-      const spawn = mission
-        ? new THREE.Vector3(...mission.spawnPoint)
-        : new THREE.Vector3(0, 1.2, 0);
+      const spawnPoint = mission ? mission.spawnPoint : ([0, 1.2, 0] as const);
+      const spawnGroundY = terrainQuery.getElevation(spawnPoint[0], spawnPoint[2]);
+      const spawn = new THREE.Vector3(spawnPoint[0], Math.max(spawnPoint[1], spawnGroundY + 1.2), spawnPoint[2]);
       const controller = new FlightController(world, aircraft, spawn, mission?.spawnHeadingDeg ?? 0);
       controllerRef.current = controller;
-
-      const region = mission ? getRegion(mission.regionId) : THE_FIELD;
 
       const paint = getPaint(profile.selectedPaintId);
       const scene = new FlightScene(canvasRef.current, region, paint && {
