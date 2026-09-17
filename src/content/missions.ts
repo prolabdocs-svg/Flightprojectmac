@@ -105,7 +105,7 @@ export const MISSIONS: Array<MissionDefinition & MissionAirfieldLinks> = [
   },
 ];
 
-export function getMission(id: string): MissionDefinition | undefined {
+export function getMission(id: string): (MissionDefinition & MissionAirfieldLinks) | undefined {
   return MISSIONS.find((m) => m.id === id);
 }
 
