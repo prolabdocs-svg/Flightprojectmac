@@ -1,6 +1,7 @@
 import bpy
 import math
 import os
+from mathutils import Vector
 
 # PROJECT FLIGHT — authored low-poly asset kit.
 # Run from Blender's Text Editor/Python Console. The script is idempotent and exports
@@ -35,6 +36,7 @@ LEAF = mat('foliage', (0.08, 0.26, 0.085), 0.0, 0.95)
 ORANGE = mat('safety_orange', (0.95, 0.22, 0.035), 0.0, 0.54)
 YELLOW = mat('crane_yellow', (0.92, 0.52, 0.03), 0.54, 0.42)
 WHITE = mat('marking_white', (0.82, 0.8, 0.66), 0.0, 0.76)
+CANOPY = mat('smoked_canopy', (0.035, 0.11, 0.14), 0.34, 0.16)
 
 def collection(name):
     c = bpy.data.collections.new(name)
@@ -70,7 +72,7 @@ def cone(c,name,loc,r1,r2,depth,material,vertices=8):
     o=bpy.context.object; o.name=name; o.data.materials.append(material); return link(o,c)
 
 def rod(c,name,a,b,r,material):
-    a,b = bpy.mathutils.Vector(a), bpy.mathutils.Vector(b)
+    a,b = Vector(a), Vector(b)
     d=b-a; mid=(a+b)/2
     bpy.ops.mesh.primitive_cylinder_add(vertices=8, radius=r, depth=d.length, location=mid)
     o=bpy.context.object; o.name=name; o.data.materials.append(material)
@@ -99,11 +101,19 @@ for x in (-1,1):
     rod(c,'wing_trailing',(x*.2,.28,-.73),(x*5.12,.28,-.73),.035,TUBE)
     for k in (1.25,2.5,3.75): rod(c,'wing_rib',(x*k,.25,-.70),(x*k,.25,.70),.023,TUBE)
     cube(c,'aileron_L' if x<0 else 'aileron_R',(x*4.35,.25,-.53),(.75,.055,.2),FABRIC,.02)
+# High-contrast wingtips and a dark cockpit break up the large fabric silhouette at
+# chase-camera distance without spending triangles on invisible detail.
+for x in (-1,1):
+    cube(c,'safety_tip_L' if x<0 else 'safety_tip_R',(x*5.13,.28,0),(.09,.075,.78),ORANGE,.025)
+seat = cube(c,'cockpit_seat',(0,.18,-.58),(.34,.18,.42),ENGINE,.04); seat.rotation_euler=(-.32,0,0)
+cube(c,'cockpit_coaming',(0,.52,-.22),(.42,.14,.56),CANOPY,.05)
+for x in (-1,1): rod(c,'cockpit_rail',(x*.42,.05,-1.05),(x*.42,.72,.26),.028,TUBE)
 for x in (-1,1): rod(c,'wing_brace',(x*.25,-.25,1.05),(x*4.3,.28,.2),.04,TUBE)
 cube(c,'horizontal_stabilizer',(0,.45,-2.85),(1.35,.05,.42),FABRIC,.025)
 cube(c,'elevator',(0,.45,-3.27),(1.35,.05,.16),FABRIC,.018)
 cube(c,'vertical_stabilizer',(0,1.05,-2.9),(.04,.6,.46),FABRIC,.02)
 cube(c,'rudder',(0,1.03,-3.30),(.04,.48,.16),FABRIC,.018)
+cube(c,'tail_warning',(0,1.05,-3.47),(.065,.48,.045),ORANGE,.012)
 cube(c,'engine_block',(0,.02,2.48),(.48,.38,.38),ENGINE,.08)
 for x in (-.28,.28): cyl(c,'cylinder_head',(x,.05,2.85),.18,.32,ENGINE,10,(math.pi/2,0,0))
 for y in (-.72,.72):

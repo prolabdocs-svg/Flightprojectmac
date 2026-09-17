@@ -38,7 +38,6 @@ export function FlightScreen() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const controllerRef = useRef<FlightController | null>(null);
   const sceneRef = useRef<FlightScene | null>(null);
-  const rafRef = useRef<number>(0);
   const endTimerRef = useRef<number | null>(null);
   const paused = useGameStore((s) => s.paused);
   const setPaused = useGameStore((s) => s.setPaused);
@@ -57,6 +56,8 @@ export function FlightScreen() {
 
   useEffect(() => {
     let disposed = false;
+    let frameId = 0;
+    let release: (() => void) | undefined;
     const clock = new FixedStepClock(FIXED_DT, 0.1, 8);
     let lastNow = performance.now();
 
@@ -112,12 +113,34 @@ export function FlightScreen() {
       scene.setTargetMarker(mission?.targetPoint, mission?.targetRadiusM ?? 20);
       sceneRef.current = scene;
 
+      // React dev mode may tear this effect down while the asynchronous physics
+      // bootstrap is resolving. Install ownership cleanup before scheduling any
+      // listeners or animation work so a stale boot can never leave a live world.
+      let cleaned = false;
+      release = () => {
+        if (cleaned) return;
+        cleaned = true;
+        cancelAnimationFrame(frameId);
+        window.removeEventListener('resize', resize);
+        window.removeEventListener('keydown', onKeyDown);
+        window.removeEventListener('keyup', onKeyUp);
+        window.removeEventListener('blur', onInputBlur);
+        if (controllerRef.current === controller) controllerRef.current = null;
+        if (sceneRef.current === scene) sceneRef.current = null;
+        scene.dispose();
+        world.free();
+      };
+
       const resize = () => {
         const canvas = canvasRef.current;
         if (!canvas) return;
         const { clientWidth, clientHeight } = canvas;
         scene.resize(clientWidth || window.innerWidth, clientHeight || window.innerHeight);
       };
+      if (disposed) {
+        release();
+        return;
+      }
       resize();
       window.addEventListener('resize', resize);
 
@@ -310,28 +333,22 @@ export function FlightScreen() {
         audioService.updateWind(speedMs);
         scene.render();
 
-        rafRef.current = requestAnimationFrame(loop);
+        frameId = requestAnimationFrame(loop);
       };
-      rafRef.current = requestAnimationFrame(loop);
-
-      return () => {
-        window.removeEventListener('resize', resize);
-        window.removeEventListener('keydown', onKeyDown);
-        window.removeEventListener('keyup', onKeyUp);
-        window.removeEventListener('blur', onInputBlur);
-        controllerRef.current = null;
-        world.free();
-      };
+      if (disposed) {
+        release();
+        return;
+      }
+      frameId = requestAnimationFrame(loop);
     }
 
-    const cleanupPromise = boot();
+    void boot();
 
     return () => {
       disposed = true;
-      cancelAnimationFrame(rafRef.current);
+      cancelAnimationFrame(frameId);
       if (endTimerRef.current) window.clearTimeout(endTimerRef.current);
-      sceneRef.current?.dispose();
-      cleanupPromise.then((fn) => fn?.());
+      release?.();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

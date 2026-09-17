@@ -38,7 +38,12 @@ export class ChaseCamera {
 
   update(position: THREE.Vector3, quaternion: THREE.Quaternion, dtS: number, input: ChaseCameraInput) {
     const dt = Math.max(0, dtS);
-    const behind = this.behind.set(-5.2, 3.8, -11.8).applyQuaternion(quaternion);
+    // Portrait screens need a centered, longer chase vector; the desktop three-quarter
+    // angle otherwise crops the wing and makes the aircraft read as UI-adjacent clutter.
+    const portrait = this.camera.aspect < 0.8;
+    const behind = this.behind
+      .set(portrait ? -2.8 : -7.2, portrait ? 7.2 : 5.6, portrait ? -21 : -13.4)
+      .applyQuaternion(quaternion);
     const desiredPos = this.desiredPos.copy(position).add(behind);
     this.pos.lerp(desiredPos, 1 - Math.exp(-CHASE_POSITION_RESPONSE * dt));
     this.camera.position.copy(this.pos);

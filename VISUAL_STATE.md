@@ -1,0 +1,8 @@
+# Visual State
+
+- Iteration: 2
+- Current bottleneck: the first-flight scene now has a visible, correctly aligned airfield strip and a horizontally correct aircraft, but the surrounding world and asset richness still read as a prototype at gameplay distance.
+- Completed this iteration: the Blender-authored ultralight hero GLB is exported, loaded in the flight scene with its Blender-to-Three forward axis corrected, inherits the selected fabric/tube livery, animates its named propeller, and has cockpit/structural contrast and safety wingtips; flight cleanup is instance-safe; each runway uses the active airfield's dimensions, surface and graded elevation; the portrait camera uses a centered wider chase framing; hangar upgrade rows reflow on narrow screens; every campaign region streams sparse authored anchors; the map presents actual airfield positions rather than only a card list.
+- Validation: local gameplay flight is stable through takeoff controls with no console errors in fresh desktop or 390×844 mobile captures; the captures confirm the airfield strip, corrected airframe and mobile framing. `npm run build` and 272 automated tests pass; lint has one pre-existing non-blocking warning. Low-power mobile GPUs use a 1.25 DPR / 512px shadow tier.
+- Production build: passes after minimally reconciling the pre-existing untracked `src/sim/flightModel.ts` with the current simulation contracts.
+- Score and validation streak: not claimed. The latest runway capture fixes the buried-strip P0 but confirms that the first-flight composition is still below the required commercial bar; the full representative capture and mobile profiling set have not been produced.

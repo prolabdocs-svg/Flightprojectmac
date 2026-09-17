@@ -5,6 +5,7 @@ import { REGIONS, isRegionUnlocked } from '../../content/regions';
 import { getAirfield, getRegionAirfields } from '../../world/airfields';
 import { RouteGraph } from '../../world/routePlanner';
 import { MenuNavigation } from '../components/MenuNavigation';
+import type { CSSProperties } from 'react';
 import './Screens.css';
 
 // Spec 82.4 Map: region selector + mission cards with best score / rewards preview.
@@ -26,6 +27,14 @@ export function MapScreen() {
     distanceM: edge.distanceM,
     difficulty: edge.difficulty,
   })));
+  const xs = airfields.map((airfield) => airfield.position[0]);
+  const zs = airfields.map((airfield) => airfield.position[2]);
+  const minX = Math.min(...xs, -100), maxX = Math.max(...xs, 100);
+  const minZ = Math.min(...zs, -100), maxZ = Math.max(...zs, 100);
+  const pointStyle = (position: readonly [number, number, number]): CSSProperties => ({
+    left: `${12 + ((position[0] - minX) / (maxX - minX)) * 76}%`,
+    top: `${84 - ((position[2] - minZ) / (maxZ - minZ)) * 68}%`,
+  });
 
   return (
     <div className="screen map-screen">
@@ -54,6 +63,17 @@ export function MapScreen() {
           })}
         </div>
       )}
+
+      <section className={`route-map route-map-${region.environment.terrain}`} aria-label={`Mapa de ${region.name}`}>
+        <span className="route-map-compass">N</span>
+        <span className="route-map-caption">SECTOR DE VUELO</span>
+        {airfields.map((airfield) => (
+          <div className={`route-map-pin route-map-pin-${airfield.discoveryState}`} key={airfield.id} style={pointStyle(airfield.position)}>
+            <i />
+            <span>{airfield.discoveryState === 'known' ? airfield.name : '?'}</span>
+          </div>
+        ))}
+      </section>
 
       <p className="region-desc">{region.description}</p>
 

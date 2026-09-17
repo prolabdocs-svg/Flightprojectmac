@@ -76,7 +76,9 @@ export class WorldEnvironment {
       colors.set([color.r, color.g, color.b], i * 3);
     }
     geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-    const terrainMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.98, metalness: 0, flatShading: true });
+    // The shared detail texture supplies grain, while this per-region tint preserves biome
+    // identity at low altitude instead of making every close surface read as The Field.
+    const terrainMat = new THREE.MeshStandardMaterial({ color: base.clone().lerp(new THREE.Color('#ffffff'), 0.55), vertexColors: true, roughness: 0.98, metalness: 0, flatShading: true });
     // Generated as a dedicated, tileable albedo asset. Vertex colours remain in the
     // shader as macro variation, while this map contributes the close-range grass/soil
     // detail that procedural geometry alone cannot carry.
@@ -153,23 +155,29 @@ export class WorldEnvironment {
    * do, without adding any collidable geometry or per-frame cost. One InstancedMesh. */
   private addRidgeline() {
     const rng = createSeededRandom('world-environment-ridgeline', this.region.id);
-    const count = 26;
-    const mat = new THREE.MeshBasicMaterial({ color: this.region.environment.terrain === 'quarry' ? '#5b5348' : '#3f5b46', fog: true });
-    const mesh = new THREE.InstancedMesh(new THREE.ConeGeometry(1, 1, 5), mat, count);
-    const m = new THREE.Matrix4();
-    const radius = 2600;
-    for (let i = 0; i < count; i++) {
-      const angle = (i / count) * Math.PI * 2 + rng.next() * 0.2;
-      const dist = radius + rng.next() * 500;
-      const height = 220 + rng.next() * 380;
-      const width = 260 + rng.next() * 320;
-      const x = Math.cos(angle) * dist;
-      const z = Math.sin(angle) * dist;
-      m.compose(new THREE.Vector3(x, height * 0.42, z), new THREE.Quaternion(), new THREE.Vector3(width, height, width));
-      mesh.setMatrixAt(i, m);
+    const quarry = this.region.environment.terrain === 'quarry';
+    for (const [radius, color, height] of [[1500, quarry ? '#4c493f' : '#355141', 190], [2300, quarry ? '#625a4d' : '#58715d', 330]] as const) {
+      const count = 48;
+      const vertices: number[] = [];
+      const indices: number[] = [];
+      for (let i = 0; i <= count; i++) {
+        const angle = (i / count) * Math.PI * 2;
+        const nearHeight = 22 + rng.next() * 55;
+        const farHeight = height * (0.58 + rng.next() * 0.65);
+        for (const [distance, y] of [[radius, nearHeight], [radius + 760, farHeight]] as const) {
+          vertices.push(Math.cos(angle) * distance, y, Math.sin(angle) * distance);
+        }
+        if (i) {
+          const prev = (i - 1) * 2, current = i * 2;
+          indices.push(prev, prev + 1, current, prev + 1, current + 1, current);
+        }
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+      geo.setIndex(indices);
+      geo.computeVertexNormals();
+      this.root.add(new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color, fog: true, side: THREE.DoubleSide })));
     }
-    mesh.instanceMatrix.needsUpdate = true;
-    this.root.add(mesh);
   }
 
   /** Secondary ground clutter (rocks/scrub) distinct from FlightScene's tree/scrap-pile

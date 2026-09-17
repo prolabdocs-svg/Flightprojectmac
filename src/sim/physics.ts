@@ -5,13 +5,15 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 
 let initialized = false;
+let initialization: Promise<typeof RAPIER> | undefined;
 
 export async function initPhysics(): Promise<typeof RAPIER> {
-  if (!initialized) {
-    await RAPIER.init();
+  if (initialized) return RAPIER;
+  initialization ??= RAPIER.init().then(() => {
     initialized = true;
-  }
-  return RAPIER;
+    return RAPIER;
+  });
+  return initialization;
 }
 
 export function createWorld(): RAPIER.World {

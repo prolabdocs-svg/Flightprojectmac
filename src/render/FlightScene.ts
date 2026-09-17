@@ -8,6 +8,7 @@ import { createSeededRandom, type SeededRandom } from '../core/seededRandom';
 import { assetLibrary } from './assetLibrary';
 import { ACTIVE_REGION_ASSETS, FRAME_ASSET_IDS } from './assetManifest';
 import { ChaseCamera, type ChaseCameraInput } from './ChaseCamera';
+import { getFreeFlightAirfield, type RunwaySurface } from '../world/airfields';
 
 export class FlightScene {
   scene = new THREE.Scene();
@@ -24,6 +25,7 @@ export class FlightScene {
   // hide or re-tint them without the damage system knowing anything about Three.js.
   private wingMesh: THREE.Mesh | null = null;
   private tailMeshes: THREE.Mesh[] = [];
+  private propellerMeshes: THREE.Mesh[] = [];
   // Deterministic PRNG for procedural landmark placement (trees, scrap piles), seeded
   // from the region id so the same region always generates the same layout across
   // sessions (see src/core/seededRandom.ts).
@@ -31,8 +33,9 @@ export class FlightScene {
 
   constructor(canvas: HTMLCanvasElement, region: RegionDefinition, paint?: { fabricColor: string; tubeColor: string }) {
     this.worldRng = createSeededRandom('flight-scene-landmarks', region.id);
+    const lowPowerMobile = window.matchMedia('(pointer: coarse)').matches && navigator.hardwareConcurrency <= 4;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, lowPowerMobile ? 1.25 : 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.08;
@@ -50,7 +53,9 @@ export class FlightScene {
     const skyColor = new THREE.Color(region.skyColor);
     const fogColor = skyColor.clone().lerp(new THREE.Color('#ffffff'), 0.18);
     this.scene.background = skyColor;
-    this.scene.fog = new THREE.Fog(fogColor, 380, 2400);
+    // Keep nearby terrain and navigation anchors readable; haze belongs on the distant
+    // ridge layers, not across the first kilometre of a flight scene.
+    this.scene.fog = new THREE.Fog(fogColor, 700, 3200);
 
     // Lighting: warm low-angle "workshop afternoon" key light + cool sky fill,
     // matching the DIY-garage/golden-hour mood (spec 10 tono, 83.1) rather than
@@ -63,7 +68,7 @@ export class FlightScene {
     const sun = new THREE.DirectionalLight(0xffdca8, 1.75);
     sun.position.set(260, 340, 120);
     sun.castShadow = true;
-    sun.shadow.mapSize.set(1024, 1024);
+    sun.shadow.mapSize.set(lowPowerMobile ? 512 : 1024, lowPowerMobile ? 512 : 1024);
     sun.shadow.camera.left = -70;
     sun.shadow.camera.right = 70;
     sun.shadow.camera.top = 70;
@@ -81,15 +86,22 @@ export class FlightScene {
     this.environment = new WorldEnvironment(region);
     this.scene.add(this.environment.root);
 
-    // Simple runway strip
-    const runwayGeo = new THREE.PlaneGeometry(24, 400);
-    const runwayMat = new THREE.MeshStandardMaterial({ color: '#8f8a76', roughness: 0.9, metalness: 0.05 });
+    // The visual runway must occupy the same graded airport pad as physics and spawn
+    // logic. The previous fixed y=0 strip was buried by the terrain in the first
+    // playable region, leaving players to begin on an apparently random field.
+    const airfield = getFreeFlightAirfield(region.id);
+    const runwayCenter: [number, number] = airfield ? [airfield.position[0], airfield.position[2]] : [0, 0];
+    const runwayWidth = airfield?.runwayWidthM ?? 24;
+    const runwayLength = airfield?.runwayLengthM ?? 220;
+    const runwayY = this.environment.terrainQuery.getElevation(...runwayCenter);
+    const runwayGeo = new THREE.PlaneGeometry(runwayWidth, runwayLength);
+    const runwayMat = new THREE.MeshStandardMaterial({ color: this.runwayColor(airfield?.surface), roughness: 0.9, metalness: 0.03 });
     const runway = new THREE.Mesh(runwayGeo, runwayMat);
     runway.rotation.x = -Math.PI / 2;
-    runway.position.set(0, 0.02, 150);
+    runway.position.set(runwayCenter[0], runwayY + 0.025, runwayCenter[1]);
     runway.receiveShadow = true;
     this.scene.add(runway);
-    this.addRunwayDressings();
+    this.addRunwayDressings(runwayCenter, runwayY, runwayWidth, runwayLength, airfield?.surface);
 
     // Landmarks: region-specific, so the world isn't a flat void (spec 12.2/12.3).
     if (region.environment.terrain === 'quarry') {
@@ -100,7 +112,10 @@ export class FlightScene {
       this.buildTerrainLandmarks(region.environment.terrain);
     }
 
+    // Keep a first-frame proxy while the GLB streams, then replace it with the
+    // authored airframe already shipped with the game.
     this.buildAircraftPlaceholder(paint);
+    this.aircraftGroup.visible = false;
     this.scene.add(this.aircraftGroup);
     this.scene.add(this.streamedProps);
     // Loading is deliberately non-blocking. The authored proxy is visible on the first
@@ -109,27 +124,65 @@ export class FlightScene {
   }
 
   private async hydrateRuntimeAssets(region: RegionDefinition, paint?: { fabricColor: string; tubeColor: string }) {
-    // Keep the authored procedural airframe as the production baseline. World GLBs add
-    // authored landmarks after first paint, so players are never blocked on a fetch.
-    void FRAME_ASSET_IDS.frame_zero;
-    void paint;
+    void this.hydrateAircraft(FRAME_ASSET_IDS.frame_zero, paint);
 
-    const ids = ACTIVE_REGION_ASSETS[region.id as keyof typeof ACTIVE_REGION_ASSETS];
-    if (!ids) return;
-    // Navigation assets are streamed as isolated instances. Their authored positions are
-    // deliberately sparse; region-specific placement remains data-driven in the world layer.
-    const positions: Array<[number, number]> = [[-40, 20], [35, 260], [-12, 55], [0, 150], [80, 220]];
-    await Promise.all(ids.map(async (id, index) => {
+    const placements = ACTIVE_REGION_ASSETS[region.id];
+    if (!placements) return;
+    await Promise.all(placements.map(async ({ id, position: [x, z], scale = 1, rotationY = 0 }) => {
       try {
         const prop = await assetLibrary.load('world', id);
-        const [x, z] = positions[index] ?? [0, 0];
         prop.position.set(x, this.environment.terrainQuery.getElevation(x, z), z);
-        prop.scale.setScalar(id === 'runway_modular_segment' ? 0.2 : 1);
+        prop.scale.setScalar(scale);
+        prop.rotation.y = rotationY;
         this.streamedProps.add(prop);
       } catch {
         // Existing procedural landmarks are the graceful fallback for every prop.
       }
     }));
+  }
+
+  /** Replaces the loading proxy with the authored, mobile-ready starter airframe. */
+  private async hydrateAircraft(id: string, paint?: { fabricColor: string; tubeColor: string }) {
+    try {
+      const aircraft = await assetLibrary.load('airframe', id);
+      // Blender exports Z-up while this flight scene uses Three's Y-up / +Z-forward
+      // convention. The authored airframe was therefore arriving with its fuselage
+      // upright like a mast. One root correction preserves the Blender asset's axes
+      // without baking a duplicate or touching its named child meshes.
+      aircraft.rotation.x = Math.PI / 2;
+      aircraft.traverse((object) => {
+        const mesh = object as THREE.Mesh;
+        if (mesh.isMesh) {
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
+          const color = mesh.name.includes('wing') || mesh.name.includes('aileron') || mesh.name.includes('stabilizer') || mesh.name === 'elevator' || mesh.name === 'rudder'
+            ? paint?.fabricColor : mesh.name.includes('longeron') || mesh.name.includes('strut') || mesh.name.includes('brace') || mesh.name.includes('cross')
+              ? paint?.tubeColor : undefined;
+          if (color) {
+            for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
+              const standard = material as THREE.MeshStandardMaterial;
+              if (standard.color) standard.color.set(color);
+            }
+          }
+        }
+      });
+      this.aircraftGroup.clear();
+      this.wingMesh = null;
+      this.tailMeshes = [];
+      this.propellerMeshes = [];
+      aircraft.traverse((object) => {
+        const mesh = object as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        if (mesh.name === 'main_wing' || mesh.name === 'wing_panel_L') this.wingMesh = mesh;
+        if (mesh.name === 'horizontal_tail' || mesh.name === 'vertical_tail' || mesh.name === 'horizontal_stabilizer' || mesh.name === 'vertical_stabilizer') this.tailMeshes.push(mesh);
+        if (mesh.name.includes('propeller') || mesh.name.includes('prop_blade')) this.propellerMeshes.push(mesh);
+      });
+      this.aircraftGroup.add(aircraft);
+      this.aircraftGroup.visible = true;
+    } catch {
+      // The proxy remains a resilient offline fallback for a failed asset request.
+      this.aircraftGroup.visible = true;
+    }
   }
 
   /** Lightweight kits for the six later campaign regions. Each uses a handful of
@@ -473,19 +526,31 @@ export class FlightScene {
     this.aircraftGroup.add(noseWheel);
   }
 
-  private addRunwayDressings() {
+  private runwayColor(surface: RunwaySurface | undefined): THREE.ColorRepresentation {
+    switch (surface) {
+      case 'grass': return '#78925b';
+      case 'dirt': return '#9a7550';
+      case 'gravel': return '#817b6e';
+      case 'salt': return '#c9c2aa';
+      case 'tarmac': return '#535858';
+      default: return '#817b6e';
+    }
+  }
+
+  private addRunwayDressings(center: readonly [number, number], runwayY: number, width: number, length: number, surface?: RunwaySurface) {
     const markingMat = new THREE.MeshBasicMaterial({ color: '#e9e2ca' });
-    for (let z = 18; z <= 325; z += 30) {
+    const shouldMark = surface === 'tarmac' || surface === 'salt';
+    for (let z = -length / 2 + 18; shouldMark && z < length / 2 - 10; z += 30) {
       const dash = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 12), markingMat);
       dash.rotation.x = -Math.PI / 2;
-      dash.position.set(0, .035, z);
+      dash.position.set(center[0], runwayY + .04, center[1] + z);
       this.scene.add(dash);
     }
     const edgeMat = new THREE.MeshBasicMaterial({ color: '#d99642' });
-    for (const x of [-11.3, 11.3]) {
-      for (let z = 5; z <= 335; z += 22) {
+    for (const x of [-width / 2 + .7, width / 2 - .7]) {
+      for (let z = -length / 2 + 8; z <= length / 2 - 8; z += 22) {
         const marker = new THREE.Mesh(new THREE.BoxGeometry(.22, .55, .22), edgeMat);
-        marker.position.set(x, .27, z); this.scene.add(marker);
+        marker.position.set(center[0] + x, runwayY + .28, center[1] + z); this.scene.add(marker);
       }
     }
   }
@@ -500,7 +565,7 @@ export class FlightScene {
     const mat = new THREE.MeshBasicMaterial({ color: '#ffcc33', side: THREE.DoubleSide, transparent: true, opacity: 0.8 });
     const ring = new THREE.Mesh(geo, mat);
     ring.rotation.x = -Math.PI / 2;
-    ring.position.set(pos[0], 0.05, pos[2]);
+    ring.position.set(pos[0], this.environment.terrainQuery.getElevation(pos[0], pos[2]) + 0.05, pos[2]);
     this.targetRing = ring;
     this.scene.add(ring);
   }
@@ -508,6 +573,7 @@ export class FlightScene {
   syncAircraft(position: THREE.Vector3, quaternion: THREE.Quaternion, dtS: number, cam: ChaseCameraInput) {
     this.aircraftGroup.position.copy(position);
     this.aircraftGroup.quaternion.copy(quaternion);
+    for (const propeller of this.propellerMeshes) propeller.rotation.z += dtS * (42 + cam.speedMs * 9);
     this.chase.update(position, quaternion, dtS, cam);
   }
 

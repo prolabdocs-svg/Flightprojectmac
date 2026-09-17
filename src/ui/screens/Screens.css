@@ -236,9 +236,9 @@
   margin: 0;
 }
 .home-base-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
   gap: 10px;
 }
 .home-base-label {
@@ -253,6 +253,7 @@
   padding: 8px 12px;
   font-size: 12px;
 }
+.home-base-benefit { grid-column: 1 / -1; font-size: 11px; opacity: .7; }
 .home-base-upgrade-btn:disabled {
   opacity: 0.4;
 }
@@ -311,6 +312,20 @@
   opacity: 0.75;
   font-size: 13px;
 }
+.route-map { position:relative; min-height:154px; overflow:hidden; border:1px solid var(--border); background:linear-gradient(145deg,#43663e,#25372b); box-shadow:inset 0 0 60px rgba(0,0,0,.28); }
+.route-map::before { content:''; position:absolute; inset:0; opacity:.28; background:linear-gradient(90deg,transparent 49.5%,rgba(255,255,255,.4) 50%,transparent 50.5%),linear-gradient(0deg,transparent 49.5%,rgba(255,255,255,.32) 50%,transparent 50.5%); background-size:42px 42px; }
+.route-map-quarry { background:linear-gradient(145deg,#716655,#393b38); }
+.route-map-canyon { background:linear-gradient(145deg,#9a5739,#59352e); }
+.route-map-forest, .route-map-range { background:linear-gradient(145deg,#315846,#1f3631); }
+.route-map-coast { background:linear-gradient(145deg,#3b7f92 0 36%,#c3ab72 37% 100%); }
+.route-map-industrial { background:linear-gradient(145deg,#586264,#353b3b); }
+.route-map-desert { background:linear-gradient(145deg,#c0a168,#79613e); }
+.route-map-compass, .route-map-caption { position:absolute; z-index:1; font:700 10px var(--font-technical); letter-spacing:.14em; color:var(--text); opacity:.72; }
+.route-map-compass { right:14px; top:12px; border:1px solid var(--border-strong); border-radius:50%; width:25px; height:25px; display:grid; place-items:center; }
+.route-map-caption { left:14px; top:13px; color:var(--cyan); }
+.route-map-pin { position:absolute; z-index:2; transform:translate(-50%,-50%); display:flex; align-items:center; gap:6px; color:var(--text); font:700 10px var(--font-technical); text-shadow:0 1px 2px #000; }
+.route-map-pin i { width:10px; height:10px; border:2px solid var(--accent-strong); border-radius:50%; background:#1a2020; box-shadow:0 0 0 4px rgba(240,106,42,.18); }
+.route-map-pin-hidden i, .route-map-pin-rumored i { border-color:var(--text-dim); box-shadow:none; }
 .mission-list {
   display: flex;
   flex-direction: column;
