@@ -197,6 +197,14 @@ export interface RegionDefinition {
   unlockRequirement?: { requiredMissionId: string };
 }
 
+/** Home base progression (spec: runway/hangar upgrades). Additive — old saves are
+ * backfilled in save.ts#migrate so every screen can rely on these being present. Kept to
+ * two simple facilities/tiers for this pass rather than the full facility list. */
+export interface HomeBaseState {
+  runwayLevel: number;
+  hangarLevel: number;
+}
+
 export interface PlayerProfile {
   schemaVersion: number;
   createdAt: number;
@@ -211,6 +219,7 @@ export interface PlayerProfile {
   selectedPaintId: string;
   completedMissions: Record<string, { bestScore: number; attempts: number }>;
   currentBuild: AircraftBuild;
+  homeBase: HomeBaseState;
   settings: {
     controlPreset: 'beginner' | 'normal' | 'sport' | 'custom';
     assistMode: 'assisted' | 'standard' | 'acro';

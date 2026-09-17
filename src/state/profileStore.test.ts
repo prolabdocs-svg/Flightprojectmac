@@ -165,6 +165,35 @@ describe('applyFlightResult', () => {
   });
 });
 
+describe('upgradeHomeBase', () => {
+  it('fails when cash is insufficient and does not mutate state', () => {
+    const before = useProfileStore.getState().profile;
+    const ok = useProfileStore.getState().upgradeHomeBase('runway', 100000);
+    expect(ok).toBe(false);
+    const profile = useProfileStore.getState().profile;
+    expect(profile.cash).toBe(before.cash);
+    expect(profile.homeBase).toEqual(before.homeBase);
+  });
+
+  it('succeeds, deducts cash, and increments the runway level', () => {
+    const ok = useProfileStore.getState().upgradeHomeBase('runway', 150);
+    expect(ok).toBe(true);
+    const profile = useProfileStore.getState().profile;
+    expect(profile.cash).toBe(200 - 150);
+    expect(profile.homeBase.runwayLevel).toBe(1);
+    expect(profile.homeBase.hangarLevel).toBe(0);
+  });
+
+  it('succeeds, deducts cash, and increments the hangar level independently', () => {
+    const ok = useProfileStore.getState().upgradeHomeBase('hangar', 150);
+    expect(ok).toBe(true);
+    const profile = useProfileStore.getState().profile;
+    expect(profile.cash).toBe(200 - 150);
+    expect(profile.homeBase.hangarLevel).toBe(1);
+    expect(profile.homeBase.runwayLevel).toBe(0);
+  });
+});
+
 describe('updateSettings', () => {
   it('merges a partial patch into settings without clobbering other fields', () => {
     useProfileStore.getState().updateSettings({ invertPitch: true });

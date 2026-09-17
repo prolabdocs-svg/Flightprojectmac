@@ -12,6 +12,7 @@ interface ProfileState {
   unlockTech: (nodeId: string, costRp: number) => boolean;
   buyPaint: (paintId: string, priceCash: number) => boolean;
   selectPaint: (paintId: string) => void;
+  upgradeHomeBase: (facility: 'runway' | 'hangar', costCash: number) => boolean;
   applyFlightResult: (result: FlightResult) => void;
   updateSettings: (patch: Partial<PlayerProfile['settings']>) => void;
   resetProfile: () => void;
@@ -77,6 +78,21 @@ export const useProfileStore = create<ProfileState>((set, get) => ({
   selectPaint: (paintId) => {
     set((s) => ({ profile: { ...s.profile, selectedPaintId: paintId } }));
     get().persist();
+  },
+
+  upgradeHomeBase: (facility, costCash) => {
+    const { profile } = get();
+    if (profile.cash < costCash) return false;
+    const levelKey = facility === 'runway' ? 'runwayLevel' : 'hangarLevel';
+    set({
+      profile: {
+        ...profile,
+        cash: profile.cash - costCash,
+        homeBase: { ...profile.homeBase, [levelKey]: profile.homeBase[levelKey] + 1 },
+      },
+    });
+    get().persist();
+    return true;
   },
 
   applyFlightResult: (result) => {

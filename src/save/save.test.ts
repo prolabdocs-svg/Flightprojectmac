@@ -59,4 +59,22 @@ describe('SaveRepository (IndexedDB-backed)', () => {
     mod.saveRepository.clear();
     expect(mod.saveRepository.load()).toBeNull();
   });
+
+  it('backfills homeBase (schema v2) for a pre-existing save that predates it', async () => {
+    const mod = await import(/* @vite-ignore */ `./save?t=${Date.now()}-d`);
+    await mod.whenSaveRepositoryReady();
+    // Simulate an old save written before homeBase/schemaVersion 2 existed.
+    const legacyProfile = mod.createDefaultProfile();
+    delete (legacyProfile as Record<string, unknown>).homeBase;
+    legacyProfile.schemaVersion = 1;
+    mod.saveRepository.save(legacyProfile);
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Re-import to force a fresh repository that re-runs migrate() on init from IndexedDB.
+    const reloaded = await import(/* @vite-ignore */ `./save?t=${Date.now()}-d2`);
+    await reloaded.whenSaveRepositoryReady();
+    const loaded = reloaded.saveRepository.load();
+    expect(loaded?.homeBase).toEqual({ runwayLevel: 0, hangarLevel: 0 });
+    expect(loaded?.schemaVersion).toBe(2);
+  });
 });
