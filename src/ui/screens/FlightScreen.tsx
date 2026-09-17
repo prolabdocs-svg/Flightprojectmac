@@ -27,6 +27,7 @@ import { computeFlightResult } from '../../content/economy';
 import { getPaint } from '../../content/paint';
 import { FlightHud } from '../components/FlightHud';
 import { audioService } from '../../audio/audioService';
+import { sinkRateToIntensity } from '../../audio/flightAudioMappings';
 import { getEnvironmentWind } from '../../sim/weather';
 import { FixedStepClock } from '../../core/fixedStepClock';
 import { createTerrainQueryService } from '../../world/terrainQuery';
@@ -130,6 +131,7 @@ export function FlightScreen() {
         if (sceneRef.current === scene) sceneRef.current = null;
         scene.dispose();
         world.free();
+        audioService.stopFlight();
       };
 
       const resize = () => {
@@ -250,6 +252,11 @@ export function FlightScreen() {
       // speed-feel) have a speed value even on frames where the fixed-step sim
       // doesn't advance (e.g. paused, or between physics ticks).
       let lastTelemetry: FlightTelemetry | null = null;
+      // Audio edge detection (one-shot events fire once per transition).
+      let lastTouchdown: number | null = null;
+      let lastEngineOn = false;
+      let lastStalled = false;
+      const engineSpec = aircraft.engine;
 
       const loop = () => {
         if (disposed) return;
@@ -290,8 +297,18 @@ export function FlightScreen() {
             if (telem.crashOutcome !== lastCrashOutcome && telem.crashOutcome !== 'none') {
               const magnitude = telem.crashOutcome === 'totalLoss' ? 0.55 : 0.22;
               scene.triggerImpactShake(magnitude, telem.crashOutcome === 'totalLoss' ? 0.6 : 0.35);
-              audioService.playTone(telem.crashOutcome === 'totalLoss' ? 'fail' : 'transition');
+              audioService.playEvent(telem.crashOutcome === 'totalLoss' ? 'crash' : 'hardLanding', 1);
             }
+            if (telem.lastTouchdownVsMs !== null && telem.lastTouchdownVsMs !== lastTouchdown && !telem.crashed) {
+              const sink = Math.abs(telem.lastTouchdownVsMs);
+              audioService.playEvent('touchdown', sinkRateToIntensity(sink));
+              scene.triggerImpactShake(Math.min(0.25, sink * 0.06), 0.25);
+            }
+            lastTouchdown = telem.lastTouchdownVsMs;
+            if (telem.engineOn !== lastEngineOn) audioService.playEvent(telem.engineOn ? 'engineStart' : 'engineStop');
+            lastEngineOn = telem.engineOn;
+            if (telem.stalled && !lastStalled) audioService.playEvent('stallBreak');
+            lastStalled = telem.stalled;
             lastCrashOutcome = telem.crashOutcome;
 
             if (telem.damagedPartIds.length !== lastDamagedCount || telem.detachedPartIds.length !== lastDetachedCount) {
@@ -331,7 +348,18 @@ export function FlightScreen() {
           stalled: lastTelemetry?.stalled ?? false,
         });
         scene.updateEnvironment(elapsedFlightS, getEnvironmentWind(region, elapsedFlightS, currentPosition));
-        audioService.updateWind(speedMs);
+        audioService.updateFlight({
+          rpm: lastTelemetry?.rpm ?? 0,
+          idleRpm: engineSpec?.idleRpm ?? 1600,
+          redlineRpm: engineSpec?.redlineRpm ?? 6200,
+          throttle: lastTelemetry?.throttle ?? 0,
+          airspeedMs: lastTelemetry?.airspeedMs ?? 0,
+          groundSpeedMs: lastTelemetry?.groundSpeedMs ?? 0,
+          onGround: lastTelemetry?.onGround ?? true,
+          stallWarning: lastTelemetry?.stallWarning ?? false,
+          engineOn: lastTelemetry?.engineOn ?? false,
+          paused: useGameStore.getState().paused,
+        });
         scene.render();
 
         frameId = requestAnimationFrame(loop);
