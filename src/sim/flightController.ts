@@ -74,8 +74,35 @@ export interface FlightTelemetry {
   elapsedS: number;
   /** World-space location at the current fixed simulation tick. */
   position: [number, number, number];
-  /** Compass heading in degrees: 0 = world north/+Z, clockwise. */
+  /** Compass heading in degrees: 0 = world north/+Z, clockwise (see world/compass.ts). */
   headingDeg: number;
+  /** True airspeed (relative to the air mass). `speedMs` stays total inertial speed. */
+  airspeedMs: number;
+  groundSpeedMs: number;
+  /** World vertical speed, m/s, positive = climbing. */
+  verticalSpeedMs: number;
+  /** Nose-up positive. */
+  pitchDeg: number;
+  /** Right-wing-down positive. */
+  rollDeg: number;
+  /** Smoothed engine throttle actually applied, 0..1. */
+  throttle: number;
+  engineOn: boolean;
+  outOfFuel: boolean;
+  /** Approaching critical angle of attack or below 1.15x stall speed while airborne. */
+  stallWarning: boolean;
+  /** Wing past critical angle of attack (lift collapsing). */
+  stalled: boolean;
+  /** 1g stall speed of the current configuration (flaps aware), m/s. */
+  stallSpeedMs: number;
+  /** Number of landing-gear wheels touching the ground (0..3). */
+  wheelsOnGround: number;
+  /** Load factor along the aircraft's up axis, g. */
+  gForce: number;
+  /** Vertical speed (m/s, negative = sinking) at the most recent touchdown, null before any. */
+  lastTouchdownVsMs: number | null;
+  /** Why the flight ended in a crash, null otherwise. */
+  crashReason: 'terrain' | 'obstacle' | 'hardLanding' | 'flipped' | 'water' | 'wingStrike' | null;
 }
 
 const FIXED_DT = 1 / 60;
@@ -626,6 +653,21 @@ export class FlightController {
       elapsedS: this.elapsedS,
       position: [this.body.translation().x, this.body.translation().y, this.body.translation().z],
       headingDeg,
+      airspeedMs: speedNow,
+      groundSpeedMs: speedNow,
+      verticalSpeedMs: this.body.linvel().y,
+      pitchDeg: 0,
+      rollDeg: 0,
+      throttle: this.throttleSmoothed,
+      engineOn: this.rpm > 0,
+      outOfFuel: this.fuelL <= 0,
+      stallWarning: false,
+      stalled: false,
+      stallSpeedMs: 12,
+      wheelsOnGround: onGround ? 3 : 0,
+      gForce: 1,
+      lastTouchdownVsMs: null,
+      crashReason: this.crashed ? 'hardLanding' : null,
     };
   }
 }

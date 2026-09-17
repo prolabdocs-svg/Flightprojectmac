@@ -7,9 +7,7 @@ import { WorldEnvironment } from './WorldEnvironment';
 import { createSeededRandom, type SeededRandom } from '../core/seededRandom';
 import { assetLibrary } from './assetLibrary';
 import { ACTIVE_REGION_ASSETS, FRAME_ASSET_IDS } from './assetManifest';
-
-const CHASE_POSITION_RESPONSE = 3.7;
-const CHASE_LOOK_RESPONSE = 9.75;
+import { ChaseCamera, type ChaseCameraInput } from './ChaseCamera';
 
 export class FlightScene {
   scene = new THREE.Scene();
@@ -18,27 +16,8 @@ export class FlightScene {
   aircraftGroup = new THREE.Group();
   private readonly streamedProps = new THREE.Group();
   private targetRing: THREE.Mesh | null = null;
-  private cameraLookTarget = new THREE.Vector3();
-  private cameraPos = new THREE.Vector3(0, 6, -15);
-  private shakeTimeRemainingS = 0;
-  private shakeMagnitude = 0;
+  private readonly chase = new ChaseCamera();
   private readonly environment: WorldEnvironment;
-  // Scratch vectors reused every frame in syncAircraft() to avoid per-frame GC churn.
-  private readonly scratchBehind = new THREE.Vector3();
-  private readonly scratchDesiredPos = new THREE.Vector3();
-  private readonly scratchAhead = new THREE.Vector3();
-  private readonly scratchDesiredLook = new THREE.Vector3();
-  private readonly scratchShake = new THREE.Vector3();
-  private readonly scratchUp = new THREE.Vector3();
-  // Speed-feel tuning (task: "sentirse tan emocionante como GTA San Andreas volando").
-  // Base/max FOV and the speed range it ramps over — cheap (just a lerp on an
-  // existing camera property, no extra draw calls) so it's free on mobile GPUs.
-  private static readonly BASE_FOV = 62;
-  private static readonly MAX_FOV = 74;
-  private static readonly FOV_SPEED_MIN_MS = 12;
-  private static readonly FOV_SPEED_MAX_MS = 55;
-  private currentFov = FlightScene.BASE_FOV;
-  private currentRollLean = 0;
 
   // Damage-system hooks (src/sim/damageSystem.ts via FlightController): named refs to the
   // placeholder meshes that stand in for "wing" and "tail" so a detach/damage event can
@@ -62,7 +41,7 @@ export class FlightScene {
     // PCFShadowMap is the supported mobile-friendly equivalent here.
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
 
-    this.camera = new THREE.PerspectiveCamera(FlightScene.BASE_FOV, 1, 0.1, 6000);
+    this.camera = this.chase.camera;
 
     // Sky/fog: a soft gradient feel via a lighter fog color than the sky base so
     // the horizon hazes out instead of hard-cutting (spec 82: "Stylized tactile
@@ -526,68 +505,15 @@ export class FlightScene {
     this.scene.add(ring);
   }
 
-  syncAircraft(position: THREE.Vector3, quaternion: THREE.Quaternion, dtS = 1 / 60, speedMs = 0) {
+  syncAircraft(position: THREE.Vector3, quaternion: THREE.Quaternion, dtS: number, cam: ChaseCameraInput) {
     this.aircraftGroup.position.copy(position);
     this.aircraftGroup.quaternion.copy(quaternion);
-
-    // Physics and geometry define +Z as the nose/forward axis. The chase camera
-    // therefore lives at local -Z and looks toward local +Z.
-    // A slight 3/4 offset is deliberately chosen over a dead-centre chase view:
-    // it keeps wing, struts, propeller and landing gear readable simultaneously.
-    const behind = this.scratchBehind.set(-5.2, 3.8, -11.8).applyQuaternion(quaternion);
-    const desiredPos = this.scratchDesiredPos.copy(position).add(behind);
-    const positionBlend = 1 - Math.exp(-CHASE_POSITION_RESPONSE * Math.max(0, dtS));
-    this.cameraPos.lerp(desiredPos, positionBlend);
-    this.camera.position.copy(this.cameraPos);
-
-    // Speed-feel FOV widen (task: GTA-San-Andreas-plane thrill): subtle widen at
-    // high speed reads as velocity without any extra geometry/shader cost.
-    const speedT = THREE.MathUtils.clamp(
-      (speedMs - FlightScene.FOV_SPEED_MIN_MS) / (FlightScene.FOV_SPEED_MAX_MS - FlightScene.FOV_SPEED_MIN_MS),
-      0,
-      1,
-    );
-    const targetFov = THREE.MathUtils.lerp(FlightScene.BASE_FOV, FlightScene.MAX_FOV, speedT);
-    this.currentFov = THREE.MathUtils.lerp(this.currentFov, targetFov, 1 - Math.pow(0.001, dtS));
-    if (Math.abs(this.camera.fov - this.currentFov) > 0.01) {
-      this.camera.fov = this.currentFov;
-      this.camera.updateProjectionMatrix();
-    }
-
-    // Roll lean (task item 2): partially follow the aircraft's bank into the
-    // camera's "up" vector so hard turns feel weighted, without going full 1:1
-    // (which would make the horizon spin and induce motion sickness). Bank angle
-    // is read off the aircraft's local up vector rather than an Euler decomposition,
-    // which stays correct regardless of simultaneous pitch/yaw (no gimbal lock).
-    this.scratchUp.set(0, 1, 0).applyQuaternion(quaternion);
-    const aircraftRoll = Math.atan2(this.scratchUp.x, this.scratchUp.y);
-    this.currentRollLean = THREE.MathUtils.lerp(this.currentRollLean, aircraftRoll, 1 - Math.pow(0.0005, dtS));
-    const leanFrac = 0.35; // partial mix, not 1:1 — see comment above
-    this.camera.up.set(Math.sin(this.currentRollLean * leanFrac), Math.cos(this.currentRollLean * leanFrac), 0);
-
-    // Impact feedback (spec "vibración estructural visual intensa" / task item 4): a
-    // short decaying random jitter on top of the chase camera, triggered by
-    // triggerImpactShake() from FlightScreen on a hard-landing/crash event.
-    if (this.shakeTimeRemainingS > 0) {
-      this.shakeTimeRemainingS = Math.max(0, this.shakeTimeRemainingS - dtS);
-      const falloff = this.shakeTimeRemainingS > 0 ? this.shakeTimeRemainingS : 0;
-      const amount = this.shakeMagnitude * falloff;
-      this.scratchShake.set((Math.random() - 0.5) * amount, (Math.random() - 0.5) * amount, (Math.random() - 0.5) * amount);
-      this.camera.position.add(this.scratchShake);
-    }
-
-    const ahead = this.scratchAhead.set(0, 0.5, 6).applyQuaternion(quaternion);
-    const desiredLook = this.scratchDesiredLook.copy(position).add(ahead);
-    const lookBlend = 1 - Math.exp(-CHASE_LOOK_RESPONSE * Math.max(0, dtS));
-    this.cameraLookTarget.lerp(desiredLook, lookBlend);
-    this.camera.lookAt(this.cameraLookTarget);
+    this.chase.update(position, quaternion, dtS, cam);
   }
 
-  /** Triggers a short decaying camera-shake burst (task item 4: impact feedback).
-   * `magnitude` is a rough meters-of-jitter scale; `durationS` how long it decays over. */
+  /** Short decaying camera-shake burst for impacts. */
   triggerImpactShake(magnitude: number, durationS = 0.4): void {
-    this.shakeMagnitude = magnitude;
-    this.shakeTimeRemainingS = durationS;
+    this.chase.triggerShake(magnitude, durationS);
   }
 
   /** Damage-system visual hook (src/sim/damageSystem.ts): tints a damaged part and hides
@@ -605,8 +531,7 @@ export class FlightScene {
   }
 
   resize(width: number, height: number) {
-    this.camera.aspect = width / height;
-    this.camera.updateProjectionMatrix();
+    this.chase.resize(width, height);
     this.renderer.setSize(width, height, false);
   }
 

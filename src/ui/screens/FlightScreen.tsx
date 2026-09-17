@@ -298,7 +298,12 @@ export function FlightScreen() {
         renderPosition.copy(previousPosition).lerp(currentPosition, renderAlpha);
         renderQuaternion.copy(previousQuaternion).slerp(currentQuaternion, renderAlpha).normalize();
         const speedMs = lastTelemetry?.speedMs ?? 0;
-        scene.syncAircraft(renderPosition, renderQuaternion, frameDt, speedMs);
+        scene.syncAircraft(renderPosition, renderQuaternion, frameDt, {
+          speedMs,
+          onGround: lastTelemetry?.onGround ?? true,
+          gForce: lastTelemetry?.gForce ?? 1,
+          stalled: lastTelemetry?.stalled ?? false,
+        });
         scene.updateEnvironment(elapsedFlightS, getEnvironmentWind(region, elapsedFlightS, currentPosition));
         audioService.updateWind(speedMs);
         scene.render();
