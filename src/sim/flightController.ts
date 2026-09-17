@@ -76,6 +76,7 @@ export class FlightController {
   aircraft: ResolvedAircraft;
 
   private spawnPos: THREE.Vector3;
+  private readonly spawnHeadingDeg: number;
   private throttleSmoothed = 0;
   private fuelL: number;
   private fuelCapacityL: number;
@@ -96,6 +97,7 @@ export class FlightController {
     this.world = world;
     this.aircraft = aircraft;
     this.spawnPos = spawnPos.clone();
+    this.spawnHeadingDeg = spawnHeadingDeg;
     this.fuelCapacityL = aircraft.fuelCapacityL;
     this.fuelL = aircraft.fuelCapacityL;
 
@@ -135,7 +137,7 @@ export class FlightController {
   }
 
   reset() {
-    const headingRad = 0;
+    const headingRad = (this.spawnHeadingDeg * Math.PI) / 180;
     const quat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), headingRad);
     this.body.setTranslation(this.spawnPos, true);
     this.body.setRotation(quat, true);

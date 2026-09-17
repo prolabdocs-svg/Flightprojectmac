@@ -5,6 +5,9 @@ import * as THREE from 'three';
 import type { RegionDefinition } from '../core/types';
 import { WorldEnvironment } from './WorldEnvironment';
 
+const CHASE_POSITION_RESPONSE = 3.7;
+const CHASE_LOOK_RESPONSE = 9.75;
+
 export class FlightScene {
   scene = new THREE.Scene();
   camera: THREE.PerspectiveCamera;
@@ -12,7 +15,7 @@ export class FlightScene {
   aircraftGroup = new THREE.Group();
   private targetRing: THREE.Mesh | null = null;
   private cameraLookTarget = new THREE.Vector3();
-  private cameraPos = new THREE.Vector3(0, 6, 15);
+  private cameraPos = new THREE.Vector3(0, 6, -15);
   private shakeTimeRemainingS = 0;
   private shakeMagnitude = 0;
   private readonly environment: WorldEnvironment;
@@ -262,10 +265,12 @@ export class FlightScene {
     this.aircraftGroup.position.copy(position);
     this.aircraftGroup.quaternion.copy(quaternion);
 
-    // Chase camera (spec 90.1): smoothed offset behind + above, looking slightly ahead.
-    const behind = this.scratchBehind.set(0, 3.2, 11).applyQuaternion(quaternion);
+    // Physics and geometry define +Z as the nose/forward axis. The chase camera
+    // therefore lives at local -Z and looks toward local +Z.
+    const behind = this.scratchBehind.set(0, 3.2, -11).applyQuaternion(quaternion);
     const desiredPos = this.scratchDesiredPos.copy(position).add(behind);
-    this.cameraPos.lerp(desiredPos, 0.06);
+    const positionBlend = 1 - Math.exp(-CHASE_POSITION_RESPONSE * Math.max(0, dtS));
+    this.cameraPos.lerp(desiredPos, positionBlend);
     this.camera.position.copy(this.cameraPos);
 
     // Impact feedback (spec "vibración estructural visual intensa" / task item 4): a
@@ -279,9 +284,10 @@ export class FlightScene {
       this.camera.position.add(this.scratchShake);
     }
 
-    const ahead = this.scratchAhead.set(0, 0.5, -6).applyQuaternion(quaternion);
+    const ahead = this.scratchAhead.set(0, 0.5, 6).applyQuaternion(quaternion);
     const desiredLook = this.scratchDesiredLook.copy(position).add(ahead);
-    this.cameraLookTarget.lerp(desiredLook, 0.15);
+    const lookBlend = 1 - Math.exp(-CHASE_LOOK_RESPONSE * Math.max(0, dtS));
+    this.cameraLookTarget.lerp(desiredLook, lookBlend);
     this.camera.lookAt(this.cameraLookTarget);
   }
 
@@ -323,6 +329,25 @@ export class FlightScene {
   }
 
   dispose() {
+    // Three.js does not dispose scene-owned GPU resources automatically. Keep this
+    // explicit because mobile players can enter/exit many flight sessions in one app run.
+    const geometries = new Set<THREE.BufferGeometry>();
+    const materials = new Set<THREE.Material>();
+    this.scene.traverse((object) => {
+      const renderable = object as THREE.Object3D & {
+        geometry?: THREE.BufferGeometry;
+        material?: THREE.Material | THREE.Material[];
+      };
+      if (renderable.geometry) geometries.add(renderable.geometry);
+      if (Array.isArray(renderable.material)) {
+        for (const material of renderable.material) materials.add(material);
+      } else if (renderable.material) {
+        materials.add(renderable.material);
+      }
+    });
+    for (const geometry of geometries) geometry.dispose();
+    for (const material of materials) material.dispose();
+    this.renderer.renderLists.dispose();
     this.renderer.dispose();
   }
 }

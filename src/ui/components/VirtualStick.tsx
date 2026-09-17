@@ -48,7 +48,7 @@ export function VirtualStick({ label, stickyY = false, springX = true, springY =
   const handlePointerDown = (e: React.PointerEvent) => {
     if (pointerIdRef.current !== null) return; // already tracking a finger
     pointerIdRef.current = e.pointerId;
-    (e.target as Element).setPointerCapture(e.pointerId);
+    e.currentTarget.setPointerCapture(e.pointerId);
     updateFromClient(e.clientX, e.clientY);
   };
 
@@ -59,6 +59,9 @@ export function VirtualStick({ label, stickyY = false, springX = true, springY =
 
   const endTouch = (e: React.PointerEvent) => {
     if (pointerIdRef.current !== e.pointerId) return;
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    }
     pointerIdRef.current = null;
     const next = {
       x: springX ? 0 : posRef.current.x,

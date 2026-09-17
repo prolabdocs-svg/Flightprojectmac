@@ -22,6 +22,8 @@ interface GameState {
   selectedMissionId: string | null;
   lastResult: FlightResult | null;
   paused: boolean;
+  /** Monotonic runtime key. Entering RUN always creates a fresh physics session. */
+  flightSession: number;
   goTo: (screen: Screen) => void;
   selectMission: (missionId: string | null) => void;
   setLastResult: (r: FlightResult) => void;
@@ -33,7 +35,13 @@ export const useGameStore = create<GameState>((set) => ({
   selectedMissionId: null,
   lastResult: null,
   paused: false,
-  goTo: (screen) => set({ screen }),
+  flightSession: 0,
+  goTo: (screen) =>
+    set((state) => ({
+      screen,
+      paused: false,
+      flightSession: screen === 'run' ? state.flightSession + 1 : state.flightSession,
+    })),
   selectMission: (missionId) => set({ selectedMissionId: missionId }),
   setLastResult: (r) => set({ lastResult: r }),
   setPaused: (p) => set({ paused: p }),

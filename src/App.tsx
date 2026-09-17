@@ -19,6 +19,8 @@ const ResultsScreen = lazy(() => import('./ui/screens/ResultsScreen').then((m) =
 export default function App() {
   const screen = useGameStore((s) => s.screen);
   const paused = useGameStore((s) => s.paused);
+  const flightSession = useGameStore((s) => s.flightSession);
+  const setPaused = useGameStore((s) => s.setPaused);
   const musicVolume = useProfileStore((s) => s.profile.settings.musicVolume);
   const sfxVolume = useProfileStore((s) => s.profile.settings.sfxVolume);
   const colorblindMode = useProfileStore((s) => s.profile.settings.colorblindMode);
@@ -66,6 +68,23 @@ export default function App() {
     audioService.playTone('transition');
   }, [screen]);
 
+  // Mobile/browser lifecycle: a hidden flight is always paused. This prevents an
+  // accumulated wall-clock gap or stale control state from advancing physics on resume.
+  useEffect(() => {
+    const pauseActiveFlight = () => {
+      if (useGameStore.getState().screen === 'run') setPaused(true);
+    };
+    const onVisibilityChange = () => {
+      if (document.hidden) pauseActiveFlight();
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('pagehide', pauseActiveFlight);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('pagehide', pauseActiveFlight);
+    };
+  }, [setPaused]);
+
   return (
     <div className="app-root">
       <Suspense
@@ -82,7 +101,7 @@ export default function App() {
         {screen === 'techtree' && <TechTreeScreen />}
         {screen === 'paint' && <PaintScreen />}
         {screen === 'settings' && <SettingsScreen />}
-        {screen === 'run' && <FlightScreen />}
+        {screen === 'run' && <FlightScreen key={flightSession} />}
         {screen === 'results' && <ResultsScreen />}
       </Suspense>
       {screen === 'run' && paused && <PauseOverlay />}
