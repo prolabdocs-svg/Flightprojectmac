@@ -1,3 +1,4 @@
+import { isOnRoad } from './landUse';
 import type { TerrainQueryService } from './terrainQuery';
 
 /**
@@ -95,6 +96,7 @@ function densityMultiplier(species: VegetationSpecies, terrain: TerrainQueryServ
  */
 export function scatterVegetation(
   terrain: TerrainQueryService,
+  regionId: string,
   bounds: Bounds,
   cellSizeM = 20,
 ): VegetationInstance[] {
@@ -118,6 +120,7 @@ export function scatterVegetation(
           const pz = cz + hash01(cx, cz + i, 4.4 + i) * cellSizeM;
           if (terrain.isOnGradedRunway(px, pz)) continue; // §227 QA: no tree on runway.
           if (terrain.getWaterDepth(px, pz) > 0) continue; // §227 QA: no tree/floating tree in water.
+          if (isOnRoad(regionId, px, pz)) continue; // §227 QA: no tree on road center.
 
           instances.push({
             speciesId: species.id,
