@@ -27,7 +27,7 @@ export function applyExpo(x: number, { expo, rate }: ExpoRate): number {
 interface Mode2State {
   throttle: number; // 0..1, sticky
   rudder: number; // -1..1, spring
-  elevator: number; // -1..1, spring (raw, RC convention: stick down = nose up)
+  elevator: number; // -1..1, spring. Raw stick Y: +1 = pushed forward/up (nose down), -1 = pulled back (nose up)
   aileron: number; // -1..1, spring
   invertPitch: boolean;
   preset: ControlPreset;
@@ -83,15 +83,17 @@ export const useMode2Store = create<Mode2State>((set) => ({
     set({ throttle: 0, rudder: 0, elevator: 0, aileron: 0, engineOn: false, brake: false, flapsDown: false, chuteDeployed: false }),
 }));
 
-/** Resolved control inputs after expo/rate/invert, ready for the flight controller. */
+/** Resolved control inputs after expo/rate/invert, ready for the flight controller.
+ * Sign contract (FlightController): pitch > 0 = nose UP, roll > 0 = right wing down,
+ * rudder > 0 = nose right, throttle 0..1. */
 export function getResolvedControls() {
   const s = useMode2Store.getState();
   const er = PRESETS[s.preset];
-  const pitchRaw = s.invertPitch ? -s.elevator : s.elevator;
+  // RC Mode 2: pulling the right stick back (elevator < 0) raises the nose.
+  const pitchRaw = s.invertPitch ? s.elevator : -s.elevator;
   return {
     throttle: s.throttle,
     rudder: applyExpo(s.rudder, er),
-    // RC convention: stick down (positive elevator value in our virtual stick) = nose up.
     pitch: applyExpo(pitchRaw, er),
     roll: applyExpo(s.aileron, er),
     engineOn: s.engineOn,

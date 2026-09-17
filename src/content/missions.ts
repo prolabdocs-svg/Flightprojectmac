@@ -314,6 +314,12 @@ export const MISSIONS: Array<MissionDefinition & MissionAirfieldLinks> = [
   },
 ];
 
+/** Straight-line route length (origin spawn -> destination), meters. Readiness/briefing use it. */
+export function getMissionRouteDistanceM(mission: MissionDefinition): number {
+  if (!mission.targetPoint) return mission.minDistanceM ?? 0;
+  return Math.hypot(mission.targetPoint[0] - mission.spawnPoint[0], mission.targetPoint[2] - mission.spawnPoint[2]);
+}
+
 export function getMission(id: string): (MissionDefinition & MissionAirfieldLinks) | undefined {
   return MISSIONS.find((m) => m.id === id);
 }

@@ -75,6 +75,8 @@ export interface PartDefinition {
   engine?: EngineSpec;
   /** Rolling resistance / friction multiplier for gear parts. */
   groundFrictionMul?: number;
+  /** Usable fuel for fuelTank parts, liters. */
+  fuelCapacityL?: number;
   /** If set, this part is hidden/locked in the Builder until this tech node is unlocked (spec 15, 82.9). */
   requiresTechId?: string;
 }

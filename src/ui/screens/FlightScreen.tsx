@@ -136,7 +136,8 @@ export function FlightScreen() {
       const applyKeyboardAxes = () => {
         const down = (key: string) => pressed.has(key);
         useMode2Store.getState().setAileron((down('arrowright') ? 1 : 0) + (down('arrowleft') ? -1 : 0));
-        useMode2Store.getState().setElevator((down('arrowdown') ? 1 : 0) + (down('arrowup') ? -1 : 0));
+        // Flight-sim convention: ArrowUp pushes the stick forward (nose down), ArrowDown pulls back.
+        useMode2Store.getState().setElevator((down('arrowup') ? 1 : 0) + (down('arrowdown') ? -1 : 0));
         useMode2Store.getState().setRudder((down('d') ? 1 : 0) + (down('a') ? -1 : 0));
         useMode2Store.getState().setBrake(down(' '));
       };
@@ -194,7 +195,8 @@ export function FlightScreen() {
         const controls = useMode2Store.getState();
         controls.setThrottle(input.throttle);
         controls.setAileron(input.roll);
-        controls.setElevator(input.pitch);
+        // Gamepad Y axis is -1 when pushed up; elevator +1 means stick pushed forward.
+        controls.setElevator(-input.pitch);
         controls.setRudder(input.rudder);
         controls.setBrake(input.brake);
         if (input.enginePressed && !previousGamepadButtons.engine) controls.toggleEngine();

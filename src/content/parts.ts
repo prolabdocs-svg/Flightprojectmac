@@ -197,6 +197,7 @@ export const PARTS: PartDefinition[] = [
   {
     id: 'tank_8',
     category: 'fuelTank',
+    fuelCapacityL: 8,
     name: 'Tanque 8L',
     description: 'Depósito plástico reciclado. Ligero, poca autonomía.',
     tier: 0,
@@ -214,6 +215,7 @@ export const PARTS: PartDefinition[] = [
   {
     id: 'tank_12',
     category: 'fuelTank',
+    fuelCapacityL: 12,
     name: 'Tanque 12L',
     description: 'Más autonomía, más peso muerto cerca del centro de gravedad.',
     tier: 1,

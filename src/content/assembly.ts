@@ -59,9 +59,7 @@ export function resolveAircraft(build: AircraftBuild, frames: FrameDefinition[] 
     dragCoefficient = Math.max(dragCoefficient, part.physics.dragCoefficient);
     if (part.aeroSurfaces) aeroSurfaces.push(...part.aeroSurfaces);
     if (part.engine) engine = part.engine;
-    if (part.category === 'fuelTank') {
-      fuelCapacityL += part.id === 'tank_12' ? 12 : 8;
-    }
+    fuelCapacityL += part.fuelCapacityL ?? 0;
     if (part.groundFrictionMul) groundFrictionMul = part.groundFrictionMul;
   }
 
