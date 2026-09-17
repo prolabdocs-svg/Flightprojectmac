@@ -52,6 +52,17 @@ exercises the PWA manifest/service worker path.
 There is no native mobile project (no Xcode/Android Studio step) — it is a web app that runs
 full-screen, landscape-oriented, and touch-first.
 
+## Content integrity checks
+
+`src/content/contentValidation.test.ts` runs as part of `npm test` (Vitest) and cross-checks
+the content modules under `src/content/` (regions, missions, parts, tech tree, paint) against
+each other: no duplicate ids within a collection, every mission's `regionId` resolves to a
+real region, every tech node's prerequisites/`unlocksPartIds` resolve to real nodes/parts,
+every part's `requiresTechId` resolves to a real tech node, and every frame hardpoint/
+`defaultLoadout` in `parts.ts` resolves to a real, category-matching part. Failures name the
+specific id and file at fault. It intentionally warns (rather than fails) on regions 3–8's
+unlock gates, which reference mission ids not implemented yet — see the comment in that file.
+
 ## What's implemented
 
 - **Data-driven region environment kits:** regions now own an authored weather/terrain profile,
