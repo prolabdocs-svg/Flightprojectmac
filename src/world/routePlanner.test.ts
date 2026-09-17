@@ -51,4 +51,11 @@ describe('RouteGraph', () => {
     const graph = new RouteGraph(isolatedEdges);
     expect(graph.isReachable('field_home', 'scrap_yard_strip')).toBe(false);
   });
+
+  it('connects every authored campaign airfield to the home network', () => {
+    const graph = new RouteGraph();
+    for (const target of ['backcountry_lake_strip', 'industrial_cargo_yard', 'desert_salt_strip', 'range_summit_pad']) {
+      expect(graph.isReachable('field_home', target), `route missing to ${target}`).toBe(true);
+    }
+  });
 });

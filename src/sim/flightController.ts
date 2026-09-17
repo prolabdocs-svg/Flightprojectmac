@@ -4,7 +4,7 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import type { ResolvedAircraft } from '../content/assembly';
-import { airDensityAtAltitude, dynamicPressure, liftDragCurve } from './aero';
+import { airDensityAtAltitude, dynamicPressure, groundEffectInducedDragFactor, liftDragCurve } from './aero';
 import {
   applyGroundImpact,
   createDamageState,
@@ -17,6 +17,9 @@ import {
 } from './damageSystem';
 import { computeCrosswindMs, computeRollPitchDeg } from './touchdownTelemetry';
 import { validateLanding, type LandingTelemetry, type RunwayConditions } from '../world/landingValidator';
+import type { TerrainQueryService } from '../world/terrainQuery';
+import { GROUND_SURFACES } from '../world/surfaces';
+import { computeEngineRpm } from './engine';
 
 /** Used when a mission has no destinationAirfieldId (or none is provided) — a mid-tolerance
  * surface so an un-linked mission's landing scoring isn't unrealistically easy or hard. */
@@ -66,10 +69,16 @@ export interface FlightTelemetry {
   /** Reasons the touchdown failed validateLanding() (src/world/landingValidator.ts), e.g.
    * 'verticalSpeed'/'roll'/'pitch'/'crosswind'. Empty before any landing/on a clean one. */
   landingFailures: string[];
+  /** Authoritative fixed-step flight duration. Unlike wall-clock time this excludes
+   * pauses/background time, so it is safe for time-trial rewards and results. */
+  elapsedS: number;
+  /** World-space location at the current fixed simulation tick. */
+  position: [number, number, number];
+  /** Compass heading in degrees: 0 = world north/+Z, clockwise. */
+  headingDeg: number;
 }
 
 const FIXED_DT = 1 / 60;
-const GROUND_LEVEL_Y = 0;
 // The main collider's half-height (see halfExtents.y below): the body origin rests at
 // this height above the ground plane when the aircraft's belly/wheels are touching down.
 // "altitude" is reported/thresholded relative to the belly, not the rigid-body origin,
@@ -77,6 +86,32 @@ const GROUND_LEVEL_Y = 0;
 // landing/crash state detection: 0.8 m of body-origin height is always > the old 0.6 m
 // grounded threshold).
 const GROUND_REST_OFFSET_M = 0.8;
+
+// Arcade tuning per assist mode (spec 38 "Mode 2" presets), aimed at the GTA San
+// Andreas / Dodo feel: immediate, punchy control response rather than a heavy,
+// realistic RC-plane feel. 'assisted' is left at the original tuned values so
+// beginners keep the gentle, forgiving handling; 'standard' and 'acro' get more
+// control-surface throw, less auto-leveling, and more headroom to spin/loop.
+const ASSIST_AUTHORITY_MUL: Record<ResolvedControls['assistMode'], number> = {
+  assisted: 1.0,
+  standard: 1.35,
+  acro: 1.65,
+};
+// Air (not ground) stability gain multiplier: lower means the aircraft holds a bank/
+// pitch attitude and lets rotation carry through loops/rolls instead of snapping level.
+const ASSIST_AIR_STABILITY_MUL: Record<ResolvedControls['assistMode'], number> = {
+  assisted: 1.0,
+  standard: 0.55,
+  acro: 0.3,
+};
+// Angular speed safety clamp (rad/s) - kept low for 'assisted' so it can't be thrown
+// into a disorienting spin, raised for 'standard'/'acro' so fast rolls/loops aren't
+// artificially capped.
+const ASSIST_MAX_ANG_SPEED: Record<ResolvedControls['assistMode'], number> = {
+  assisted: 6,
+  standard: 8,
+  acro: 10,
+};
 
 export class FlightController {
   world: RAPIER.World;
@@ -107,12 +142,14 @@ export class FlightController {
   private touchdownTelemetry: LandingTelemetry | null = null;
   private landingFailures: string[] = [];
   private lastWindWorld = new THREE.Vector3();
+  private terrainQuery: TerrainQueryService;
 
   constructor(
     world: RAPIER.World,
     aircraft: ResolvedAircraft,
     spawnPos: THREE.Vector3,
     spawnHeadingDeg: number,
+    terrainQuery: TerrainQueryService,
     runwayConditions: RunwayConditions = DEFAULT_RUNWAY_CONDITIONS,
   ) {
     this.world = world;
@@ -120,6 +157,7 @@ export class FlightController {
     this.spawnPos = spawnPos.clone();
     this.spawnHeadingDeg = spawnHeadingDeg;
     this.runwayConditions = runwayConditions;
+    this.terrainQuery = terrainQuery;
     this.fuelCapacityL = aircraft.fuelCapacityL;
     this.fuelL = aircraft.fuelCapacityL;
 
@@ -218,9 +256,12 @@ export class FlightController {
     const bodyVel = new THREE.Vector3(linvel.x, linvel.y, linvel.z);
     const bodyAngVel = new THREE.Vector3(angvel.x, angvel.y, angvel.z);
 
-    const altitude = Math.max(0, pos.y - GROUND_LEVEL_Y - GROUND_REST_OFFSET_M);
+    const terrainYHere = this.terrainQuery.getElevation(pos.x, pos.z);
+    const altitude = Math.max(0, pos.y - terrainYHere - GROUND_REST_OFFSET_M);
     const rho = airDensityAtAltitude(altitude);
     const onGround = altitude < 0.3;
+    // Sampled once per tick (not per force) - ground contact never changes surface mid-tick.
+    const groundSurface = onGround ? GROUND_SURFACES[this.terrainQuery.getSurfaceId(pos.x, pos.z)] : null;
 
     if (!this.crashed && !this.landed) {
       // --- Fuel & engine ---
@@ -231,17 +272,42 @@ export class FlightController {
         const burnRate = (this.aircraft.engine.maxPowerKw / 9) * 1.1 * this.throttleSmoothed; // L/min approx
         this.fuelL = Math.max(0, this.fuelL - (burnRate / 60) * dt);
       }
-      this.rpm = this.aircraft.engine
-        ? this.aircraft.engine.idleRpm + this.throttleSmoothed * (this.aircraft.engine.redlineRpm - this.aircraft.engine.idleRpm)
-        : 0;
+      this.rpm = computeEngineRpm(this.aircraft.engine, controls.engineOn, this.fuelL, this.throttleSmoothed);
 
-      // --- Propulsion ---
+      // --- Propulsion (actuator-disk / Rankine-Froude momentum theory) ---
+      // Previously: staticThrust = availableW / 8 and a hand-picked speed-falloff constant
+      // (28) - two arbitrary numbers disconnected from the propeller's actual size, and
+      // `engine.propDiameterM` (already authored per-engine in parts.ts) was dead data, never
+      // read anywhere. Momentum theory instead derives both quantities from real physics:
+      // for an ideal actuator disk of area A in static conditions (V0=0), thrust and power
+      // are related by P = T*v_i and T = 2*rho*A*v_i^2 (v_i = induced/slipstream velocity),
+      // which combine to a closed form for static thrust: T_static = (2*rho*A*P^2)^(1/3).
+      // This correctly makes static thrust depend on the propeller's disk area (a bigger
+      // prop genuinely produces more static thrust for the same power) and on air density
+      // (thrust drops at altitude, previously not modeled at all - rho only affected the
+      // wings before this change). The forward-flight falloff denominator is likewise no
+      // longer a bare tuning constant: it's derived from the disk's own static induced
+      // velocity v_i (the speed scale at which the free-stream begins to matter), so a
+      // bigger/more efficient disk naturally keeps more of its thrust at higher airspeed.
       if (this.aircraft.engine && this.fuelL > 0) {
         const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(quat);
         const availableW = this.aircraft.engine.maxPowerKw * 1000 * this.throttleSmoothed * this.aircraft.engine.propEfficiency;
         const forwardSpeed = Math.max(0, bodyVel.dot(forward));
-        const staticThrust = availableW / 8;
-        const thrustN = staticThrust / (1 + forwardSpeed / 28);
+        const propRadiusM = this.aircraft.engine.propDiameterM / 2;
+        const diskAreaM2 = Math.PI * propRadiusM * propRadiusM;
+        // cbrt(2*rho*A*P^2): closed-form static thrust from actuator-disk momentum theory.
+        const staticThrustN = Math.cbrt(2 * rho * diskAreaM2 * availableW * availableW);
+        // Guard: at zero throttle (availableW=0) staticThrustN and staticInducedVelMs are
+        // both exactly 0, which would divide 0/0 below (NaN) once forwardSpeed is also 0
+        // (e.g. engine idling before the first tick of motion) - thrust is simply zero here.
+        let thrustN = 0;
+        if (staticThrustN > 1e-6) {
+          const staticInducedVelMs = Math.sqrt(staticThrustN / (2 * rho * diskAreaM2));
+          // Denominator scale (2x the static induced velocity) approximates where the exact
+          // momentum-theory thrust-lapse curve sits without solving the full cubic in v_i
+          // for every tick - a standard simplification for real-time propeller models.
+          thrustN = staticThrustN / (1 + forwardSpeed / (2 * staticInducedVelMs));
+        }
         const enginePoint = bodyPos.clone().add(new THREE.Vector3(0, 0, 2.1).applyQuaternion(quat));
         const force = forward.multiplyScalar(thrustN);
         this.body.addForceAtPoint({ x: force.x, y: force.y, z: force.z }, { x: enginePoint.x, y: enginePoint.y, z: enginePoint.z }, true);
@@ -274,14 +340,18 @@ export class FlightController {
         const verticalFlow = localFlow.y;
         const lateralFlow = localFlow.x;
 
+        // Arcade agility: 'standard'/'acro' get more control-surface throw than the raw
+        // part data specifies, so turns feel as snappy as GTA San Andreas' planes instead
+        // of a realistic RC model. 'assisted' keeps the tuned-for-beginners authority as-is.
+        const authorityMul = ASSIST_AUTHORITY_MUL[controls.assistMode];
         let deflectionDeg = 0;
         if (surf.controlAxis === 'pitch') {
-          deflectionDeg = controls.pitch * (surf.maxDeflectionDeg ?? 0) * (surf.controlAuthority ?? 1);
+          deflectionDeg = controls.pitch * (surf.maxDeflectionDeg ?? 0) * (surf.controlAuthority ?? 1) * authorityMul;
         } else if (surf.controlAxis === 'roll') {
           const sign = surf.id.endsWith('_l') ? -1 : 1;
-          deflectionDeg = controls.roll * (surf.maxDeflectionDeg ?? 0) * sign * (surf.controlAuthority ?? 1);
+          deflectionDeg = controls.roll * (surf.maxDeflectionDeg ?? 0) * sign * (surf.controlAuthority ?? 1) * authorityMul;
         } else if (surf.controlAxis === 'yaw') {
-          deflectionDeg = controls.rudder * (surf.maxDeflectionDeg ?? 0) * (surf.controlAuthority ?? 1);
+          deflectionDeg = controls.rudder * (surf.maxDeflectionDeg ?? 0) * (surf.controlAuthority ?? 1) * authorityMul;
         }
         if (controls.flapsDown && surf.id === 'wing_root_main') {
           deflectionDeg += 12; // crude flap camber boost
@@ -308,7 +378,29 @@ export class FlightController {
           liftDirWorld = new THREE.Vector3(0, 1, 0).applyQuaternion(quat);
         }
 
-        const { cl, cd } = liftDragCurve(aoaDeg, surf.stallPositiveDeg, surf.stallNegativeDeg, surf.parasiticCd, surf.inducedDragFactor);
+        // Finite-wing aspect ratio (span^2/area) drives this surface's own lift-curve slope
+        // (aero.ts finiteWingLiftSlope) instead of every surface sharing one constant - a
+        // rudder's stubby AR (~1.5) genuinely produces less lift per degree than the main
+        // wing's AR (~7), which now falls directly out of each part's authored span/area.
+        const aspectRatio = (surf.spanM * surf.spanM) / surf.areaM2;
+
+        // Ground effect (McCormick/Wieselsberger induced-drag reduction, aero.ts
+        // groundEffectInducedDragFactor): the closer a surface is to the ground relative to
+        // its own span, the less induced drag it produces - the real "ground cushion" that
+        // lets an aircraft float just above the runway as speed bleeds off in the landing
+        // flare, instead of sinking the instant lift starts to drop.
+        const heightAboveGroundM = worldPos.y - this.terrainQuery.getElevation(worldPos.x, worldPos.z);
+        const groundEffectMul = groundEffectInducedDragFactor(heightAboveGroundM, surf.spanM);
+        const effectiveInducedDragFactor = surf.inducedDragFactor * groundEffectMul;
+
+        const { cl, cd } = liftDragCurve(
+          aoaDeg,
+          surf.stallPositiveDeg,
+          surf.stallNegativeDeg,
+          surf.parasiticCd,
+          effectiveInducedDragFactor,
+          aspectRatio,
+        );
         const q = dynamicPressure(rho, speed);
         const liftMag = q * surf.areaM2 * cl * damageMul;
         const dragMag = q * surf.areaM2 * cd * damageMul;
@@ -337,12 +429,20 @@ export class FlightController {
         // it down as the ground roll builds speed keeps low-speed taxi stable (full gain near
         // a standstill) while leaving real elevator authority for rotation near flying speed.
         const speedFactor = onGround ? Math.max(0.15, 1 - forwardSpeed / 20) : Math.min(1, forwardSpeed / 12);
-        const stabilityGain = 1.6 * speedFactor * this.aircraft.totalMassKg;
+        // Full gain on the ground regardless of assist mode (taxi/takeoff stays easy to
+        // handle); airborne gain is tapered further per assist mode so 'standard'/'acro'
+        // can hold a bank through a turn or carry a loop instead of auto-leveling out of it.
+        const airStabilityMul = onGround ? 1 : ASSIST_AIR_STABILITY_MUL[controls.assistMode];
+        const stabilityGain = 1.6 * speedFactor * airStabilityMul * this.aircraft.totalMassKg;
 
         // Damping: oppose pitch/roll rate only (leave yaw free for rudder turns).
         const yawComponent = worldUp.clone().multiplyScalar(bodyAngVel.dot(worldUp));
         const pitchRollRate = bodyAngVel.clone().sub(yawComponent);
-        const dampingGain = 5.0 * this.aircraft.totalMassKg;
+        // Damping is only partially tapered (never below half) even for 'acro' - it exists
+        // to keep explicit integration numerically stable, not just to auto-level, so it
+        // can't be relaxed as much as the leveling term above without risking divergence.
+        const dampingMul = onGround ? 1 : 0.5 + 0.5 * airStabilityMul;
+        const dampingGain = 5.0 * dampingMul * this.aircraft.totalMassKg;
 
         const torque = correctionAxis
           .multiplyScalar(stabilityGain)
@@ -362,12 +462,28 @@ export class FlightController {
         }
       }
 
+      // --- Rolling resistance (per-surface taxi drag, GROUND_SURFACES from surfaces.ts) ---
+      // Ground contact/friction itself is handled by the manual terrain-snap below, not by
+      // Rapier collider friction (see the setFriction(...) comment above), so surface roll
+      // drag has to be applied here as an explicit force too. groundFrictionMul (airframe/gear
+      // quality) is a separate multiplicative factor on top of the surface's own resistance.
+      if (onGround && groundSurface) {
+        const horizVel = new THREE.Vector3(bodyVel.x, 0, bodyVel.z);
+        const speedHoriz = horizVel.length();
+        if (speedHoriz > 0.05) {
+          const rollMag = groundSurface.rollingResistance * this.aircraft.groundFrictionMul * 9.81 * this.aircraft.totalMassKg;
+          const rollForce = horizVel.normalize().multiplyScalar(-rollMag);
+          this.body.addForce({ x: rollForce.x, y: 0, z: rollForce.z }, true);
+        }
+      }
+
       // --- Wheel brake (simple linear damping boost while on ground) ---
       // Damaged/detached gear (damageSystem.ts) makes braking less effective, standing in
       // for a busted wheel/strut without touching the rest of the ground-roll tuning.
       const gearPenalty = getGroundHandlingPenalty(this.damageState);
       if (onGround && controls.brake) {
-        const decel = bodyVel.clone().multiplyScalar((-2.5 / gearPenalty) * this.aircraft.totalMassKg);
+        const gripMul = groundSurface ? groundSurface.brakingGripDry : 1;
+        const decel = bodyVel.clone().multiplyScalar((-2.5 * gripMul / gearPenalty) * this.aircraft.totalMassKg);
         this.body.addForce({ x: decel.x, y: 0, z: decel.z }, true);
       }
 
@@ -378,13 +494,37 @@ export class FlightController {
 
     this.world.step();
 
+    // --- Terrain collision (arcade-fidelity, no Rapier heightfield) ---
+    // The Rapier world only has a flat safety-net ground plane far below the map (see
+    // FlightScreen.tsx) - a real RAPIER.ColliderDesc.heightfield(...) sampled from
+    // TerrainQueryService (src/world/terrainQuery.ts) reliably crashed the Rapier wasm
+    // module ("memory access out of bounds") when tried, so ground contact against the
+    // undulating visual terrain is instead enforced manually here every tick: if the
+    // aircraft's belly would sit below the terrain height sampled at its own x/z, snap it
+    // to rest on the surface and kill downward velocity, the same net effect a solid
+    // heightfield collider would have. This treats local terrain as horizontal at the
+    // sampled point (ignores slope tilt) - an acceptable simplification for this arcade
+    // model, and the reason the aircraft no longer visually clips through hills/valleys.
+    {
+      const p = this.body.translation();
+      const terrainYNow = this.terrainQuery.getElevation(p.x, p.z);
+      const bellyY = p.y - GROUND_REST_OFFSET_M;
+      if (bellyY < terrainYNow) {
+        this.body.setTranslation({ x: p.x, y: terrainYNow + GROUND_REST_OFFSET_M, z: p.z }, true);
+        const v = this.body.linvel();
+        if (v.y < 0) {
+          this.body.setLinvel({ x: v.x, y: 0, z: v.z }, true);
+        }
+      }
+    }
+
     // --- Safety clamps (spec 8.3 allows limiting extreme high-speed/contact events).
     // These are a last-resort net on top of the tuned constants above, not a substitute
     // for them: normal flight should stay well inside these bounds.
     {
       const av = this.body.angvel();
       const angSpeed = Math.hypot(av.x, av.y, av.z);
-      const maxAngSpeed = 6; // rad/s
+      const maxAngSpeed = ASSIST_MAX_ANG_SPEED[controls.assistMode]; // rad/s
       if (angSpeed > maxAngSpeed) {
         const scale = maxAngSpeed / angSpeed;
         this.body.setAngvel({ x: av.x * scale, y: av.y * scale, z: av.z * scale }, true);
@@ -403,7 +543,8 @@ export class FlightController {
     const newRot = this.body.rotation();
     const newLinvel = this.body.linvel();
     const speedNow = Math.hypot(newLinvel.x, newLinvel.y, newLinvel.z);
-    const altitudeNow = Math.max(0, newPos.y - GROUND_LEVEL_Y - GROUND_REST_OFFSET_M);
+    const terrainYNow = this.terrainQuery.getElevation(newPos.x, newPos.z);
+    const altitudeNow = Math.max(0, newPos.y - terrainYNow - GROUND_REST_OFFSET_M);
     this.distanceM = Math.hypot(newPos.x - this.spawnPos.x, newPos.z - this.spawnPos.z);
     this.maxAltitudeM = Math.max(this.maxAltitudeM, altitudeNow);
     this.maxSpeedMs = Math.max(this.maxSpeedMs, speedNow);
@@ -461,6 +602,9 @@ export class FlightController {
   }
 
   private getTelemetry(speedNow: number, altitudeNow: number, onGround: boolean): FlightTelemetry {
+    const rotation = this.body.rotation();
+    const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(new THREE.Quaternion(rotation.x, rotation.y, rotation.z, rotation.w));
+    const headingDeg = (Math.atan2(forward.x, forward.z) * 180 / Math.PI + 360) % 360;
     return {
       state: this.state,
       speedMs: speedNow,
@@ -479,6 +623,9 @@ export class FlightController {
       damagedPartIds: listDamagedPartIds(this.damageState),
       detachedPartIds: listDetachedPartIds(this.damageState),
       landingFailures: this.landingFailures,
+      elapsedS: this.elapsedS,
+      position: [this.body.translation().x, this.body.translation().y, this.body.translation().z],
+      headingDeg,
     };
   }
 }

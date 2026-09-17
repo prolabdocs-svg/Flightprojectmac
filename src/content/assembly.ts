@@ -2,7 +2,7 @@
 // Implements a simplified version of spec sections 35 (Aircraft Entity Model) and 36 (Mass/CoM).
 
 import type { AeroSurfaceSpec, AircraftBuild, EngineSpec, FrameDefinition, PartCategory, Vec3 } from '../core/types';
-import { FRAME_ZERO, getPart } from './parts';
+import { FRAMES, FRAME_ZERO, getPart } from './parts';
 
 export interface ResolvedAircraft {
   frame: FrameDefinition;
@@ -31,7 +31,7 @@ function addWeighted(acc: Vec3, mass: number, pos: Vec3, totalMass: number): Vec
   ];
 }
 
-export function resolveAircraft(build: AircraftBuild, frames: FrameDefinition[] = [FRAME_ZERO]): ResolvedAircraft {
+export function resolveAircraft(build: AircraftBuild, frames: FrameDefinition[] = FRAMES): ResolvedAircraft {
   const frame = frames.find((f) => f.id === build.frameId) ?? FRAME_ZERO;
 
   let totalMass = frame.basePhysics.massKg;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeFlightResult, computeOperatingCosts } from './economy';
+import { computeFlightResult, computeOperatingCosts, isMissionCompleted } from './economy';
 import type { FlightTelemetry } from '../sim/flightController';
 import type { AircraftBuild, MissionDefinition } from '../core/types';
 import { resolveAircraft } from './assembly';
@@ -13,6 +13,8 @@ function telemetry(overrides: Partial<FlightTelemetry> = {}): FlightTelemetry {
     landed: false,
     landingQuality: 0,
     fuelFraction: 1,
+    elapsedS: 0,
+    position: [0, 0, 0],
     crashOutcome: 'none',
     damagedPartIds: [],
     detachedPartIds: [],
@@ -73,6 +75,44 @@ describe('computeFlightResult', () => {
     expect(highFuel.bonusesAchieved).toContain('fuel_left');
   });
 
+  it('awards timeUnder only for a completed flight inside its fixed-step time limit', () => {
+    const timedMission: MissionDefinition = {
+      ...mission,
+      bonuses: [{ id: 'quick', label: 'Quick', check: 'timeUnder', value: 45, rewardCash: 10, rewardRp: 2 }],
+    };
+    expect(computeFlightResult(timedMission, telemetry({ landed: true, elapsedS: 44.9 })).bonusesAchieved).toContain('quick');
+    expect(computeFlightResult(timedMission, telemetry({ landed: true, elapsedS: 45.1 })).bonusesAchieved).not.toContain('quick');
+    expect(computeFlightResult(timedMission, telemetry({ landed: false, elapsedS: 10 })).bonusesAchieved).not.toContain('quick');
+  });
+
+  it('carries fixed-step flight duration into the result', () => {
+    expect(computeFlightResult(mission, telemetry({ elapsedS: 72.5 })).timeS).toBe(72.5);
+  });
+
+  it('awards more reputation for completing a contract than for a failed landing', () => {
+    const distanceMission = { ...mission, minDistanceM: 300 };
+    const completed = computeFlightResult(distanceMission, telemetry({ landed: true, distanceM: 400 }));
+    const failed = computeFlightResult(distanceMission, telemetry({ landed: true, distanceM: 0 }));
+    expect(completed.reputationGain).toBeGreaterThan(failed.reputationGain ?? 0);
+  });
+
+  it('requires landing inside a precision target rather than accepting any landing', () => {
+    const precision: MissionDefinition = {
+      ...mission,
+      family: 'precisionLanding',
+      targetPoint: [100, 0, 200],
+      targetRadiusM: 20,
+    };
+    expect(isMissionCompleted(precision, telemetry({ landed: true, position: [110, 0, 205] }))).toBe(true);
+    expect(isMissionCompleted(precision, telemetry({ landed: true, position: [121, 0, 200] }))).toBe(false);
+  });
+
+  it('requires the contracted distance before completing a distance run', () => {
+    const distanceRun: MissionDefinition = { ...mission, minDistanceM: 300 };
+    expect(isMissionCompleted(distanceRun, telemetry({ landed: true, distanceM: 300 }))).toBe(true);
+    expect(isMissionCompleted(distanceRun, telemetry({ landed: true, distanceM: 299.9 }))).toBe(false);
+  });
+
   it('applies a crash penalty that reduces cash but never below the 10 cash floor', () => {
     const result = computeFlightResult(null, telemetry({ crashed: true, distanceM: 0 }));
     expect(result.crashed).toBe(true);
@@ -127,6 +167,16 @@ describe('computeOperatingCosts', () => {
       defaultBuild,
     );
     expect(detached.repairCost).toBeGreaterThan(damaged.repairCost);
+  });
+
+  it('applies a hangar repair discount without discounting fuel', () => {
+    const base = computeOperatingCosts(telemetry({ fuelFraction: .5, damagedPartIds: ['wing_root_main'] }), aircraft, defaultBuild);
+    const upgraded = computeOperatingCosts(
+      telemetry({ fuelFraction: .5, damagedPartIds: ['wing_root_main'] }), aircraft, defaultBuild,
+      { runwayLevel: 0, hangarLevel: 2 },
+    );
+    expect(upgraded.repairCost).toBeLessThan(base.repairCost);
+    expect(upgraded.fuelCost).toBe(base.fuelCost);
   });
 
   it('caps a total-loss repair cost to roughly a full airframe replacement, not an unbounded stack', () => {

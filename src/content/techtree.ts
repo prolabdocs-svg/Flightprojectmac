@@ -15,6 +15,16 @@ export const TECH_NODES: TechNodeDef[] = [
     unlocksPartIds: [],
   },
   {
+    id: 'airframe_trailblazer',
+    category: 'airframe',
+    name: 'Proyecto Trailblazer',
+    description: 'Planos de un fuselaje de ruta reforzado y más limpio. Desbloquea el Trailblazer Mk I en el taller.',
+    costRp: 50,
+    requires: ['airframe_bracing'],
+    unlocksPartIds: [],
+    unlocksFrameIds: ['frame_trailblazer'],
+  },
+  {
     id: 'aero_efficient_wing',
     category: 'aerodynamics',
     name: 'Ala eficiente',

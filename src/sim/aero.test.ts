@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { airDensityAtAltitude, dynamicPressure, liftDragCurve } from './aero';
+import { airDensityAtAltitude, dynamicPressure, finiteWingLiftSlope, groundEffectInducedDragFactor, liftDragCurve } from './aero';
 
 describe('airDensityAtAltitude', () => {
   it('returns sea-level density at altitude 0', () => {
@@ -71,5 +71,63 @@ describe('liftDragCurve', () => {
     const highInduced = high.cd - parasiticCd;
     expect(highInduced).toBeGreaterThan(lowInduced);
     expect(lowInduced).toBeCloseTo(inducedDragFactor * low.cl * low.cl, 6);
+  });
+
+  it('a lower-aspect-ratio surface has a shallower lift-curve slope than a higher-AR one', () => {
+    // Finite-wing (Prandtl) correction: a stubby rudder-like panel (AR ~1.5) must generate
+    // less CL per degree of AoA than a wing-like panel (AR ~7) of the same area, exactly
+    // the shape-dependence a single shared slope constant couldn't express.
+    const lowAr = liftDragCurve(5, stallPos, stallNeg, parasiticCd, inducedDragFactor, 1.5);
+    const highAr = liftDragCurve(5, stallPos, stallNeg, parasiticCd, inducedDragFactor, 7);
+    expect(lowAr.cl).toBeGreaterThan(0);
+    expect(lowAr.cl).toBeLessThan(highAr.cl);
+  });
+
+  it('deep stall (approaching 90 degrees AoA) correctly returns lift toward zero', () => {
+    // A flat plate broadside to the flow produces (near) zero lift, all drag - the old
+    // model incorrectly plateaued at ~35% of peak CL forever, including at 90 degrees.
+    const nearNinety = liftDragCurve(89, stallPos, stallNeg, parasiticCd, inducedDragFactor);
+    expect(Math.abs(nearNinety.cl)).toBeLessThan(0.1);
+  });
+
+  it('drag keeps rising through deep stall instead of following lift back down', () => {
+    // Separated (stalled) flow is a high-drag, not low-drag, state - CD must stay high (in
+    // fact keep climbing toward the flat-plate maximum) even as CL collapses past 45-60
+    // degrees AoA, since drag in this regime comes from separation, not from lift-induced
+    // downwash (which is what the parasitic+induced formula alone would imply).
+    const atStall = liftDragCurve(stallPos, stallPos, stallNeg, parasiticCd, inducedDragFactor);
+    const deepStall = liftDragCurve(75, stallPos, stallNeg, parasiticCd, inducedDragFactor);
+    expect(deepStall.cd).toBeGreaterThan(atStall.cd);
+  });
+});
+
+describe('finiteWingLiftSlope', () => {
+  it('stays below the 2*pi thin-airfoil theoretical ceiling for any finite aspect ratio', () => {
+    expect(finiteWingLiftSlope(50)).toBeLessThan(2 * Math.PI);
+    expect(finiteWingLiftSlope(1)).toBeLessThan(2 * Math.PI);
+  });
+
+  it('increases monotonically with aspect ratio (slender wings lift more efficiently)', () => {
+    expect(finiteWingLiftSlope(2)).toBeLessThan(finiteWingLiftSlope(6));
+    expect(finiteWingLiftSlope(6)).toBeLessThan(finiteWingLiftSlope(15));
+  });
+});
+
+describe('groundEffectInducedDragFactor', () => {
+  it('approaches 1 (no effect) far from the ground', () => {
+    expect(groundEffectInducedDragFactor(50, 9)).toBeGreaterThan(0.99);
+  });
+
+  it('approaches 0 (induced drag vanishes) right at the ground', () => {
+    expect(groundEffectInducedDragFactor(0, 9)).toBe(0);
+    expect(groundEffectInducedDragFactor(0.1, 9)).toBeLessThan(0.1);
+  });
+
+  it('increases monotonically with height above ground', () => {
+    const low = groundEffectInducedDragFactor(0.5, 9);
+    const mid = groundEffectInducedDragFactor(2, 9);
+    const high = groundEffectInducedDragFactor(10, 9);
+    expect(low).toBeLessThan(mid);
+    expect(mid).toBeLessThan(high);
   });
 });

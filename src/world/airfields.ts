@@ -84,6 +84,17 @@ export const AIRFIELDS: AirfieldDefinition[] = [
     discoveryState: 'hidden',
   },
   {
+    id: 'backcountry_lake_strip',
+    name: 'Orilla del Lago',
+    regionId: 'backcountry',
+    position: [35, 0, 260],
+    runwayLengthM: 150,
+    runwayWidthM: 16,
+    surface: 'grass',
+    services: ['fuel', 'repair'],
+    discoveryState: 'known',
+  },
+  {
     id: 'coast_run_pier',
     name: 'Muelle de Coast Run',
     regionId: 'coast_run',
@@ -94,6 +105,39 @@ export const AIRFIELDS: AirfieldDefinition[] = [
     services: ['fuel', 'repair', 'market'],
     discoveryState: 'rumored',
   },
+  {
+    id: 'industrial_cargo_yard',
+    name: 'Patio de Carga',
+    regionId: 'industrial_belt',
+    position: [70, 0, 420],
+    runwayLengthM: 170,
+    runwayWidthM: 18,
+    surface: 'tarmac',
+    services: ['fuel', 'repair', 'market'],
+    discoveryState: 'known',
+  },
+  {
+    id: 'desert_salt_strip',
+    name: 'Pista de Sal',
+    regionId: 'high_desert_test_range',
+    position: [0, 0, 500],
+    runwayLengthM: 500,
+    runwayWidthM: 30,
+    surface: 'salt',
+    services: ['fuel', 'repair', 'storage'],
+    discoveryState: 'known',
+  },
+  {
+    id: 'range_summit_pad',
+    name: 'Plataforma Cumbre',
+    regionId: 'the_range',
+    position: [90, 0, 540],
+    runwayLengthM: 180,
+    runwayWidthM: 16,
+    surface: 'gravel',
+    services: ['fuel', 'repair'],
+    discoveryState: 'known',
+  },
 ];
 
 export function getAirfield(id: string): AirfieldDefinition | undefined {
@@ -103,6 +147,14 @@ export function getAirfield(id: string): AirfieldDefinition | undefined {
 /** Airfields belonging to a single region. */
 export function getRegionAirfields(regionId: string): AirfieldDefinition[] {
   return AIRFIELDS.filter((a) => a.regionId === regionId);
+}
+
+/** Starting point for sandbox flying. Prefer an airfield the player can already see;
+ * older regions with only hidden strips still get a deterministic first strip rather
+ * than silently falling back to the world's origin. */
+export function getFreeFlightAirfield(regionId: string): AirfieldDefinition | undefined {
+  const airfields = getRegionAirfields(regionId);
+  return airfields.find((airfield) => airfield.discoveryState === 'known') ?? airfields[0];
 }
 
 /** Data-integrity guard: every airfield must reference a region that actually exists. */

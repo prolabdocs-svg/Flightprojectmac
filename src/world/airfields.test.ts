@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { AIRFIELDS, airfieldsHaveValidRegions, getAirfield, getRegionAirfields } from './airfields';
+import { AIRFIELDS, airfieldsHaveValidRegions, getAirfield, getFreeFlightAirfield, getRegionAirfields } from './airfields';
 import { REGIONS } from '../content/regions';
 
 describe('AIRFIELDS', () => {
-  it('has at least four airfields', () => {
-    expect(AIRFIELDS.length).toBeGreaterThanOrEqual(4);
+  it('gives every campaign region at least one navigable airfield', () => {
+    for (const region of REGIONS) {
+      expect(getRegionAirfields(region.id), `missing airfield for ${region.id}`).not.toEqual([]);
+    }
   });
 
   it('every airfield has a unique id', () => {
@@ -47,5 +49,17 @@ describe('getRegionAirfields', () => {
 
   it('returns an empty array for a region with no airfields', () => {
     expect(getRegionAirfields('nonexistent_region')).toEqual([]);
+  });
+});
+
+describe('getFreeFlightAirfield', () => {
+  it('returns a deterministic launch strip for every campaign region', () => {
+    for (const region of REGIONS) {
+      expect(getFreeFlightAirfield(region.id)?.regionId).toBe(region.id);
+    }
+  });
+
+  it('prefers a known airfield when a region has one', () => {
+    expect(getFreeFlightAirfield('the_field')?.id).toBe('field_home');
   });
 });

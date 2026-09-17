@@ -1,12 +1,31 @@
 import { describe, expect, it } from 'vitest';
 import { THE_FIELD, getRegion } from '../content/regions';
+import { AIRFIELDS, getAirfield } from './airfields';
 import { createTerrainQueryService } from './terrainQuery';
 
 describe('createTerrainQueryService', () => {
-  it('is flat near the runway pad (radius < 190m)', () => {
+  it('is flat across an airfield graded pad (two different points, same elevation)', () => {
     const terrain = createTerrainQueryService(THE_FIELD);
-    expect(terrain.getElevation(0, -150)).toBe(0);
-    expect(terrain.getElevation(50, -100)).toBe(0);
+    expect(terrain.getElevation(30, 40)).toBe(terrain.getElevation(-50, -100));
+  });
+
+  it('grades every airfield in a region, not just the first one', () => {
+    // Before WLD-02, only one hand-placed flat disc existed per world, so a second
+    // airfield in the same region (field_north_strip, z=620) sat on raw undulating noise.
+    const terrain = createTerrainQueryService(THE_FIELD);
+    const northStrip = getAirfield('field_north_strip')!;
+    const [x, , z] = northStrip.position;
+    expect(terrain.getElevation(x + 20, z)).toBe(terrain.getElevation(x - 20, z));
+    expect(terrain.isOnGradedRunway(x, z)).toBe(true);
+  });
+
+  it('every airfield sits on its own graded pad', () => {
+    for (const airfield of AIRFIELDS) {
+      const terrain = createTerrainQueryService(getRegion(airfield.regionId));
+      const [x, , z] = airfield.position;
+      expect(terrain.isOnGradedRunway(x, z)).toBe(true);
+      expect(terrain.getSurfaceId(x, z)).toBe(airfield.surface);
+    }
   });
 
   it('produces non-trivial relief away from the runway pad', () => {
@@ -37,7 +56,7 @@ describe('createTerrainQueryService', () => {
 
   it('reports ~0 degrees slope on the flat runway pad', () => {
     const terrain = createTerrainQueryService(THE_FIELD);
-    expect(terrain.getSlopeDeg(0, -150)).toBeCloseTo(0, 5);
+    expect(terrain.getSlopeDeg(0, 0)).toBeCloseTo(0, 5);
   });
 
   it('reports a positive, finite slope on sloped terrain', () => {
@@ -53,5 +72,63 @@ describe('createTerrainQueryService', () => {
     for (let i = 0; i < 25; i++) {
       expect(terrain.getElevation(777, -333)).toBe(first);
     }
+  });
+
+  it('derives surface/biome from region terrain type (meadow -> grass)', () => {
+    const terrain = createTerrainQueryService(THE_FIELD);
+    expect(terrain.getSurfaceId(0, 0)).toBe('grass');
+  });
+
+  it('derives a different surface for a different region terrain type (quarry -> rock)', () => {
+    const quarryTerrain = createTerrainQueryService(getRegion('scrap_valley'));
+    expect(quarryTerrain.getSurfaceId(0, 0)).toBe('rock');
+  });
+
+  it('reports 0 depth for regions with no water body', () => {
+    const terrain = createTerrainQueryService(THE_FIELD);
+    expect(terrain.getWaterDepth(1200, 900)).toBe(0);
+    expect(terrain.getWaterDepth(300, 300)).toBe(0);
+  });
+
+  it('reports 0 depth well outside any water body', () => {
+    const terrain = createTerrainQueryService(getRegion('backcountry'));
+    expect(terrain.getWaterDepth(-5000, -5000)).toBe(0);
+  });
+
+  it('reports depth > 0 inside the lake footprint where terrain dips below the surface', () => {
+    const terrain = createTerrainQueryService(getRegion('backcountry'));
+    expect(terrain.getWaterDepth(300, 145)).toBeGreaterThan(0);
+  });
+
+  it('is deterministic across repeated water-depth calls', () => {
+    const terrain = createTerrainQueryService(getRegion('coast_run'));
+    const first = terrain.getWaterDepth(300, 75);
+    for (let i = 0; i < 10; i++) {
+      expect(terrain.getWaterDepth(300, 75)).toBe(first);
+    }
+  });
+
+  it('sample() bundles elevation/slope/surface/biome/emergency-landing consistently', () => {
+    const terrain = createTerrainQueryService(THE_FIELD);
+    const sample = terrain.sample(1200, 900);
+    expect(sample.elevationM).toBe(terrain.getElevation(1200, 900));
+    expect(sample.slopeDeg).toBe(terrain.getSlopeDeg(1200, 900));
+    expect(sample.surfaceId).toBe('grass');
+    expect(sample.dominantBiomeId).toBe('temperate_grassland');
+    expect(sample.waterDepthM).toBe(0);
+    expect(sample.emergencyLandingSuitability).toBeGreaterThanOrEqual(0);
+    expect(sample.emergencyLandingSuitability).toBeLessThanOrEqual(1);
+  });
+
+  it('scores the flat runway pad as an excellent emergency landing site', () => {
+    const terrain = createTerrainQueryService(THE_FIELD);
+    expect(terrain.sample(0, 0).emergencyLandingSuitability).toBeGreaterThan(0.8);
+  });
+
+  it('scores steep terrain as a worse emergency landing site than the flat pad', () => {
+    const terrain = createTerrainQueryService(THE_FIELD);
+    const flat = terrain.sample(0, 0).emergencyLandingSuitability;
+    const rough = terrain.sample(1200, 900).emergencyLandingSuitability;
+    expect(rough).toBeLessThan(flat);
   });
 });

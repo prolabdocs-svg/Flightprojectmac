@@ -10,7 +10,7 @@
 import type { HomeBaseState, PlayerProfile } from '../core/types';
 import { defaultBuild } from '../content/assembly';
 
-export const SAVE_SCHEMA_VERSION = 2;
+export const SAVE_SCHEMA_VERSION = 3;
 const GAME_VERSION = '0.1.0';
 
 const DB_NAME = 'project-flight';
@@ -43,6 +43,7 @@ export function createDefaultProfile(): PlayerProfile {
     salvage: 0,
     reputation: 0,
     ownedParts: ['engine_small', 'wing_a_basic', 'tank_8', 'gear_light'],
+    ownedFrameIds: ['frame_zero'],
     unlockedMissions: ['field_distance_01'],
     unlockedTech: [],
     ownedPaintIds: ['paint_default'],
@@ -90,6 +91,10 @@ function migrate(raw: PlayerProfile): PlayerProfile {
     // saves that predate it don't crash on missing fields.
     profile = { ...profile, schemaVersion: 2, homeBase: { ...DEFAULT_HOME_BASE, ...profile.homeBase } };
   }
+  if (profile.schemaVersion < 3) {
+    profile = { ...profile, schemaVersion: 3, ownedFrameIds: profile.ownedFrameIds?.length ? profile.ownedFrameIds : ['frame_zero'] };
+  }
+  profile = { ...profile, ownedFrameIds: profile.ownedFrameIds?.length ? profile.ownedFrameIds : ['frame_zero'] };
   profile = { ...profile, homeBase: { ...DEFAULT_HOME_BASE, ...profile.homeBase } };
   return profile;
 }

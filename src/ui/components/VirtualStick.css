@@ -7,16 +7,18 @@
 }
 
 .stick-base {
-  width: 110px;
-  height: 110px;
+  width: clamp(94px, 14vw, 138px);
+  height: clamp(94px, 14vw, 138px);
   border-radius: 50%;
-  background: radial-gradient(circle at 50% 50%, rgba(30, 34, 28, 0.55), rgba(10, 12, 10, 0.75));
-  border: 2px solid rgba(200, 210, 190, 0.35);
+  background: radial-gradient(circle at 50% 50%, rgba(82, 98, 92, .25) 0 10%, rgba(17, 25, 24, .72) 11% 70%, rgba(7, 10, 10, .78) 71%);
+  border: 2px solid rgba(205, 218, 204, 0.42);
   position: relative;
   touch-action: none;
   user-select: none;
   backdrop-filter: blur(2px);
 }
+.stick-base::before, .stick-base::after { content:''; position:absolute; background:rgba(176,191,178,.16); left:50%; top:10%; transform:translateX(-50%); width:1px; height:80%; }
+.stick-base::after { transform:translateY(0) rotate(90deg); transform-origin:center; top:50%; left:10%; width:80%; height:1px; }
 
 .stick-knob {
   position: absolute;
@@ -27,7 +29,7 @@
   margin-top: -23px;
   margin-left: -23px;
   border-radius: 50%;
-  background: linear-gradient(160deg, #d9c48b, #8a6b3e);
+  background: radial-gradient(circle at 35% 28%, #f4d889, #ad803a 60%, #5d401c 100%);
   border: 2px solid #3a2d18;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
   will-change: transform;

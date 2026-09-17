@@ -16,6 +16,7 @@ import { MISSIONS } from './missions';
 import { PARTS, FRAMES } from './parts';
 import { TECH_NODES } from './techtree';
 import { PAINT_PRESETS } from './paint';
+import { AIRFIELDS } from '../world/airfields';
 
 function duplicates(ids: string[]): string[] {
   const seen = new Set<string>();
@@ -83,32 +84,35 @@ describe('content integrity: missions.ts -> regions.ts', () => {
   });
 });
 
-describe('content integrity: regions.ts -> missions.ts (unlock gates)', () => {
-  // Regions 3-8 are intentionally authored ahead of their mission packs (see the
-  // "Regions 3-8 establish the authored campaign/world contract..." comment in
-  // regions.ts) -- their unlockRequirement.requiredMissionId points at mission ids
-  // that are not implemented yet. That is a known, documented gap in the current
-  // vertical slice, not a bug, so this check reports it loudly via console.warn
-  // instead of failing the suite. Once a region's mission pack lands, its id will
-  // start resolving and simply stop appearing in this warning.
-  it('every region.unlockRequirement.requiredMissionId resolves to a real mission (warns on pending content)', () => {
-    const missionIds = new Set(MISSIONS.map((m) => m.id));
-    const dangling: string[] = [];
-    for (const region of REGIONS) {
-      const requiredId = region.unlockRequirement?.requiredMissionId;
-      if (requiredId && !missionIds.has(requiredId)) {
-        dangling.push(`region "${region.id}" requires mission "${requiredId}"`);
+describe('content integrity: missions.ts -> airfields.ts', () => {
+  const airfieldsById = new Map(AIRFIELDS.map((airfield) => [airfield.id, airfield]));
+
+  it('every linked origin/destination resolves and belongs to the mission region', () => {
+    for (const mission of MISSIONS) {
+      for (const linkId of [mission.originAirfieldId, mission.destinationAirfieldId]) {
+        if (!linkId) continue;
+        const airfield = airfieldsById.get(linkId);
+        expect(airfield, `mission "${mission.id}" links unknown airfield "${linkId}"`).toBeDefined();
+        expect(
+          airfield?.regionId,
+          `mission "${mission.id}" (${mission.regionId}) links airfield "${linkId}" in another region`,
+        ).toBe(mission.regionId);
       }
     }
-    if (dangling.length > 0) {
-      // eslint-disable-next-line no-console
-      console.warn(
-        `[content-validation] ${dangling.length} region unlock gate(s) reference missions that don't exist yet ` +
-          `(expected while their mission packs are pending): ${dangling.join('; ')}`,
-      );
+  });
+});
+
+describe('content integrity: regions.ts -> missions.ts (unlock gates)', () => {
+  it('every region unlock gate resolves to a real campaign mission', () => {
+    const missionIds = new Set(MISSIONS.map((m) => m.id));
+    for (const region of REGIONS) {
+      const requiredId = region.unlockRequirement?.requiredMissionId;
+      if (!requiredId) continue;
+      expect(
+        missionIds.has(requiredId),
+        `region "${region.id}" requires missing mission "${requiredId}" in src/content/missions.ts`,
+      ).toBe(true);
     }
-    // Intentionally not asserted on: see comment above.
-    expect(true).toBe(true);
   });
 });
 

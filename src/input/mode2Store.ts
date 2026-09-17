@@ -45,6 +45,9 @@ interface Mode2State {
   setBrake: (v: boolean) => void;
   toggleFlaps: () => void;
   deployChute: () => void;
+  /** Releases controls that should never remain held after a browser focus/gesture loss.
+   * Throttle deliberately remains sticky, matching the physical Mode 2 transmitter. */
+  releaseMomentaryControls: () => void;
   setInvertPitch: (v: boolean) => void;
   setPreset: (p: ControlPreset) => void;
   setAssistMode: (m: AssistMode) => void;
@@ -72,6 +75,7 @@ export const useMode2Store = create<Mode2State>((set) => ({
   setBrake: (v) => set({ brake: v }),
   toggleFlaps: () => set((s) => ({ flapsDown: !s.flapsDown })),
   deployChute: () => set({ chuteDeployed: true }),
+  releaseMomentaryControls: () => set({ rudder: 0, elevator: 0, aileron: 0, brake: false }),
   setInvertPitch: (v) => set({ invertPitch: v }),
   setPreset: (p) => set({ preset: p }),
   setAssistMode: (m) => set({ assistMode: m }),

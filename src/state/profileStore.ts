@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { AircraftBuild, FlightResult, PlayerProfile } from '../core/types';
 import { createDefaultProfile, saveRepository, whenSaveRepositoryReady } from '../save/save';
 import { canUnlockTech } from '../content/techtree';
+import { MAX_HOME_BASE_LEVEL } from '../content/homeBase';
 
 interface ProfileState {
   profile: PlayerProfile;
@@ -9,6 +10,7 @@ interface ProfileState {
   persist: () => void;
   setBuild: (build: AircraftBuild) => void;
   buyPart: (partId: string, priceCash: number) => boolean;
+  buyFrame: (frameId: string, priceCash: number) => boolean;
   unlockTech: (nodeId: string, costRp: number) => boolean;
   buyPaint: (paintId: string, priceCash: number) => boolean;
   selectPaint: (paintId: string) => void;
@@ -41,6 +43,15 @@ export const useProfileStore = create<ProfileState>((set, get) => ({
     if (profile.ownedParts.includes(partId)) return true;
     if (profile.cash < priceCash) return false;
     set({ profile: { ...profile, cash: profile.cash - priceCash, ownedParts: [...profile.ownedParts, partId] } });
+    get().persist();
+    return true;
+  },
+
+  buyFrame: (frameId, priceCash) => {
+    const { profile } = get();
+    if (profile.ownedFrameIds.includes(frameId)) return true;
+    if (profile.cash < priceCash) return false;
+    set({ profile: { ...profile, cash: profile.cash - priceCash, ownedFrameIds: [...profile.ownedFrameIds, frameId] } });
     get().persist();
     return true;
   },
@@ -84,6 +95,7 @@ export const useProfileStore = create<ProfileState>((set, get) => ({
     const { profile } = get();
     if (profile.cash < costCash) return false;
     const levelKey = facility === 'runway' ? 'runwayLevel' : 'hangarLevel';
+    if (profile.homeBase[levelKey] >= MAX_HOME_BASE_LEVEL) return false;
     set({
       profile: {
         ...profile,
@@ -105,9 +117,13 @@ export const useProfileStore = create<ProfileState>((set, get) => ({
       ...profile,
       cash: profile.cash + cashDelta,
       researchPoints: profile.researchPoints + result.rewardRp,
-      reputation: profile.reputation + (result.crashed ? 0.5 : 1.5),
+      reputation: profile.reputation + (result.reputationGain ?? (result.crashed ? 0.5 : 1.5)),
     };
-    if (result.missionId) {
+    // Failed contracts still pay a small flight reward, but only a successful
+    // objective may advance campaign unlock gates.
+    // Undefined is retained as success for saves/results produced before the
+    // missionCompleted field existed; new results always carry an explicit value.
+    if (result.missionId && result.missionCompleted !== false) {
       const prior = profile.completedMissions[result.missionId];
       const score = result.distanceM;
       next.completedMissions = {

@@ -1,6 +1,7 @@
 import { useGameStore } from '../../state/gameStore';
 import { useProfileStore } from '../../state/profileStore';
 import { PAINT_PRESETS } from '../../content/paint';
+import { MenuNavigation } from '../components/MenuNavigation';
 import './Screens.css';
 
 // Spec 82.11 "Paint/Customization": V1 scope covers fabric/tube color presets,
@@ -60,6 +61,7 @@ export function PaintScreen() {
       <p className="builder-note">
         La pintura seleccionada se aplica a la tela y estructura del avión (sección 82.11 del documento de diseño).
       </p>
+      <MenuNavigation active="paint" goTo={goTo} />
     </div>
   );
 }

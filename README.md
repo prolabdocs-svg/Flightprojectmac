@@ -7,8 +7,8 @@ from flights.
 
 This is a **vertical-slice implementation**, not the full production scope in the spec. It
 follows the recommended stack and architecture, with an end-to-end core loop (garage → fly →
-results → garage). The Field and Scrap Valley are playable; the remaining six regions are
-authored campaign data awaiting their mission packs and streamed prop kits.
+results → garage). All eight authored regions now have a progressive two-contract campaign;
+their visual prop kits remain intentionally lightweight.
 
 ## Tech stack (per the spec's own "31.1 Stack recomendado")
 
@@ -59,9 +59,9 @@ the content modules under `src/content/` (regions, missions, parts, tech tree, p
 each other: no duplicate ids within a collection, every mission's `regionId` resolves to a
 real region, every tech node's prerequisites/`unlocksPartIds` resolve to real nodes/parts,
 every part's `requiresTechId` resolves to a real tech node, and every frame hardpoint/
-`defaultLoadout` in `parts.ts` resolves to a real, category-matching part. Failures name the
-specific id and file at fault. It intentionally warns (rather than fails) on regions 3–8's
-unlock gates, which reference mission ids not implemented yet — see the comment in that file.
+`defaultLoadout` in `parts.ts` resolves to a real, category-matching part. It also verifies
+campaign unlock gates and linked mission airfields. Failures name the specific id and file at
+fault.
 
 ## What's implemented
 
@@ -91,8 +91,8 @@ unlock gates, which reference mission ids not implemented yet — see the commen
   and the list of active aero surfaces. One frame ("Frame Zero", Tier 0) with two options per
   category is implemented. `src/content/parts.ts`, `src/content/assembly.ts`.
 - **World streaming**: eight authored campaign regions carry environment, weather, gust, cloud,
-  and local wind-volume data. The Field and Scrap Valley are playable; chunk scheduling and
-  instanced vegetation keep the first-world rendering bounded on mobile.
+  and local wind-volume data. Each has a progressive contract chain; chunk scheduling and
+  instanced vegetation keep rendering bounded on mobile.
 - **Three missions** covering three of the spec's mission families (Distance Run, Precision
   Landing, STOL Challenge), with optional bonus objectives (no-damage, fuel remaining, landing
   quality) feeding into the reward calculation. `src/content/missions.ts`,
@@ -119,8 +119,8 @@ localization, etc.). None of that is realistic to build "from scratch" in one pa
 scaffold focuses on making the **core loop real and playable** and leaves the rest as clearly
 marked extension points:
 
-- **Only Tier 0–1 aircraft content is playable.** The eight-region campaign catalog is authored,
-  while full mission and art packs beyond The Field/Scrap Valley remain production work.
+- **Only Tier 0–1 aircraft content is playable.** The eight-region campaign contract is
+  playable, while the later regions still need bespoke landmark/prop breadth for final art.
 - **Damage/detachment is implemented for primary aero surfaces**, but it is not yet a full
   per-module repair and visual-asset system.
 - **Workshop breadth is still limited.** The tech tree, Builder part market, and Paint screen
@@ -130,7 +130,9 @@ marked extension points:
   touching game logic.
 - **No final 3D art assets.** The aircraft and terrain props are primitive Three.js geometry,
   rather than the finished tube-frame/fabric-wing art direction; treat visuals as placeholders.
-- **No gamepad/USB transmitter support** (spec 7.6) — touch only.
+- **Gamepad estándar:** mando USB/Bluetooth con Gamepad API (sticks, gatillos y botones
+  estándar) está soportado. Un transmisor RC USB que no se exponga como gamepad estándar
+  aún requerirá un adaptador/mapeo específico.
 - **Flight model is unbalanced/untuned.** It's internally consistent (soft stall, lift/drag
   curves, thrust falloff with speed, a stability term) but the constants have not been tuned
   against the spec's target feel — expect speeds/altitudes that are too extreme out of the box.

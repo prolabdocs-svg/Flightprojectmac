@@ -5,6 +5,8 @@ import * as THREE from 'three';
 import type { RegionDefinition } from '../core/types';
 import { WorldEnvironment } from './WorldEnvironment';
 import { createSeededRandom, type SeededRandom } from '../core/seededRandom';
+import { assetLibrary } from './assetLibrary';
+import { ACTIVE_REGION_ASSETS, FRAME_ASSET_IDS } from './assetManifest';
 
 const CHASE_POSITION_RESPONSE = 3.7;
 const CHASE_LOOK_RESPONSE = 9.75;
@@ -14,6 +16,7 @@ export class FlightScene {
   camera: THREE.PerspectiveCamera;
   renderer: THREE.WebGLRenderer;
   aircraftGroup = new THREE.Group();
+  private readonly streamedProps = new THREE.Group();
   private targetRing: THREE.Mesh | null = null;
   private cameraLookTarget = new THREE.Vector3();
   private cameraPos = new THREE.Vector3(0, 6, -15);
@@ -26,6 +29,16 @@ export class FlightScene {
   private readonly scratchAhead = new THREE.Vector3();
   private readonly scratchDesiredLook = new THREE.Vector3();
   private readonly scratchShake = new THREE.Vector3();
+  private readonly scratchUp = new THREE.Vector3();
+  // Speed-feel tuning (task: "sentirse tan emocionante como GTA San Andreas volando").
+  // Base/max FOV and the speed range it ramps over — cheap (just a lerp on an
+  // existing camera property, no extra draw calls) so it's free on mobile GPUs.
+  private static readonly BASE_FOV = 62;
+  private static readonly MAX_FOV = 74;
+  private static readonly FOV_SPEED_MIN_MS = 12;
+  private static readonly FOV_SPEED_MAX_MS = 55;
+  private currentFov = FlightScene.BASE_FOV;
+  private currentRollLean = 0;
 
   // Damage-system hooks (src/sim/damageSystem.ts via FlightController): named refs to the
   // placeholder meshes that stand in for "wing" and "tail" so a detach/damage event can
@@ -41,9 +54,15 @@ export class FlightScene {
     this.worldRng = createSeededRandom('flight-scene-landmarks', region.id);
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    this.renderer.shadowMap.enabled = false;
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.08;
+    this.renderer.shadowMap.enabled = true;
+    // PCFSoftShadowMap was removed in the Three.js version used by this project;
+    // PCFShadowMap is the supported mobile-friendly equivalent here.
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
 
-    this.camera = new THREE.PerspectiveCamera(62, 1, 0.1, 6000);
+    this.camera = new THREE.PerspectiveCamera(FlightScene.BASE_FOV, 1, 0.1, 6000);
 
     // Sky/fog: a soft gradient feel via a lighter fog color than the sky base so
     // the horizon hazes out instead of hard-cutting (spec 82: "Stylized tactile
@@ -64,6 +83,15 @@ export class FlightScene {
     this.scene.add(hemi);
     const sun = new THREE.DirectionalLight(0xffdca8, 1.75);
     sun.position.set(260, 340, 120);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(1024, 1024);
+    sun.shadow.camera.left = -70;
+    sun.shadow.camera.right = 70;
+    sun.shadow.camera.top = 70;
+    sun.shadow.camera.bottom = -70;
+    sun.shadow.camera.near = 1;
+    sun.shadow.camera.far = 500;
+    sun.shadow.bias = -0.0002;
     this.scene.add(sun);
     const rim = new THREE.DirectionalLight(0x9fc7ff, 0.35);
     rim.position.set(-220, 160, -260);
@@ -80,39 +108,167 @@ export class FlightScene {
     const runway = new THREE.Mesh(runwayGeo, runwayMat);
     runway.rotation.x = -Math.PI / 2;
     runway.position.set(0, 0.02, 150);
+    runway.receiveShadow = true;
     this.scene.add(runway);
+    this.addRunwayDressings();
 
     // Landmarks: region-specific, so the world isn't a flat void (spec 12.2/12.3).
-    if (region.id === 'scrap_valley') {
+    if (region.environment.terrain === 'quarry') {
       this.buildScrapValleyLandmarks();
-    } else {
+    } else if (region.environment.terrain === 'meadow') {
       this.buildTheFieldLandmarks();
+    } else {
+      this.buildTerrainLandmarks(region.environment.terrain);
     }
 
     this.buildAircraftPlaceholder(paint);
     this.scene.add(this.aircraftGroup);
+    this.scene.add(this.streamedProps);
+    // Loading is deliberately non-blocking. The authored proxy is visible on the first
+    // frame; GLB swaps in only when it has arrived, which is essential on mobile/PWA.
+    void this.hydrateRuntimeAssets(region, paint);
+  }
+
+  private async hydrateRuntimeAssets(region: RegionDefinition, paint?: { fabricColor: string; tubeColor: string }) {
+    // Keep the authored procedural airframe as the production baseline. World GLBs add
+    // authored landmarks after first paint, so players are never blocked on a fetch.
+    void FRAME_ASSET_IDS.frame_zero;
+    void paint;
+
+    const ids = ACTIVE_REGION_ASSETS[region.id as keyof typeof ACTIVE_REGION_ASSETS];
+    if (!ids) return;
+    // Navigation assets are streamed as isolated instances. Their authored positions are
+    // deliberately sparse; region-specific placement remains data-driven in the world layer.
+    const positions: Array<[number, number]> = [[-40, 20], [35, 260], [-12, 55], [0, 150], [80, 220]];
+    await Promise.all(ids.map(async (id, index) => {
+      try {
+        const prop = await assetLibrary.load('world', id);
+        const [x, z] = positions[index] ?? [0, 0];
+        prop.position.set(x, this.environment.terrainQuery.getElevation(x, z), z);
+        prop.scale.setScalar(id === 'runway_modular_segment' ? 0.2 : 1);
+        this.streamedProps.add(prop);
+      } catch {
+        // Existing procedural landmarks are the graceful fallback for every prop.
+      }
+    }));
+  }
+
+  /** Lightweight kits for the six later campaign regions. Each uses a handful of
+   * instanced/simple meshes, keeping their silhouette and navigation language distinct
+   * without turning free flight into a mobile draw-call stress test. */
+  private buildTerrainLandmarks(terrain: RegionDefinition['environment']['terrain']) {
+    const ground = (x: number, z: number) => this.environment.terrainQuery.getElevation(x, z);
+    const rockMat = new THREE.MeshStandardMaterial({ color: '#96593d', roughness: .95 });
+    const greenMat = new THREE.MeshStandardMaterial({ color: '#365d3a', roughness: .9 });
+    const concreteMat = new THREE.MeshStandardMaterial({ color: '#69706d', roughness: .8, metalness: .15 });
+    const sandMat = new THREE.MeshStandardMaterial({ color: '#b99864', roughness: 1 });
+
+    if (terrain === 'canyon') {
+      const mesas = new THREE.InstancedMesh(new THREE.CylinderGeometry(1, 1.25, 1, 7), rockMat, 18);
+      const matrix = new THREE.Matrix4();
+      for (let i = 0; i < 18; i++) {
+        const angle = i * 2.399, dist = 140 + (i % 5) * 105;
+        const x = Math.cos(angle) * dist, z = 260 + Math.sin(angle) * dist;
+        const h = 45 + (i % 4) * 24, radius = 18 + (i % 3) * 11;
+        matrix.compose(new THREE.Vector3(x, ground(x, z) + h / 2, z), new THREE.Quaternion(), new THREE.Vector3(radius, h, radius));
+        mesas.setMatrixAt(i, matrix);
+      }
+      mesas.instanceMatrix.needsUpdate = true;
+      this.scene.add(mesas);
+      return;
+    }
+
+    if (terrain === 'forest' || terrain === 'range') {
+      const count = terrain === 'forest' ? 115 : 64;
+      const trees = new THREE.InstancedMesh(new THREE.ConeGeometry(2.8, terrain === 'forest' ? 15 : 20, 7), greenMat, count);
+      const matrix = new THREE.Matrix4();
+      for (let i = 0; i < count; i++) {
+        const angle = i * 2.399, dist = 80 + (i % 12) * 55;
+        const x = Math.cos(angle) * dist, z = 220 + Math.sin(angle) * dist;
+        const scale = .75 + (i % 5) * .14;
+        matrix.compose(new THREE.Vector3(x, ground(x, z) + 7 * scale, z), new THREE.Quaternion(), new THREE.Vector3(scale, scale, scale));
+        trees.setMatrixAt(i, matrix);
+      }
+      trees.instanceMatrix.needsUpdate = true;
+      this.scene.add(trees);
+      if (terrain === 'range') {
+        const peak = new THREE.Mesh(new THREE.ConeGeometry(120, 310, 7), new THREE.MeshStandardMaterial({ color: '#70766d', roughness: 1 }));
+        peak.position.set(-340, ground(-340, 720) + 155, 720);
+        this.scene.add(peak);
+      }
+      return;
+    }
+
+    if (terrain === 'coast') {
+      const cliff = new THREE.Mesh(new THREE.BoxGeometry(420, 95, 55), rockMat);
+      cliff.position.set(-210, ground(-210, 410) + 47, 410);
+      this.scene.add(cliff);
+      const palms = new THREE.InstancedMesh(new THREE.CylinderGeometry(.24, .42, 1, 6), new THREE.MeshStandardMaterial({ color: '#6f5335', roughness: 1 }), 22);
+      const matrix = new THREE.Matrix4();
+      for (let i = 0; i < 22; i++) {
+        const x = -90 + i * 16, z = 180 + (i % 4) * 95, h = 9 + (i % 3) * 3;
+        matrix.compose(new THREE.Vector3(x, ground(x, z) + h / 2, z), new THREE.Quaternion(), new THREE.Vector3(1, h, 1));
+        palms.setMatrixAt(i, matrix);
+      }
+      palms.instanceMatrix.needsUpdate = true;
+      this.scene.add(palms);
+      return;
+    }
+
+    if (terrain === 'industrial') {
+      for (let i = 0; i < 7; i++) {
+        const x = -145 + i * 52, z = 280 + (i % 2) * 85, h = 22 + (i % 3) * 12;
+        const warehouse = new THREE.Mesh(new THREE.BoxGeometry(42, h, 55), concreteMat);
+        warehouse.position.set(x, ground(x, z) + h / 2, z);
+        this.scene.add(warehouse);
+      }
+      const stack = new THREE.Mesh(new THREE.CylinderGeometry(4, 5, 95, 10), new THREE.MeshStandardMaterial({ color: '#7f5341', roughness: .85 }));
+      stack.position.set(115, ground(115, 330) + 47.5, 330);
+      this.scene.add(stack);
+      return;
+    }
+
+    if (terrain === 'desert') {
+      const hangar = new THREE.Mesh(new THREE.BoxGeometry(86, 25, 68), sandMat);
+      hangar.position.set(-80, ground(-80, 250) + 12.5, 250);
+      this.scene.add(hangar);
+      const tower = new THREE.Mesh(new THREE.CylinderGeometry(2.2, 3.6, 125, 8), concreteMat);
+      tower.position.set(130, ground(130, 440) + 62.5, 440);
+      this.scene.add(tower);
+    }
   }
 
   /** Region 1 landmarks (spec 12.2): barn, water tower, scattered trees.
    * Materials given intentional roughness/metalness so they don't read as flat
    * default-gray primitives — weathered wood barn, galvanized-steel tower. */
   private buildTheFieldLandmarks() {
-    const barn = new THREE.Mesh(
-      new THREE.BoxGeometry(14, 10, 18),
-      new THREE.MeshStandardMaterial({ color: '#8c3b32', roughness: 0.85, metalness: 0.05 }),
-    );
-    barn.position.set(-40, 5, 20);
+    // Farm workshop: a readable construction kit (walls, roof, door, apron) rather
+    // than the old monolithic red cube. It is intentionally warm enough to anchor the
+    // field, but broken into believable materials and silhouette layers.
+    const barnGround = this.environment.terrainQuery.getElevation(-40, 20);
+    const barn = new THREE.Group(); barn.position.set(-40, barnGround, 20);
+    const plankMat = new THREE.MeshStandardMaterial({ color: '#964735', roughness: .93 });
+    const roofMat = new THREE.MeshStandardMaterial({ color: '#384344', roughness: .78, metalness: .18 });
+    const trimMat = new THREE.MeshStandardMaterial({ color: '#e1d5b2', roughness: .85 });
+    const wall = new THREE.Mesh(new THREE.BoxGeometry(13, 7, 16), plankMat); wall.position.y = 3.5; wall.castShadow = true; wall.receiveShadow = true; barn.add(wall);
+    for (const x of [-3.4, 3.4]) {
+      const roof = new THREE.Mesh(new THREE.BoxGeometry(7.4, .36, 17.1), roofMat); roof.position.set(x, 8.1, 0); roof.rotation.z = x < 0 ? -.36 : .36; roof.castShadow = true; barn.add(roof);
+    }
+    const door = new THREE.Mesh(new THREE.PlaneGeometry(4.4, 4.6), new THREE.MeshStandardMaterial({ color: '#263130', roughness: .9 })); door.position.set(0, 2.55, 8.04); barn.add(door);
+    for (const x of [-5.7, 5.7]) { const trim = new THREE.Mesh(new THREE.BoxGeometry(.28, 8, .3), trimMat); trim.position.set(x, 4, 8.14); barn.add(trim); }
+    const apron = new THREE.Mesh(new THREE.PlaneGeometry(23, 19), new THREE.MeshStandardMaterial({ color: '#7e7057', roughness: 1 })); apron.rotation.x = -Math.PI / 2; apron.position.set(0, .015, 11); apron.receiveShadow = true; barn.add(apron);
     this.scene.add(barn);
 
     const towerMat = new THREE.MeshStandardMaterial({ color: '#9b9b9b', roughness: 0.55, metalness: 0.5 });
+    const towerGroundY = this.environment.terrainQuery.getElevation(35, 260);
     const towerBase = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.2, 14, 8), towerMat);
-    towerBase.position.set(35, 7, 260);
+    towerBase.position.set(35, towerGroundY + 7, 260);
     this.scene.add(towerBase);
     const towerTank = new THREE.Mesh(
       new THREE.CylinderGeometry(6, 6, 6, 12),
       new THREE.MeshStandardMaterial({ color: '#b7b7a8', roughness: 0.6, metalness: 0.45 }),
     );
-    towerTank.position.set(35, 17, 260);
+    towerTank.position.set(35, towerGroundY + 17, 260);
     this.scene.add(towerTank);
 
     const treeMat = new THREE.MeshStandardMaterial({ color: '#3f6b34', roughness: 0.9, metalness: 0 });
@@ -120,14 +276,40 @@ export class FlightScene {
     const trees = new THREE.InstancedMesh(new THREE.ConeGeometry(2.8, 9, 6), treeMat, 40);
     const treeMatrix = new THREE.Matrix4();
     for (let i = 0; i < 40; i++) {
-      const angle = this.worldRng.next() * Math.PI * 2;
-      const dist = 80 + this.worldRng.next() * 500;
+      const { x, z } = this.placeOffRunway(() => {
+        const angle = this.worldRng.next() * Math.PI * 2;
+        const dist = 80 + this.worldRng.next() * 500;
+        return { x: Math.cos(angle) * dist, z: 150 + Math.sin(angle) * dist };
+      });
       const scale = 0.8 + this.worldRng.next() * 0.4;
-      treeMatrix.compose(new THREE.Vector3(Math.cos(angle) * dist, 4.5 * scale, 150 + Math.sin(angle) * dist), new THREE.Quaternion(), new THREE.Vector3(scale, scale, scale));
+      // Sampled from TerrainQueryService so trees sit on the now-undulating ground
+      // instead of floating/clipping on a flat Y=0 assumption.
+      const groundY = this.environment.terrainQuery.getElevation(x, z);
+      treeMatrix.compose(new THREE.Vector3(x, groundY + 4.5 * scale, z), new THREE.Quaternion(), new THREE.Vector3(scale, scale, scale));
       trees.setMatrixAt(i, treeMatrix);
     }
     trees.instanceMatrix.needsUpdate = true;
     this.scene.add(trees);
+
+    // A sparse fence line and hay bales make the near field feel owned and scaled.
+    const postMat = new THREE.MeshStandardMaterial({ color: '#695238', roughness: 1 });
+    const postGeo = new THREE.CylinderGeometry(.09, .11, 1.3, 5);
+    for (let i = 0; i < 18; i++) {
+      const x = -95 + i * 11, z = 56;
+      if (this.environment.terrainQuery.isOnGradedRunway(x, z)) continue;
+      const post = new THREE.Mesh(postGeo, postMat); post.position.set(x, this.environment.terrainQuery.getElevation(x, z) + .65, z); this.scene.add(post);
+    }
+  }
+
+  /** World spec section 227 QA: no prop/tree may land on a graded runway pad. Retries a
+   * few times with a fresh sample rather than skipping outright, so excluding the pad
+   * doesn't visibly thin scatter density near an airfield. */
+  private placeOffRunway(pick: () => { x: number; z: number }): { x: number; z: number } {
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const p = pick();
+      if (!this.environment.terrainQuery.isOnGradedRunway(p.x, p.z)) return p;
+    }
+    return pick();
   }
 
   /** Region 2 landmarks (spec 12.3): scrapyard piles, a gantry crane, and fictional
@@ -141,7 +323,7 @@ export class FlightScene {
 
     // Gantry crane landmark near the delivery/landing target, playing the barn's role.
     const craneGroup = new THREE.Group();
-    craneGroup.position.set(-25, 0, 300);
+    craneGroup.position.set(-25, this.environment.terrainQuery.getElevation(-25, 300), 300);
     const legGeo = new THREE.CylinderGeometry(0.5, 0.5, 16, 8);
     for (const x of [-9, 9]) {
       const leg = new THREE.Mesh(legGeo, craneMat);
@@ -165,9 +347,12 @@ export class FlightScene {
         box.rotation.y = this.worldRng.next() * Math.PI;
         pileGroup.add(box);
       }
-      const angle = this.worldRng.next() * Math.PI * 2;
-      const dist = 60 + this.worldRng.next() * 480;
-      pileGroup.position.set(Math.cos(angle) * dist, 0, 150 + Math.sin(angle) * dist);
+      const { x, z } = this.placeOffRunway(() => {
+        const angle = this.worldRng.next() * Math.PI * 2;
+        const dist = 60 + this.worldRng.next() * 480;
+        return { x: Math.cos(angle) * dist, z: 150 + Math.sin(angle) * dist };
+      });
+      pileGroup.position.set(x, this.environment.terrainQuery.getElevation(x, z), z);
       this.scene.add(pileGroup);
     }
 
@@ -184,10 +369,11 @@ export class FlightScene {
     ];
     let prevTop: THREE.Vector3 | null = null;
     for (const [x, z] of polePositions) {
+      const groundY = this.environment.terrainQuery.getElevation(x, z);
       const pole = new THREE.Mesh(poleGeo, poleMat);
-      pole.position.set(x, 9, z);
+      pole.position.set(x, groundY + 9, z);
       this.scene.add(pole);
-      const top = new THREE.Vector3(x, 17.5, z);
+      const top = new THREE.Vector3(x, groundY + 17.5, z);
       if (prevTop) {
         const wireGeo = new THREE.BufferGeometry().setFromPoints([prevTop, top]);
         this.scene.add(new THREE.Line(wireGeo, wireMat));
@@ -201,47 +387,102 @@ export class FlightScene {
    * (brushed metal, not chrome), doped fabric is low-sheen cloth, engine block
    * is dark cast metal with a warmer edge highlight than pure black. */
   private buildAircraftPlaceholder(paint?: { fabricColor: string; tubeColor: string }) {
-    const tubeMat = new THREE.MeshStandardMaterial({ color: paint?.tubeColor ?? '#b8b2a4', metalness: 0.55, roughness: 0.42 });
-    const fabricMat = new THREE.MeshStandardMaterial({ color: paint?.fabricColor ?? '#d8cf9a', side: THREE.DoubleSide, roughness: 0.85, metalness: 0.02 });
-    const engineMat = new THREE.MeshStandardMaterial({ color: '#3a372f', roughness: 0.4, metalness: 0.7 });
-    const wheelMat = new THREE.MeshStandardMaterial({ color: '#1c1c1c', roughness: 0.75, metalness: 0.1 });
+    const tubeMat = new THREE.MeshStandardMaterial({ color: paint?.tubeColor ?? '#aeb3af', metalness: 0.68, roughness: 0.32 });
+    const fabricMat = new THREE.MeshStandardMaterial({ color: paint?.fabricColor ?? '#d4b96e', side: THREE.DoubleSide, roughness: 0.82, metalness: 0.02 });
+    new THREE.TextureLoader().load('/assets/textures/aircraft-fabric-v1.png', (texture) => {
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+      texture.repeat.set(3, 2);
+      texture.anisotropy = 4;
+      fabricMat.map = texture;
+      fabricMat.needsUpdate = true;
+    });
+    const darkFabricMat = new THREE.MeshStandardMaterial({ color: '#30383a', side: THREE.DoubleSide, roughness: 0.92 });
+    const engineMat = new THREE.MeshStandardMaterial({ color: '#292d2d', roughness: 0.38, metalness: 0.82 });
+    const wheelMat = new THREE.MeshStandardMaterial({ color: '#17191a', roughness: 0.86, metalness: 0.04 });
+    const woodMat = new THREE.MeshStandardMaterial({ color: '#6f4525', roughness: 0.55, metalness: 0.05 });
+    const makeTube = (from: THREE.Vector3, to: THREE.Vector3, radius = 0.055, material = tubeMat) => {
+      const midpoint = from.clone().add(to).multiplyScalar(0.5);
+      const mesh = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, from.distanceTo(to), 8), material);
+      mesh.position.copy(midpoint);
+      mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), to.clone().sub(from).normalize());
+      mesh.castShadow = true;
+      this.aircraftGroup.add(mesh);
+      return mesh;
+    };
+    const makeWing = (span: number, chordRoot: number, chordTip: number, xOffset: number, zOffset: number) => {
+      const shape = new THREE.Shape();
+      // The shape lives in x/z plan view. Extruding only .08 m, then rotating it,
+      // produces a proper airfoil-like cloth panel instead of a vertical slab.
+      shape.moveTo(-span / 2, -chordTip * .48);
+      shape.lineTo(-span / 2 + .5, chordTip * .52);
+      shape.lineTo(-.45, chordRoot * .58);
+      shape.lineTo(.45, chordRoot * .58);
+      shape.lineTo(span / 2 - .5, chordTip * .52);
+      shape.lineTo(span / 2, -chordTip * .48);
+      shape.lineTo(.45, -chordRoot * .5);
+      shape.lineTo(-.45, -chordRoot * .5);
+      shape.closePath();
+      const geo = new THREE.ExtrudeGeometry(shape, { depth: .075, bevelEnabled: false });
+      geo.translate(0, 0, -.0375);
+      const mesh = new THREE.Mesh(geo, fabricMat);
+      mesh.rotation.x = Math.PI / 2;
+      mesh.position.set(xOffset, .42, zOffset);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      this.aircraftGroup.add(mesh);
+      return mesh;
+    };
 
-    const fuselage = new THREE.Mesh(new THREE.CapsuleGeometry(0.5, 4.2, 4, 8), tubeMat);
-    fuselage.rotation.x = Math.PI / 2;
-    this.aircraftGroup.add(fuselage);
+    // Open tubular truss fuselage: it reads as a crafted ultralight instead of a capsule.
+    const nose = new THREE.Vector3(0, 0, 2.5), cockpitFront = new THREE.Vector3(0, .28, .75), cockpitRear = new THREE.Vector3(0, .38, -1.5), tail = new THREE.Vector3(0, .48, -4.75);
+    for (const side of [-1, 1]) {
+      const frontLow = new THREE.Vector3(side * .42, -.28, .75), rearLow = new THREE.Vector3(side * .38, -.2, -1.5);
+      const frontHigh = new THREE.Vector3(side * .32, .65, .55), rearHigh = new THREE.Vector3(side * .25, .72, -1.6);
+      makeTube(nose, frontLow); makeTube(frontLow, rearLow); makeTube(rearLow, tail);
+      makeTube(frontHigh, rearHigh); makeTube(frontHigh, cockpitFront); makeTube(rearHigh, cockpitRear); makeTube(rearHigh, tail);
+      makeTube(frontLow, rearHigh, .038); makeTube(rearLow, frontHigh, .038);
+    }
+    makeTube(cockpitFront, cockpitRear, .07); makeTube(nose, cockpitFront, .075);
 
-    const wing = new THREE.Mesh(new THREE.BoxGeometry(9, 0.12, 1.4), fabricMat);
-    wing.position.set(0, 0.3, 0);
-    this.aircraftGroup.add(wing);
+    const wing = makeWing(10.6, 1.7, 1.15, 0, -.25);
     this.wingMesh = wing;
+    // Visible struts and tension wires make the airframe's mechanics legible at a glance.
+    for (const side of [-1, 1]) {
+      makeTube(new THREE.Vector3(side * 4.65, .39, -.3), new THREE.Vector3(side * .35, -.22, .55), .052);
+      makeTube(new THREE.Vector3(side * 4.3, .39, -.95), new THREE.Vector3(side * .25, .68, -1.4), .045);
+      makeTube(new THREE.Vector3(side * 4.55, .38, -.25), new THREE.Vector3(side * .28, .68, -1.4), .022, darkFabricMat);
+    }
 
-    const tailBoom = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 3.2, 6), tubeMat);
-    tailBoom.rotation.x = Math.PI / 2;
-    tailBoom.position.set(0, 0.3, -3.6);
-    this.aircraftGroup.add(tailBoom);
+    const seat = new THREE.Mesh(new THREE.BoxGeometry(1.05, .12, 1.15), darkFabricMat);
+    seat.position.set(0, .18, -.55); seat.rotation.x = -.27; seat.castShadow = true; this.aircraftGroup.add(seat);
+    const windshield = new THREE.Mesh(new THREE.SphereGeometry(.62, 12, 8, 0, Math.PI), new THREE.MeshPhysicalMaterial({ color: '#9cd5df', transparent: true, opacity: .33, roughness: .08, transmission: .1, side: THREE.DoubleSide }));
+    windshield.scale.set(1, .7, .52); windshield.position.set(0, .82, .35); windshield.rotation.y = Math.PI / 2; this.aircraftGroup.add(windshield);
 
-    const hStab = new THREE.Mesh(new THREE.BoxGeometry(3, 0.08, 0.6), fabricMat);
-    hStab.position.set(0, 0.4, -4.4);
+    const hStab = new THREE.Mesh(new THREE.BoxGeometry(3.1, 0.07, 0.72), fabricMat);
+    hStab.position.set(0, .48, -4.85); hStab.castShadow = true;
     this.aircraftGroup.add(hStab);
     this.tailMeshes.push(hStab);
 
-    const vStab = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.2, 0.7), fabricMat);
-    vStab.position.set(0, 0.9, -4.4);
+    const vStab = new THREE.Mesh(new THREE.BoxGeometry(0.07, 1.45, 0.8), fabricMat);
+    vStab.position.set(0, 1.12, -4.85); vStab.castShadow = true;
     this.aircraftGroup.add(vStab);
     this.tailMeshes.push(vStab);
 
-    const engine = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 0.6, 10), engineMat);
+    const engine = new THREE.Mesh(new THREE.CylinderGeometry(0.48, 0.48, 0.72, 10), engineMat);
     engine.rotation.x = Math.PI / 2;
     engine.position.set(0, 0, 2.1);
     this.aircraftGroup.add(engine);
 
-    const prop = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.08, 0.1), engineMat);
-    prop.position.set(0, 0, 2.45);
-    this.aircraftGroup.add(prop);
+    // Engine cylinders + wooden two-blade propeller establish a clear prop aircraft silhouette.
+    for (const x of [-.28, .28]) { const cylinder = new THREE.Mesh(new THREE.CylinderGeometry(.17, .17, .72, 8), engineMat); cylinder.rotation.z = Math.PI / 2; cylinder.position.set(x, 0, 2.16); this.aircraftGroup.add(cylinder); }
+    const propHub = new THREE.Mesh(new THREE.SphereGeometry(.18, 10, 8), engineMat); propHub.position.set(0, 0, 2.52); this.aircraftGroup.add(propHub);
+    for (const angle of [Math.PI / 4, Math.PI / 4 + Math.PI]) { const blade = new THREE.Mesh(new THREE.BoxGeometry(.3, 1.5, .08), woodMat); blade.position.set(Math.cos(angle) * .48, Math.sin(angle) * .48, 2.54); blade.rotation.z = -angle; blade.castShadow = true; this.aircraftGroup.add(blade); }
 
     for (const x of [-1.1, 1.1]) {
       const wheel = new THREE.Mesh(new THREE.TorusGeometry(0.4, 0.14, 8, 16), wheelMat);
       wheel.position.set(x, -0.9, 0.4);
+      wheel.rotation.y = Math.PI / 2; wheel.castShadow = true;
       this.aircraftGroup.add(wheel);
       const strut = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.9, 6), tubeMat);
       strut.position.set(x, -0.5, 0.4);
@@ -249,7 +490,25 @@ export class FlightScene {
     }
     const noseWheel = new THREE.Mesh(new THREE.TorusGeometry(0.28, 0.1, 8, 16), wheelMat);
     noseWheel.position.set(0, -0.7, 1.8);
+    noseWheel.rotation.y = Math.PI / 2; noseWheel.castShadow = true;
     this.aircraftGroup.add(noseWheel);
+  }
+
+  private addRunwayDressings() {
+    const markingMat = new THREE.MeshBasicMaterial({ color: '#e9e2ca' });
+    for (let z = 18; z <= 325; z += 30) {
+      const dash = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 12), markingMat);
+      dash.rotation.x = -Math.PI / 2;
+      dash.position.set(0, .035, z);
+      this.scene.add(dash);
+    }
+    const edgeMat = new THREE.MeshBasicMaterial({ color: '#d99642' });
+    for (const x of [-11.3, 11.3]) {
+      for (let z = 5; z <= 335; z += 22) {
+        const marker = new THREE.Mesh(new THREE.BoxGeometry(.22, .55, .22), edgeMat);
+        marker.position.set(x, .27, z); this.scene.add(marker);
+      }
+    }
   }
 
   setTargetMarker(pos: [number, number, number] | undefined, radiusM: number) {
@@ -267,17 +526,44 @@ export class FlightScene {
     this.scene.add(ring);
   }
 
-  syncAircraft(position: THREE.Vector3, quaternion: THREE.Quaternion, dtS = 1 / 60) {
+  syncAircraft(position: THREE.Vector3, quaternion: THREE.Quaternion, dtS = 1 / 60, speedMs = 0) {
     this.aircraftGroup.position.copy(position);
     this.aircraftGroup.quaternion.copy(quaternion);
 
     // Physics and geometry define +Z as the nose/forward axis. The chase camera
     // therefore lives at local -Z and looks toward local +Z.
-    const behind = this.scratchBehind.set(0, 3.2, -11).applyQuaternion(quaternion);
+    // A slight 3/4 offset is deliberately chosen over a dead-centre chase view:
+    // it keeps wing, struts, propeller and landing gear readable simultaneously.
+    const behind = this.scratchBehind.set(-5.2, 3.8, -11.8).applyQuaternion(quaternion);
     const desiredPos = this.scratchDesiredPos.copy(position).add(behind);
     const positionBlend = 1 - Math.exp(-CHASE_POSITION_RESPONSE * Math.max(0, dtS));
     this.cameraPos.lerp(desiredPos, positionBlend);
     this.camera.position.copy(this.cameraPos);
+
+    // Speed-feel FOV widen (task: GTA-San-Andreas-plane thrill): subtle widen at
+    // high speed reads as velocity without any extra geometry/shader cost.
+    const speedT = THREE.MathUtils.clamp(
+      (speedMs - FlightScene.FOV_SPEED_MIN_MS) / (FlightScene.FOV_SPEED_MAX_MS - FlightScene.FOV_SPEED_MIN_MS),
+      0,
+      1,
+    );
+    const targetFov = THREE.MathUtils.lerp(FlightScene.BASE_FOV, FlightScene.MAX_FOV, speedT);
+    this.currentFov = THREE.MathUtils.lerp(this.currentFov, targetFov, 1 - Math.pow(0.001, dtS));
+    if (Math.abs(this.camera.fov - this.currentFov) > 0.01) {
+      this.camera.fov = this.currentFov;
+      this.camera.updateProjectionMatrix();
+    }
+
+    // Roll lean (task item 2): partially follow the aircraft's bank into the
+    // camera's "up" vector so hard turns feel weighted, without going full 1:1
+    // (which would make the horizon spin and induce motion sickness). Bank angle
+    // is read off the aircraft's local up vector rather than an Euler decomposition,
+    // which stays correct regardless of simultaneous pitch/yaw (no gimbal lock).
+    this.scratchUp.set(0, 1, 0).applyQuaternion(quaternion);
+    const aircraftRoll = Math.atan2(this.scratchUp.x, this.scratchUp.y);
+    this.currentRollLean = THREE.MathUtils.lerp(this.currentRollLean, aircraftRoll, 1 - Math.pow(0.0005, dtS));
+    const leanFrac = 0.35; // partial mix, not 1:1 — see comment above
+    this.camera.up.set(Math.sin(this.currentRollLean * leanFrac), Math.cos(this.currentRollLean * leanFrac), 0);
 
     // Impact feedback (spec "vibración estructural visual intensa" / task item 4): a
     // short decaying random jitter on top of the chase camera, triggered by

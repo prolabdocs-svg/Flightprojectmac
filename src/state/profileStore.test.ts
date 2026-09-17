@@ -4,6 +4,7 @@
 import 'fake-indexeddb/auto';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { useProfileStore } from './profileStore';
+import { MAX_HOME_BASE_LEVEL } from '../content/homeBase';
 import { createDefaultProfile } from '../save/save';
 
 beforeEach(() => {
@@ -163,6 +164,25 @@ describe('applyFlightResult', () => {
     expect(mission.attempts).toBe(3);
     expect(mission.bestScore).toBe(500);
   });
+
+  it('does not advance campaign completion for a failed contract', () => {
+    useProfileStore.getState().applyFlightResult({
+      missionId: 'field_precision_01',
+      distanceM: 800,
+      maxAltitudeM: 90,
+      maxSpeedMs: 30,
+      crashed: false,
+      landed: true,
+      landingQuality: 0.9,
+      timeS: 50,
+      fuelRemaining: 0.8,
+      rewardCash: 80,
+      rewardRp: 8,
+      bonusesAchieved: [],
+      missionCompleted: false,
+    });
+    expect(useProfileStore.getState().profile.completedMissions.field_precision_01).toBeUndefined();
+  });
 });
 
 describe('upgradeHomeBase', () => {
@@ -191,6 +211,14 @@ describe('upgradeHomeBase', () => {
     expect(profile.cash).toBe(200 - 150);
     expect(profile.homeBase.hangarLevel).toBe(1);
     expect(profile.homeBase.runwayLevel).toBe(0);
+  });
+
+  it('refuses upgrades beyond the supported base level cap', () => {
+    useProfileStore.setState((state) => ({
+      profile: { ...state.profile, cash: 10000, homeBase: { ...state.profile.homeBase, runwayLevel: MAX_HOME_BASE_LEVEL } },
+    }));
+    expect(useProfileStore.getState().upgradeHomeBase('runway', 100)).toBe(false);
+    expect(useProfileStore.getState().profile.homeBase.runwayLevel).toBe(MAX_HOME_BASE_LEVEL);
   });
 });
 

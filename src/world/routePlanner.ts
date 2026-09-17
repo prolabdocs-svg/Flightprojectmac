@@ -25,7 +25,11 @@ const ROUTE_LINKS: Array<{ fromId: string; toId: string; difficulty: number }> =
   { fromId: 'field_north_strip', toId: 'scrap_yard_strip', difficulty: 0.35 },
   { fromId: 'scrap_yard_strip', toId: 'scrap_quarry_strip', difficulty: 0.3 },
   { fromId: 'scrap_quarry_strip', toId: 'red_canyon_mesa', difficulty: 0.5 },
-  { fromId: 'red_canyon_mesa', toId: 'coast_run_pier', difficulty: 0.55 },
+  { fromId: 'red_canyon_mesa', toId: 'backcountry_lake_strip', difficulty: 0.52 },
+  { fromId: 'backcountry_lake_strip', toId: 'coast_run_pier', difficulty: 0.58 },
+  { fromId: 'coast_run_pier', toId: 'industrial_cargo_yard', difficulty: 0.62 },
+  { fromId: 'industrial_cargo_yard', toId: 'desert_salt_strip', difficulty: 0.68 },
+  { fromId: 'desert_salt_strip', toId: 'range_summit_pad', difficulty: 0.8 },
 ];
 
 export const ROUTE_EDGES: RouteEdge[] = ROUTE_LINKS.map((link) => ({

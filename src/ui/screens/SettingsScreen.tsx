@@ -2,6 +2,7 @@ import { useGameStore } from '../../state/gameStore';
 import { useProfileStore } from '../../state/profileStore';
 import type { ControlPreset } from '../../input/mode2Store';
 import type { AssistMode } from '../../input/mode2Store';
+import { MenuNavigation } from '../components/MenuNavigation';
 import './Screens.css';
 
 // Spec 82.20 Settings: controls, accessibility (assist), audio placeholders.
@@ -174,6 +175,7 @@ export function SettingsScreen() {
           Reiniciar progreso
         </button>
       </section>
+      <MenuNavigation active="settings" goTo={goTo} />
     </div>
   );
 }

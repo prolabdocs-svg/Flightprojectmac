@@ -3,13 +3,13 @@
 //        + skillBonus - catastrophicRepairPenaltyCap
 // A bad flight never wipes out all progress: the penalty is capped.
 
-import type { AircraftBuild, FlightResult, MissionDefinition, PartCategory } from '../core/types';
+import type { AircraftBuild, FlightResult, HomeBaseState, MissionDefinition, PartCategory } from '../core/types';
 import type { FlightTelemetry } from '../sim/flightController';
 import type { ResolvedAircraft } from './assembly';
 import { getPart } from './parts';
 import { roleForSurfaceId, gearPartId, type PartRole } from '../sim/damageSystem';
-
-const CRASH_PENALTY_CAP_CASH = 30;
+import { isMissionCompleted } from './missionProgress';
+import { getHomeBaseBenefits } from './homeBase';
 
 // --- Operating costs (audit gap: the economy previously only ever paid the player,
 // never charged them, so cash only went up). Two real sinks: fuel burned this flight and
@@ -52,6 +52,8 @@ const ROLE_TO_CATEGORY: Partial<Record<PartRole, PartCategory>> = {
  * computeFlightResult already applies to the crash reward penalty above. */
 const MIN_NET_CASH_AFTER_COSTS = 5;
 
+export { isMissionCompleted } from './missionProgress';
+
 function referenceRepairValue(role: PartRole, build?: AircraftBuild): number {
   const category = ROLE_TO_CATEGORY[role];
   const floor = ROLE_REPAIR_FLOOR_CASH[role];
@@ -77,6 +79,7 @@ export function computeOperatingCosts(
   telemetry: FlightTelemetry,
   aircraft?: ResolvedAircraft,
   build?: AircraftBuild,
+  homeBase?: HomeBaseState,
 ): OperatingCosts {
   const fuelCapacityL = aircraft?.fuelCapacityL ?? DEFAULT_FUEL_CAPACITY_L;
   const fuelBurnedL = Math.max(0, 1 - telemetry.fuelFraction) * fuelCapacityL;
@@ -103,6 +106,7 @@ export function computeOperatingCosts(
     repairCost = Math.max(repairCost, fullAirframeCost);
   }
 
+  repairCost *= 1 - getHomeBaseBenefits(homeBase).repairDiscount;
   return {
     fuelCost: Math.round(fuelCost),
     repairCost: Math.round(repairCost),
@@ -115,6 +119,7 @@ export function computeFlightResult(
   telemetry: FlightTelemetry,
   aircraft?: ResolvedAircraft,
   build?: AircraftBuild,
+  homeBase?: HomeBaseState,
 ): FlightResult {
   let rewardCash = mission?.rewardBaseCash ?? 20;
   let rewardRp = mission?.rewardBaseRp ?? 3;
@@ -142,7 +147,11 @@ export function computeFlightResult(
           achieved = telemetry.landed && telemetry.landingQuality >= (bonus.value ?? 0.6);
           break;
         case 'timeUnder':
-          achieved = false; // not tracked in this slice
+          // `elapsedS` comes from the fixed-step simulation, so pausing the game
+          // cannot invalidate a time-trial bonus. A time objective only counts on
+          // a completed (non-crashed) flight; otherwise a quick crash would be a
+          // loophole.
+          achieved = isMissionCompleted(mission, telemetry) && telemetry.elapsedS <= (bonus.value ?? 60);
           break;
       }
       if (achieved) {
@@ -155,7 +164,6 @@ export function computeFlightResult(
 
   if (telemetry.crashed) {
     rewardCash = Math.max(10, rewardCash * 0.4);
-    rewardCash = Math.max(10, rewardCash - CRASH_PENALTY_CAP_CASH * 0);
   } else if (telemetry.crashOutcome === 'hardLanding') {
     // Damage system (src/sim/damageSystem.ts): a hard-but-survivable impact damages parts
     // without tripping the full `crashed` flag. Lighter penalty than a total loss, still
@@ -164,7 +172,7 @@ export function computeFlightResult(
   }
 
   const roundedRewardCash = Math.round(rewardCash);
-  const operatingCosts = computeOperatingCosts(telemetry, aircraft, build);
+  const operatingCosts = computeOperatingCosts(telemetry, aircraft, build, homeBase);
   // Never let costs push the flight's net cash below a small floor - same "a bad flight
   // never wipes out all progress" guarantee the crash-penalty cap already gives the
   // reward side above, just applied to the reward-minus-cost total instead. When the raw
@@ -185,11 +193,13 @@ export function computeFlightResult(
     crashed: telemetry.crashed,
     landed: telemetry.landed,
     landingQuality: telemetry.landingQuality,
-    timeS: 0,
+    timeS: telemetry.elapsedS,
     fuelRemaining: telemetry.fuelFraction,
     rewardCash: roundedRewardCash,
     rewardRp: Math.round(rewardRp),
     bonusesAchieved,
+    missionCompleted: isMissionCompleted(mission, telemetry),
+    reputationGain: telemetry.crashed ? 0.5 : isMissionCompleted(mission, telemetry) ? 3 : telemetry.landed ? 1.5 : 1,
     crashOutcome: telemetry.crashOutcome,
     damagedPartIds: telemetry.damagedPartIds,
     detachedPartIds: telemetry.detachedPartIds,

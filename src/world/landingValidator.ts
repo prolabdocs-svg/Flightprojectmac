@@ -1,4 +1,5 @@
 import type { RunwaySurface } from './airfields';
+import { GROUND_SURFACES } from './surfaces';
 
 export interface LandingTelemetry {
   verticalSpeedMs: number;
@@ -21,16 +22,19 @@ export interface LandingResult {
   failures: string[];
 }
 
-/** Per-surface tolerance multipliers: rougher/looser surfaces forgive a bit more
- * vertical speed and roll than tarmac, but never make an outright dangerous
- * touchdown pass. */
-const SURFACE_TOLERANCE: Record<RunwaySurface, number> = {
-  tarmac: 1,
-  grass: 1.1,
-  dirt: 1.15,
-  gravel: 1.05,
-  salt: 0.95,
-};
+/** Per-surface tolerance multipliers, derived from the GROUND_SURFACES registry (surfaces.ts)
+ * instead of separately hand-picked constants, so the two data sources can't drift apart.
+ * Lower brakingGripDry and higher bumpiness both forgive a bit more vertical speed/roll than
+ * tarmac (never an outright dangerous touchdown pass); tarmac is normalized to exactly 1. */
+const SURFACE_TOLERANCE: Record<RunwaySurface, number> = (() => {
+  const raw = (surface: RunwaySurface): number => {
+    const def = GROUND_SURFACES[surface];
+    return 1 + (1 - def.brakingGripDry) * 0.5 + def.bumpiness * 0.5;
+  };
+  const tarmacRaw = raw('tarmac');
+  const surfaces: RunwaySurface[] = ['tarmac', 'grass', 'dirt', 'gravel', 'salt'];
+  return Object.fromEntries(surfaces.map((s) => [s, raw(s) / tarmacRaw])) as Record<RunwaySurface, number>;
+})();
 
 const MAX_VERTICAL_SPEED_MS = 3.5;
 const MAX_ROLL_DEG = 12;

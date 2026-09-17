@@ -351,7 +351,35 @@ export const FRAME_ZERO: FrameDefinition = {
   },
 };
 
-export const FRAMES: FrameDefinition[] = [FRAME_ZERO];
+/** A sturdier next-step airframe. It shares the starter hardpoint standards so a
+ * player can move their existing inventory over immediately, but its lower base drag
+ * rewards long routes and its higher mass asks for deliberate landing management. */
+export const FRAME_TRAILBLAZER: FrameDefinition = {
+  id: 'frame_trailblazer',
+  name: 'Trailblazer Mk I',
+  tier: 1,
+  priceCash: 1600,
+  requiresTechId: 'airframe_trailblazer',
+  hardpoints: [
+    { id: 'engineMountRear', category: 'engine', accepts: ['engine_small', 'engine_medium', 'engine_efficient'] },
+    { id: 'wingRoot', category: 'wingSet', accepts: ['wing_a_basic', 'wing_b_highlift', 'wing_c_efficient'] },
+    { id: 'tankBay', category: 'fuelTank', accepts: ['tank_8', 'tank_12'] },
+    { id: 'gearMain', category: 'landingGear', accepts: ['gear_light', 'gear_field', 'gear_reinforced'] },
+  ],
+  basePhysics: {
+    massKg: 112,
+    localCenterOfMass: [0, 0, -0.1],
+    dragArea: 0.29,
+    dragCoefficient: 0.92,
+    structuralStrength: 68,
+    impactTolerance: 48,
+    mountStrength: 70,
+  },
+  baseAeroSurfaces: [ELEVATOR, RUDDER],
+  defaultLoadout: { ...FRAME_ZERO.defaultLoadout },
+};
+
+export const FRAMES: FrameDefinition[] = [FRAME_ZERO, FRAME_TRAILBLAZER];
 
 export function getPart(id: string): PartDefinition | undefined {
   return PARTS.find((p) => p.id === id);

@@ -6,6 +6,7 @@ export function PauseOverlay() {
   const setPaused = useGameStore((s) => s.setPaused);
   const goTo = useGameStore((s) => s.goTo);
   const selectMission = useGameStore((s) => s.selectMission);
+  const selectedMissionId = useGameStore((s) => s.selectedMissionId);
 
   return (
     <div className="pause-overlay">
@@ -28,10 +29,10 @@ export function PauseOverlay() {
           onClick={() => {
             setPaused(false);
             selectMission(null);
-            goTo('hangar');
+            goTo('map');
           }}
         >
-          Salir al taller
+          {selectedMissionId ? 'Abandonar contrato' : 'Salir al mapa'}
         </button>
       </div>
     </div>

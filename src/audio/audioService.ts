@@ -19,6 +19,17 @@ interface EngineNodes {
   filter: BiquadFilterNode;
 }
 
+interface WindNodes {
+  source: AudioBufferSourceNode;
+  filter: BiquadFilterNode;
+  gain: GainNode;
+}
+
+// Speed-feel wind whoosh (task: airspeed should be audible, GTA-plane style).
+// Louder/brighter above this speed; silent (gain ~0) at or below it.
+const WIND_SPEED_MIN_MS = 8;
+const WIND_SPEED_MAX_MS = 60;
+
 const TONE_SPECS: Record<UiToneKind, { freqs: number[]; dur: number; type: OscillatorType; gain: number }> = {
   tap: { freqs: [660], dur: 0.05, type: 'sine', gain: 0.25 },
   back: { freqs: [440], dur: 0.06, type: 'sine', gain: 0.25 },
@@ -34,6 +45,8 @@ class AudioService {
   private busGains: Partial<Record<Bus, GainNode>> = {};
   private volumes: { master: number; music: number; sfx: number } = { master: 1, music: 0.7, sfx: 0.8 };
   private engineNodes: EngineNodes | null = null;
+  private windNodes: WindNodes | null = null;
+  private noiseBuffer: AudioBuffer | null = null;
   private unlockCleanup: (() => void) | null = null;
 
   private ensureContext(): AudioContext | null {
@@ -170,6 +183,66 @@ class AudioService {
       // already stopped
     }
     this.engineNodes = null;
+  }
+
+  /** Builds (once, lazily) a 2s looping white-noise buffer used as the raw source
+   *  for the airspeed wind whoosh — cheaper than a ScriptProcessor/AudioWorklet
+   *  and plenty convincing once band-passed (see startWind). */
+  private getNoiseBuffer(ctx: AudioContext): AudioBuffer {
+    if (this.noiseBuffer) return this.noiseBuffer;
+    const length = ctx.sampleRate * 2;
+    const buffer = ctx.createBuffer(1, length, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < length; i++) data[i] = Math.random() * 2 - 1;
+    this.noiseBuffer = buffer;
+    return buffer;
+  }
+
+  /** Starts the (silent-until-updateWind) looping wind/airspeed noise bed. Idempotent. */
+  private startWind(): void {
+    const ctx = this.ensureContext();
+    const bus = this.busGains.engine;
+    if (!ctx || !bus || this.windNodes) return;
+    const source = ctx.createBufferSource();
+    source.buffer = this.getNoiseBuffer(ctx);
+    source.loop = true;
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.value = 500;
+    filter.Q.value = 0.6;
+    const gain = ctx.createGain();
+    gain.gain.value = 0.0001;
+    source.connect(filter);
+    filter.connect(gain);
+    gain.connect(bus);
+    source.start();
+    this.windNodes = { source, filter, gain };
+  }
+
+  /** Feeds live airspeed (m/s) into the wind whoosh: louder + brighter as speed
+   *  climbs, silent at low speed/on the ground. Lazily starts the noise loop on
+   *  first call so callers don't need a separate init step (spec: task item 3,
+   *  "efecto de viento/velocidad del aire que aumente con la velocidad"). */
+  updateWind(speedMs: number): void {
+    this.startWind();
+    const ctx = this.ctx;
+    if (!ctx || !this.windNodes) return;
+    const { filter, gain } = this.windNodes;
+    const t = ctx.currentTime;
+    const frac = Math.max(0, Math.min(1, (speedMs - WIND_SPEED_MIN_MS) / (WIND_SPEED_MAX_MS - WIND_SPEED_MIN_MS)));
+    const targetGain = frac <= 0 ? 0.0001 : 0.02 + frac * 0.16;
+    gain.gain.setTargetAtTime(targetGain, t, 0.2);
+    filter.frequency.setTargetAtTime(400 + frac * 2200, t, 0.25);
+  }
+
+  stopWind(): void {
+    if (!this.windNodes) return;
+    try {
+      this.windNodes.source.stop();
+    } catch {
+      // already stopped
+    }
+    this.windNodes = null;
   }
 }
 

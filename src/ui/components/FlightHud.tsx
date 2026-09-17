@@ -3,6 +3,7 @@ import type { MissionDefinition } from '../../core/types';
 import type { FlightTelemetry } from '../../sim/flightController';
 import { useMode2Store } from '../../input/mode2Store';
 import { audioService } from '../../audio/audioService';
+import { getMissionProgress } from '../../content/missionProgress';
 import { VirtualStick } from './VirtualStick';
 import './FlightHud.css';
 
@@ -15,11 +16,13 @@ const ENGINE_RPM_REDLINE = 6200;
 interface FlightHudProps {
   telemetry: FlightTelemetry;
   mission: MissionDefinition | null;
+  freeFlightRegionName?: string;
+  freeFlightAirfieldName?: string;
   paused: boolean;
   onPause: () => void;
 }
 
-export function FlightHud({ telemetry, mission, paused, onPause }: FlightHudProps) {
+export function FlightHud({ telemetry, mission, freeFlightRegionName, freeFlightAirfieldName, paused, onPause }: FlightHudProps) {
   const setThrottle = useMode2Store((s) => s.setThrottle);
   const setRudder = useMode2Store((s) => s.setRudder);
   const setElevator = useMode2Store((s) => s.setElevator);
@@ -44,6 +47,7 @@ export function FlightHud({ telemetry, mission, paused, onPause }: FlightHudProp
     }
     return () => {
       audioService.stopEngine();
+      audioService.stopWind();
       engineStartedRef.current = false;
     };
   }, []);
@@ -68,6 +72,11 @@ export function FlightHud({ telemetry, mission, paused, onPause }: FlightHudProp
   );
 
   const speedKmh = Math.round(telemetry.speedMs * 3.6);
+  // Speed vignette (task item 4, optional): a pure-CSS radial darkening at high
+  // airspeed, cheap enough for mobile since it's one absolutely-positioned div
+  // with a gradient — no canvas/WebGL work. Fades in over the same range the
+  // camera FOV widens (FlightScene.FOV_SPEED_MIN_MS/MAX_MS) so both cues agree.
+  const speedVignetteOpacity = Math.max(0, Math.min(1, (telemetry.speedMs - 20) / 35));
   const altFt = Math.round(telemetry.altitudeM * 3.281);
   const fuelPct = Math.round(telemetry.fuelFraction * 100);
   const rpmFrac = telemetry.rpm / ENGINE_RPM_REDLINE;
@@ -77,9 +86,16 @@ export function FlightHud({ telemetry, mission, paused, onPause }: FlightHudProp
   // always present alongside the tint.
   const fuelStatus = fuelPct <= 12 ? 'critical' : fuelPct <= 28 ? 'caution' : 'nominal';
   const rpmStatus = rpmFrac >= 0.97 ? 'critical' : rpmFrac >= 0.88 ? 'caution' : 'nominal';
+  const missionProgress = getMissionProgress(mission, telemetry);
+  const bearingLabel = missionProgress?.bearingDeltaDeg === undefined
+    ? null
+    : `${missionProgress.bearingDeltaDeg < -8 ? '←' : missionProgress.bearingDeltaDeg > 8 ? '→' : '↑'} ${Math.abs(Math.round(missionProgress.bearingDeltaDeg))}°`;
 
   return (
     <div className="flight-hud">
+      {speedVignetteOpacity > 0 && (
+        <div className="hud-speed-vignette" style={{ opacity: speedVignetteOpacity }} />
+      )}
       <div className="hud-top">
         <div className="hud-readout hud-readout-nav">
           <span className="hud-value">{speedKmh}</span>
@@ -98,38 +114,56 @@ export function FlightHud({ telemetry, mission, paused, onPause }: FlightHudProp
           <span className="hud-unit">RPM</span>
         </div>
         <button className="hud-pause-btn" onClick={onPause} disabled={paused}>
-          II
+          <span aria-hidden="true">Ⅱ</span><span className="sr-only">Pausar</span>
         </button>
       </div>
 
       {mission && (
         <div className="hud-mission-banner">
           <strong>{mission.name}</strong>
-          <span>{telemetry.distanceM.toFixed(0)} m recorridos</span>
+          <span className={`hud-objective hud-objective-${missionProgress?.state ?? 'active'}`}>{missionProgress?.primaryLabel}</span>
+          {missionProgress?.secondaryLabel && <span>{missionProgress.secondaryLabel}</span>}
+          {bearingLabel && <span className="hud-bearing" aria-label={`Rumbo al destino ${bearingLabel}`}>{bearingLabel}</span>}
+          <span>{telemetry.elapsedS.toFixed(1)} s</span>
+        </div>
+      )}
+      {!mission && freeFlightRegionName && (
+        <div className="hud-mission-banner hud-free-flight-banner">
+          <strong>VUELO LIBRE — {freeFlightRegionName}</strong>
+          <span>Salida: {freeFlightAirfieldName ?? 'pista local'} · Explora y aterriza donde quieras</span>
+          <span>{telemetry.elapsedS.toFixed(1)} s</span>
         </div>
       )}
 
       <div className="hud-state-banner">
         {telemetry.crashed && <span className="banner-crash">ACCIDENTE</span>}
-        {telemetry.landed && !telemetry.crashed && <span className="banner-landed">ATERRIZADO — calidad {(telemetry.landingQuality * 100).toFixed(0)}%</span>}
+        {telemetry.landed && !telemetry.crashed && <span className={missionProgress?.state === 'completed' ? 'banner-landed' : 'banner-objective-missed'}>
+          {missionProgress?.state === 'completed' ? 'CONTRATO COMPLETADO' : 'ATERRIZAJE FUERA DE OBJETIVO'} — calidad {(telemetry.landingQuality * 100).toFixed(0)}%
+        </span>}
       </div>
 
       <div className="hud-secondary-controls">
         <button className={engineOn ? 'active' : ''} onClick={toggleEngine}>
-          {engineOn ? 'ENGINE STOP' : 'ENGINE START'}
+          <span className="control-code">PWR</span>{engineOn ? 'CORTAR' : 'MOTOR'}
         </button>
         <button
           className={brake ? 'active' : ''}
           onPointerDown={() => setBrake(true)}
           onPointerUp={() => setBrake(false)}
           onPointerLeave={() => setBrake(false)}
+          onPointerCancel={() => setBrake(false)}
+          onLostPointerCapture={() => setBrake(false)}
         >
-          BRAKE
+          <span className="control-code">B</span> FRENO
         </button>
         <button className={flapsDown ? 'active' : ''} onClick={toggleFlaps}>
-          FLAPS {flapsDown ? 'UP' : 'DOWN'}
+          <span className="control-code">FLP</span> {flapsDown ? 'RETRAER' : 'FLAPS'}
         </button>
-        <button onClick={deployChute}>CHUTE</button>
+        <button onClick={deployChute}><span className="control-code">!</span> PARACAÍDAS</button>
+      </div>
+
+      <div className="hud-keyboard-hint" aria-hidden="true">
+        Teclado: W/S potencia · ↑↓ cabeceo · ←→ alabeo · A/D timón · Espacio freno · E motor · F flaps · Mando: sticks + RT potencia
       </div>
 
       <div className="hud-sticks">

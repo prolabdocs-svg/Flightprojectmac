@@ -18,8 +18,9 @@ export function VirtualStick({ label, stickyY = false, springX = true, springY =
   const baseRef = useRef<HTMLDivElement>(null);
   const pointerIdRef = useRef<number | null>(null);
   const [pos, setPos] = useState({ x: 0, y: initialY });
-  const posRef = useRef(pos);
-  posRef.current = pos;
+  // Pointer-up can arrive before React commits state; this ref is maintained by
+  // input handlers so sticky throttle still reads the last physical stick position.
+  const posRef = useRef({ x: 0, y: initialY });
 
   const RADIUS = 55;
 
@@ -39,7 +40,9 @@ export function VirtualStick({ label, stickyY = false, springX = true, springY =
       }
       const nx = dx / RADIUS;
       const ny = -dy / RADIUS; // up = positive
-      setPos({ x: nx, y: ny });
+      const next = { x: nx, y: ny };
+      posRef.current = next;
+      setPos(next);
       onChange(nx, ny);
     },
     [onChange],
@@ -67,6 +70,7 @@ export function VirtualStick({ label, stickyY = false, springX = true, springY =
       x: springX ? 0 : posRef.current.x,
       y: stickyY ? posRef.current.y : springY ? 0 : posRef.current.y,
     };
+    posRef.current = next;
     setPos(next);
     onChange(next.x, next.y);
   };

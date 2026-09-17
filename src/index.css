@@ -4,20 +4,22 @@
      (spec 83.1). Warm workshop neutrals with a hangar-lamp amber accent; the
      functional color-coding set below follows spec 83.2 exactly (never relies
      on color alone — see icon/shape usage at call sites). */
-  --bg: #14150f;
-  --bg-elevated: #1c1e16;
-  --surface: rgba(255, 255, 255, 0.06);
-  --surface-strong: rgba(255, 255, 255, 0.1);
-  --border: rgba(255, 255, 255, 0.14);
-  --border-strong: rgba(255, 255, 255, 0.22);
-  --text: #f1efe4;
-  --text-dim: rgba(241, 239, 228, 0.7);
-  --text-faint: rgba(241, 239, 228, 0.5);
+  --bg: #17191a;
+  --bg-elevated: #24282a;
+  --surface: rgba(242, 236, 221, 0.055);
+  --surface-strong: rgba(242, 236, 221, 0.11);
+  --border: rgba(184, 192, 195, 0.18);
+  --border-strong: rgba(184, 192, 195, 0.33);
+  --text: #faf8f2;
+  --text-dim: rgba(250, 248, 242, 0.7);
+  --text-faint: rgba(250, 248, 242, 0.5);
 
   /* Workshop accent (stencil amber — labels, primary CTAs, selection state). */
-  --accent: #c68a2e;
-  --accent-strong: #e0a33f;
-  --on-accent: #20160a;
+  --accent: #f06a2a;
+  --accent-strong: #ff8a4d;
+  --on-accent: #17191a;
+  --cyan: #58c7e8;
+  --workshop-blue: #347da0;
 
   /* Functional color coding (spec 83.2): function, not decoration. */
   --status-neutral: #f1efe4;
@@ -30,8 +32,10 @@
   --radius-sm: 8px;
   --radius-md: 12px;
   --radius-lg: 18px;
-  --font-ui: 'Inter', 'Segoe UI', system-ui, sans-serif;
-  --font-technical: 'Courier New', ui-monospace, monospace;
+  --font-ui: Inter, 'Segoe UI', system-ui, sans-serif;
+  --font-display: 'Arial Narrow', 'Roboto Condensed', Impact, sans-serif;
+  --font-technical: 'IBM Plex Mono', 'SFMono-Regular', Consolas, monospace;
+  --focus: #58c7e8;
 }
 
 * {
@@ -56,6 +60,11 @@ body {
 button {
   font-family: inherit;
   cursor: pointer;
+}
+
+button:focus-visible, input:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 3px;
 }
 
 .app-root {

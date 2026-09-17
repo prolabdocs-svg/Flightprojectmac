@@ -25,14 +25,21 @@ export function ResultsScreen() {
   return (
     <div className="screen results-screen">
       <h2>
-        {result.crashed
+        {!result.missionId && result.landed
+          ? 'Vuelo libre finalizado'
+          : result.crashed
           ? 'Pérdida total'
           : result.crashOutcome === 'hardLanding'
             ? 'Aterrizaje forzoso'
-            : result.landed
-              ? 'Vuelo completado'
+            : result.landed && result.missionCompleted !== false
+              ? 'Contrato completado'
+              : result.landed
+                ? 'Aterrizaje fuera de objetivo'
               : 'Vuelo interrumpido'}
       </h2>
+      {result.missionId && result.missionCompleted === false && !result.crashed && (
+        <p className="results-bonuses">El vuelo cuenta para ganancias, pero no desbloquea la siguiente zona.</p>
+      )}
       <div className="results-grid">
         <div>
           <span className="results-value">{result.distanceM.toFixed(0)} m</span>
@@ -55,6 +62,7 @@ export function ResultsScreen() {
       <div className="results-rewards">
         <span>+${result.rewardCash}</span>
         <span>+{result.rewardRp} RP</span>
+        <span>+{result.reputationGain ?? (result.crashed ? 0.5 : 1.5)} REP</span>
       </div>
 
       {((result.fuelCost ?? 0) > 0 || (result.repairCost ?? 0) > 0) && (
@@ -92,10 +100,10 @@ export function ResultsScreen() {
           className="secondary-btn"
           onClick={() => {
             selectMission(null);
-            goTo('hangar');
+            goTo('map');
           }}
         >
-          Volver al taller
+          Volver al mapa
         </button>
       </div>
     </div>

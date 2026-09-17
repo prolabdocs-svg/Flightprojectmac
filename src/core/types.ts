@@ -99,6 +99,8 @@ export interface TechNodeDef {
   requires: string[];
   /** Part ids this node unlocks for purchase/installation in the Builder. */
   unlocksPartIds: string[];
+  /** Optional airframe blueprints unlocked by this research node. */
+  unlocksFrameIds?: string[];
 }
 
 /** Paint/customization preset (spec 82.11 "Paint/Customization"). */
@@ -121,6 +123,8 @@ export interface FrameDefinition {
   id: string;
   name: string;
   tier: number;
+  priceCash?: number;
+  requiresTechId?: string;
   hardpoints: Hardpoint[];
   basePhysics: PartPhysics;
   baseAeroSurfaces: AeroSurfaceSpec[];
@@ -213,6 +217,7 @@ export interface PlayerProfile {
   salvage: number;
   reputation: number;
   ownedParts: string[];
+  ownedFrameIds: string[];
   unlockedMissions: string[];
   unlockedTech: string[];
   ownedPaintIds: string[];
@@ -250,6 +255,11 @@ export interface FlightResult {
   rewardCash: number;
   rewardRp: number;
   bonusesAchieved: string[];
+  /** Whether this particular contract's required objective was actually met. A safe
+   * landing alone must not unlock the next campaign region. */
+  missionCompleted?: boolean;
+  /** Reputation awarded for the session, surfaced in Results and persisted by profileStore. */
+  reputationGain?: number;
   /** Damage system (src/sim/damageSystem.ts). Optional so older callers/fixtures that
    * only set the original fields keep compiling. */
   crashOutcome?: 'none' | 'hardLanding' | 'totalLoss';

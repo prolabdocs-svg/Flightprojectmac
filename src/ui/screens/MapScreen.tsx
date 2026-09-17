@@ -1,34 +1,31 @@
-import { useState } from 'react';
 import { useGameStore } from '../../state/gameStore';
 import { useProfileStore } from '../../state/profileStore';
-import { getRegionMissions } from '../../content/missions';
+import { getRegionMissions, isMissionAvailableToProfile } from '../../content/missions';
 import { REGIONS, isRegionUnlocked } from '../../content/regions';
-import { getRegionAirfields } from '../../world/airfields';
-import type { PlayerProfile } from '../../core/types';
+import { getAirfield, getRegionAirfields } from '../../world/airfields';
+import { RouteGraph } from '../../world/routePlanner';
+import { MenuNavigation } from '../components/MenuNavigation';
 import './Screens.css';
-
-/** A mission is unlocked once it's the first mission of its region, or once the
- * previous mission in that region's campaign order has been completed at least once
- * (spec 12.1's progressive-region structure, applied within a region's own mission
- * list too). */
-function isMissionUnlocked(regionId: string, missionId: string, profile: PlayerProfile): boolean {
-  const regionMissions = getRegionMissions(regionId);
-  const idx = regionMissions.findIndex((m) => m.id === missionId);
-  if (idx <= 0) return true;
-  const prevMission = regionMissions[idx - 1];
-  return Boolean(profile.completedMissions[prevMission.id]);
-}
 
 // Spec 82.4 Map: region selector + mission cards with best score / rewards preview.
 export function MapScreen() {
   const goTo = useGameStore((s) => s.goTo);
   const selectMission = useGameStore((s) => s.selectMission);
+  const selectFreeFlight = useGameStore((s) => s.selectFreeFlight);
+  const selectedRegionId = useGameStore((s) => s.selectedMapRegionId);
+  const selectMapRegion = useGameStore((s) => s.selectMapRegion);
   const profile = useProfileStore((s) => s.profile);
-  const [selectedRegionId, setSelectedRegionId] = useState(REGIONS[0].id);
 
   const region = REGIONS.find((r) => r.id === selectedRegionId) ?? REGIONS[0];
   const missions = getRegionMissions(region.id);
   const airfields = getRegionAirfields(region.id);
+  const routeGraph = new RouteGraph();
+  const routes = airfields.flatMap((airfield) => routeGraph.neighbors(airfield.id).map((edge) => ({
+    from: airfield.name,
+    to: getAirfield(edge.toId)?.name ?? edge.toId,
+    distanceM: edge.distanceM,
+    difficulty: edge.difficulty,
+  })));
 
   return (
     <div className="screen map-screen">
@@ -48,7 +45,7 @@ export function MapScreen() {
                 key={r.id}
                 className={`region-tab${r.id === selectedRegionId ? ' region-tab-active' : ''}`}
                 disabled={!unlocked}
-                onClick={() => setSelectedRegionId(r.id)}
+                onClick={() => selectMapRegion(r.id)}
               >
                 {r.name}
                 {!unlocked && ' 🔒'}
@@ -70,13 +67,36 @@ export function MapScreen() {
         </div>
       )}
 
+      {routes.length > 0 && (
+        <div className="route-list" aria-label="Rutas aéreas">
+          <span className="route-list-title">RUTAS AÉREAS</span>
+          {routes.map((route) => (
+            <div className="route-chip" key={`${route.from}-${route.to}`} title={`Dificultad ${Math.round(route.difficulty * 100)}%`}>
+              {route.from} <span>→</span> {route.to} <small>{route.distanceM.toFixed(0)} m</small>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <button
+        className="free-flight-card"
+        onClick={() => {
+          selectFreeFlight(region.id);
+          goTo('run');
+        }}
+      >
+        <span>✈</span>
+        <span><strong>Vuelo libre</strong><small>Explora {region.name} sin objetivo ni límite de tiempo</small></span>
+        <span aria-hidden="true">›</span>
+      </button>
+
       <div className="mission-list">
         {missions.length === 0 && (
           <p className="region-desc">Contratos de esta región en preparación. Completa las regiones anteriores para desbloquear su paquete de vuelo.</p>
         )}
         {missions.map((m) => {
           const best = profile.completedMissions[m.id]?.bestScore;
-          const locked = !isMissionUnlocked(region.id, m.id, profile);
+          const locked = !isMissionAvailableToProfile(m, profile);
           return (
             <button
               key={m.id}
@@ -96,6 +116,7 @@ export function MapScreen() {
           );
         })}
       </div>
+      <MenuNavigation active="map" goTo={goTo} />
     </div>
   );
 }

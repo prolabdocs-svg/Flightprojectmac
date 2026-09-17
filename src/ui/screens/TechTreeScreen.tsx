@@ -1,8 +1,9 @@
 import { useGameStore } from '../../state/gameStore';
 import { useProfileStore } from '../../state/profileStore';
 import { TECH_NODES, TECH_CATEGORY_LABELS, canUnlockTech } from '../../content/techtree';
-import { getPart } from '../../content/parts';
+import { FRAMES, getPart } from '../../content/parts';
 import type { TechCategory } from '../../core/types';
+import { MenuNavigation } from '../components/MenuNavigation';
 import './Screens.css';
 
 // Spec 15 "Árbol tecnológico" + 82.9 "Tech Tree": branch graph gated by RP, with
@@ -45,6 +46,11 @@ export function TechTreeScreen() {
                       Desbloquea: {node.unlocksPartIds.map((id) => getPart(id)?.name ?? id).join(', ')}
                     </div>
                   )}
+                  {(node.unlocksFrameIds?.length ?? 0) > 0 && (
+                    <div className="tech-node-unlocks">
+                      Desbloquea fuselaje: {node.unlocksFrameIds!.map((id) => FRAMES.find((frame) => frame.id === id)?.name ?? id).join(', ')}
+                    </div>
+                  )}
                   {missingPrereqs.length > 0 && !unlocked && (
                     <div className="tech-node-locked-reason">
                       Requiere: {missingPrereqs.map((id) => TECH_NODES.find((n) => n.id === id)?.name ?? id).join(', ')}
@@ -70,6 +76,7 @@ export function TechTreeScreen() {
           </div>
         </section>
       ))}
+      <MenuNavigation active="techtree" goTo={goTo} />
     </div>
   );
 }

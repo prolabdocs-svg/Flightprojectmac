@@ -5,6 +5,7 @@ import { FRAME_ZERO, PARTS, getPart } from '../../content/parts';
 import { installPart, resolveAircraft } from '../../content/assembly';
 import { TECH_NODES } from '../../content/techtree';
 import type { PartCategory } from '../../core/types';
+import { MenuNavigation } from '../components/MenuNavigation';
 import './Screens.css';
 
 // Assumed reference airspeed (m/s) used only for the Builder's static thrust-to-weight
@@ -106,6 +107,7 @@ export function BuilderScreen() {
         Nota: el editor de montaje solo permite piezas compatibles con el hardpoint del frame actual (sin CAD libre),
         siguiendo la sección 11.3 del documento de diseño.
       </p>
+      <MenuNavigation active="builder" goTo={goTo} />
     </div>
   );
 }

@@ -74,6 +74,20 @@ describe('validateLanding', () => {
     expect(result.qualityScore).toBeLessThan(0.3);
   });
 
+  it('derives surface tolerance from GROUND_SURFACES, keeping tarmac strictest', () => {
+    // Tolerance is now computed from GROUND_SURFACES' brakingGripDry/bumpiness (surfaces.ts)
+    // rather than hand-picked literals, so a rough/low-grip surface should score a marginal
+    // touchdown better than tarmac (more forgiving), and rougher surfaces should be at least
+    // as forgiving as less-rough ones.
+    const marginal = { verticalSpeedMs: -3.2, groundSpeedMs: 20, rollDeg: 10, pitchDeg: 5, crosswindMs: 8 };
+    const tarmacResult = validateLanding(marginal, { surface: 'tarmac', roughness: 0.1 });
+    const grassResult = validateLanding(marginal, { surface: 'grass', roughness: 0.1 });
+    const gravelResult = validateLanding(marginal, { surface: 'gravel', roughness: 0.1 });
+
+    expect(grassResult.qualityScore).toBeGreaterThan(tarmacResult.qualityScore);
+    expect(gravelResult.qualityScore).toBeGreaterThanOrEqual(grassResult.qualityScore);
+  });
+
   it('flags a negative ground speed as invalid telemetry', () => {
     const result = validateLanding(
       { verticalSpeedMs: -0.5, groundSpeedMs: -5, rollDeg: 0, pitchDeg: 5, crosswindMs: 0 },
