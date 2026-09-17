@@ -180,7 +180,7 @@ export function FlightScreen() {
 
             if ((telem.crashed || telem.landed) && endTimerRef.current === null) {
               endTimerRef.current = window.setTimeout(() => {
-                const result = computeFlightResult(mission, telem!);
+                const result = computeFlightResult(mission, telem!, aircraft, profile.currentBuild);
                 applyFlightResult(result);
                 setLastResult(result);
                 goTo('results');

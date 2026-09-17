@@ -81,9 +81,13 @@ export const useProfileStore = create<ProfileState>((set, get) => ({
 
   applyFlightResult: (result) => {
     const { profile } = get();
+    // netCash (reward minus fuel/repair operating costs, economy.ts#computeFlightResult)
+    // is what should actually land in the player's wallet. Older results that predate
+    // operating costs won't have it set, so fall back to the old reward-only behavior.
+    const cashDelta = result.netCash ?? result.rewardCash;
     const next: PlayerProfile = {
       ...profile,
-      cash: profile.cash + result.rewardCash,
+      cash: profile.cash + cashDelta,
       researchPoints: profile.researchPoints + result.rewardRp,
       reputation: profile.reputation + (result.crashed ? 0.5 : 1.5),
     };

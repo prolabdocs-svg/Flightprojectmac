@@ -40,7 +40,10 @@ export interface DamageState {
   outcome: CrashOutcome;
 }
 
-function roleForSurfaceId(surfaceId: string): PartRole {
+/** Exported so other pure modules (e.g. economy.ts's repair-cost calculation) can map a
+ * damaged/detached telemetry id back to the same wing/tail/gear role this module uses,
+ * without duplicating the classification rule. */
+export function roleForSurfaceId(surfaceId: string): PartRole {
   if (surfaceId === 'elevator' || surfaceId === 'rudder' || surfaceId.startsWith('tail')) return 'tail';
   return 'wing'; // wing_root_main, aileron_l/r, and any installed wing surface id
 }
