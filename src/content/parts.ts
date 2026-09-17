@@ -9,7 +9,12 @@ export const WING_A: AeroSurfaceSpec = {
   areaM2: 12,
   spanM: 9,
   chordM: 1.4,
-  zeroLiftAoADeg: -2,
+  // Built-in wing incidence (playability fix): FlightController now actually applies this
+  // (it used to be a dead field), so the wing generates real lift at level fuselage attitude
+  // once ground speed builds, instead of needing to rotate first — rotation was physically
+  // impossible while the flat-bottomed collider was fully seated on the ground. -10 gives a
+  // ~10-14s ground roll to liftoff at full throttle, tuned against a headless physics harness.
+  zeroLiftAoADeg: -10,
   stallPositiveDeg: 15,
   stallNegativeDeg: -13,
   inducedDragFactor: 0.045,

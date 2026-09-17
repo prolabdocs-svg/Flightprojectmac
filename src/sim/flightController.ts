@@ -240,8 +240,8 @@ export class FlightController {
         const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(quat);
         const availableW = this.aircraft.engine.maxPowerKw * 1000 * this.throttleSmoothed * this.aircraft.engine.propEfficiency;
         const forwardSpeed = Math.max(0, bodyVel.dot(forward));
-        const staticThrust = availableW / 30;
-        const thrustN = staticThrust / (1 + forwardSpeed / 15);
+        const staticThrust = availableW / 8;
+        const thrustN = staticThrust / (1 + forwardSpeed / 28);
         const enginePoint = bodyPos.clone().add(new THREE.Vector3(0, 0, 2.1).applyQuaternion(quat));
         const force = forward.multiplyScalar(thrustN);
         this.body.addForceAtPoint({ x: force.x, y: force.y, z: force.z }, { x: enginePoint.x, y: enginePoint.y, z: enginePoint.z }, true);
@@ -294,7 +294,17 @@ export class FlightController {
           aoaDeg = (Math.atan2(lateralFlow, Math.max(0.1, forwardSpeed)) * 180) / Math.PI + deflectionDeg;
           liftDirWorld = new THREE.Vector3(1, 0, 0).applyQuaternion(quat);
         } else {
-          aoaDeg = (Math.atan2(-verticalFlow, Math.max(0.1, forwardSpeed)) * 180) / Math.PI + deflectionDeg;
+          // BUG FIX (playability): zeroLiftAoADeg (the surface's built-in incidence, spec
+          // 6.2) was defined on every wing/tail part but never actually applied here, so a
+          // level fuselage always meant AoA == 0 == zero lift, no matter the speed. Since the
+          // aircraft's single flat-bottomed box collider is fully seated on the ground
+          // collider while taxiing, Rapier's contact solver resists any pitch rotation until
+          // the wings are already generating enough lift to unweight it - a chicken-and-egg
+          // problem that meant the aircraft could accelerate indefinitely down the runway and
+          // never leave the ground. Subtracting the surface's zero-lift AoA gives the main
+          // wing real lift at level attitude once ground speed builds, matching its authored
+          // incidence (see parts.ts) instead of leaving that field dead.
+          aoaDeg = (Math.atan2(-verticalFlow, Math.max(0.1, forwardSpeed)) * 180) / Math.PI + deflectionDeg - surf.zeroLiftAoADeg;
           liftDirWorld = new THREE.Vector3(0, 1, 0).applyQuaternion(quat);
         }
 
@@ -320,7 +330,13 @@ export class FlightController {
         const localUp = new THREE.Vector3(0, 1, 0).applyQuaternion(quat);
         const worldUp = new THREE.Vector3(0, 1, 0);
         const correctionAxis = new THREE.Vector3().crossVectors(localUp, worldUp);
-        const speedFactor = onGround ? 1 : Math.min(1, forwardSpeed / 12);
+        // Ground self-leveling must taper off with speed too, not just after liftoff: at
+        // full gain regardless of forwardSpeed, it fought the elevator hard enough that the
+        // aircraft could never rotate (pitch up) during the takeoff roll, so AoA/lift stayed
+        // near zero at any ground speed and the plane simply never left the runway. Tapering
+        // it down as the ground roll builds speed keeps low-speed taxi stable (full gain near
+        // a standstill) while leaving real elevator authority for rotation near flying speed.
+        const speedFactor = onGround ? Math.max(0.15, 1 - forwardSpeed / 20) : Math.min(1, forwardSpeed / 12);
         const stabilityGain = 1.6 * speedFactor * this.aircraft.totalMassKg;
 
         // Damping: oppose pitch/roll rate only (leave yaw free for rudder turns).
