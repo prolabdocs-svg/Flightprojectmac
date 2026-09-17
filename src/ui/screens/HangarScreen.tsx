@@ -9,7 +9,11 @@ export function HangarScreen() {
   const goTo = useGameStore((s) => s.goTo);
   const selectMission = useGameStore((s) => s.selectMission);
   const profile = useProfileStore((s) => s.profile);
+  const upgradeHomeBase = useProfileStore((s) => s.upgradeHomeBase);
   const aircraft = resolveAircraft(profile.currentBuild);
+
+  const runwayCost = (profile.homeBase.runwayLevel + 1) * 300 - 100;
+  const hangarCost = (profile.homeBase.hangarLevel + 1) * 300 - 100;
 
   const flyFirstAvailable = () => {
     const missionId = profile.unlockedMissions[0] ?? MISSIONS[0].id;
@@ -36,6 +40,30 @@ export function HangarScreen() {
           VOLAR
         </button>
       </div>
+
+      <section className="home-base-panel">
+        <h2 className="home-base-title">Base Aérea</h2>
+        <div className="home-base-row">
+          <span className="home-base-label">Pista nivel {profile.homeBase.runwayLevel}</span>
+          <button
+            className="home-base-upgrade-btn"
+            onClick={() => upgradeHomeBase('runway', runwayCost)}
+            disabled={profile.cash < runwayCost}
+          >
+            Mejorar (${runwayCost})
+          </button>
+        </div>
+        <div className="home-base-row">
+          <span className="home-base-label">Hangar nivel {profile.homeBase.hangarLevel}</span>
+          <button
+            className="home-base-upgrade-btn"
+            onClick={() => upgradeHomeBase('hangar', hangarCost)}
+            disabled={profile.cash < hangarCost}
+          >
+            Mejorar (${hangarCost})
+          </button>
+        </div>
+      </section>
 
       <nav className="hangar-nav">
         <button onClick={() => goTo('map')}>Mapa / Misiones</button>

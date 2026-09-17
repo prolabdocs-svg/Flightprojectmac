@@ -7,10 +7,10 @@
 // something to key off. A one-time migration lifts any pre-existing localStorage save
 // (the previous implementation) into IndexedDB and then clears the legacy key.
 
-import type { PlayerProfile } from '../core/types';
+import type { HomeBaseState, PlayerProfile } from '../core/types';
 import { defaultBuild } from '../content/assembly';
 
-export const SAVE_SCHEMA_VERSION = 1;
+export const SAVE_SCHEMA_VERSION = 2;
 const GAME_VERSION = '0.1.0';
 
 const DB_NAME = 'project-flight';
@@ -49,6 +49,7 @@ export function createDefaultProfile(): PlayerProfile {
     selectedPaintId: 'paint_default',
     completedMissions: {},
     currentBuild: defaultBuild(),
+    homeBase: { runwayLevel: 0, hangarLevel: 0 },
     settings: {
       controlPreset: 'normal',
       assistMode: 'assisted',
@@ -73,6 +74,8 @@ const DEFAULT_ACCESSIBILITY_SETTINGS = {
   hasSeenOnboarding: false,
 };
 
+const DEFAULT_HOME_BASE: HomeBaseState = { runwayLevel: 0, hangarLevel: 0 };
+
 /** Migrates an older save forward. Add cases as schemaVersion increases. */
 function migrate(raw: PlayerProfile): PlayerProfile {
   let profile = raw;
@@ -82,6 +85,12 @@ function migrate(raw: PlayerProfile): PlayerProfile {
   // Backfill accessibility settings added after the first save-format saves were written,
   // so older profiles loaded from IndexedDB/localStorage don't crash on missing fields.
   profile = { ...profile, settings: { ...DEFAULT_ACCESSIBILITY_SETTINGS, ...profile.settings } };
+  if (profile.schemaVersion < 2) {
+    // Backfill home base progression (runway/hangar levels) added in schema v2, so older
+    // saves that predate it don't crash on missing fields.
+    profile = { ...profile, schemaVersion: 2, homeBase: { ...DEFAULT_HOME_BASE, ...profile.homeBase } };
+  }
+  profile = { ...profile, homeBase: { ...DEFAULT_HOME_BASE, ...profile.homeBase } };
   return profile;
 }
 

@@ -168,6 +168,44 @@
 .fly-cta:hover {
   filter: brightness(1.05);
 }
+.home-base-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  padding: 10px 14px;
+  margin: 10px 0;
+}
+.home-base-title {
+  font-size: 13px;
+  font-weight: 700;
+  opacity: 0.8;
+  margin: 0;
+}
+.home-base-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.home-base-label {
+  font-size: 13px;
+  opacity: 0.85;
+}
+.home-base-upgrade-btn {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 12px;
+}
+.home-base-upgrade-btn:disabled {
+  opacity: 0.4;
+}
+
 .hangar-nav {
   display: flex;
   gap: 10px;
