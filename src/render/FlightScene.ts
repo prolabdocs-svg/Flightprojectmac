@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import type { RegionDefinition } from '../core/types';
 import { WorldEnvironment } from './WorldEnvironment';
+import { createSeededRandom, type SeededRandom } from '../core/seededRandom';
 
 const CHASE_POSITION_RESPONSE = 3.7;
 const CHASE_LOOK_RESPONSE = 9.75;
@@ -31,8 +32,13 @@ export class FlightScene {
   // hide or re-tint them without the damage system knowing anything about Three.js.
   private wingMesh: THREE.Mesh | null = null;
   private tailMeshes: THREE.Mesh[] = [];
+  // Deterministic PRNG for procedural landmark placement (trees, scrap piles), seeded
+  // from the region id so the same region always generates the same layout across
+  // sessions (see src/core/seededRandom.ts).
+  private readonly worldRng: SeededRandom;
 
   constructor(canvas: HTMLCanvasElement, region: RegionDefinition, paint?: { fabricColor: string; tubeColor: string }) {
+    this.worldRng = createSeededRandom('flight-scene-landmarks', region.id);
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = false;
@@ -114,9 +120,9 @@ export class FlightScene {
     const trees = new THREE.InstancedMesh(new THREE.ConeGeometry(2.8, 9, 6), treeMat, 40);
     const treeMatrix = new THREE.Matrix4();
     for (let i = 0; i < 40; i++) {
-      const angle = Math.random() * Math.PI * 2;
-      const dist = 80 + Math.random() * 500;
-      const scale = 0.8 + Math.random() * 0.4;
+      const angle = this.worldRng.next() * Math.PI * 2;
+      const dist = 80 + this.worldRng.next() * 500;
+      const scale = 0.8 + this.worldRng.next() * 0.4;
       treeMatrix.compose(new THREE.Vector3(Math.cos(angle) * dist, 4.5 * scale, 150 + Math.sin(angle) * dist), new THREE.Quaternion(), new THREE.Vector3(scale, scale, scale));
       trees.setMatrixAt(i, treeMatrix);
     }
@@ -151,16 +157,16 @@ export class FlightScene {
     // as a second distant landmark plus general clutter.
     for (let i = 0; i < 22; i++) {
       const pileGroup = new THREE.Group();
-      const boxCount = 2 + Math.floor(Math.random() * 3);
+      const boxCount = 2 + Math.floor(this.worldRng.next() * 3);
       for (let b = 0; b < boxCount; b++) {
-        const size = 1.5 + Math.random() * 2.5;
-        const box = new THREE.Mesh(new THREE.BoxGeometry(size, size * 0.7, size), Math.random() > 0.5 ? scrapMat : rustMat);
-        box.position.set((Math.random() - 0.5) * 3, size * 0.35 * (b + 1), (Math.random() - 0.5) * 3);
-        box.rotation.y = Math.random() * Math.PI;
+        const size = 1.5 + this.worldRng.next() * 2.5;
+        const box = new THREE.Mesh(new THREE.BoxGeometry(size, size * 0.7, size), this.worldRng.next() > 0.5 ? scrapMat : rustMat);
+        box.position.set((this.worldRng.next() - 0.5) * 3, size * 0.35 * (b + 1), (this.worldRng.next() - 0.5) * 3);
+        box.rotation.y = this.worldRng.next() * Math.PI;
         pileGroup.add(box);
       }
-      const angle = Math.random() * Math.PI * 2;
-      const dist = 60 + Math.random() * 480;
+      const angle = this.worldRng.next() * Math.PI * 2;
+      const dist = 60 + this.worldRng.next() * 480;
       pileGroup.position.set(Math.cos(angle) * dist, 0, 150 + Math.sin(angle) * dist);
       this.scene.add(pileGroup);
     }
