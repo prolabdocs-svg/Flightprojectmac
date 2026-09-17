@@ -3,6 +3,7 @@ import { useGameStore } from '../../state/gameStore';
 import { useProfileStore } from '../../state/profileStore';
 import { getRegionMissions } from '../../content/missions';
 import { REGIONS, isRegionUnlocked } from '../../content/regions';
+import { getRegionAirfields } from '../../world/airfields';
 import type { PlayerProfile } from '../../core/types';
 import './Screens.css';
 
@@ -27,6 +28,7 @@ export function MapScreen() {
 
   const region = REGIONS.find((r) => r.id === selectedRegionId) ?? REGIONS[0];
   const missions = getRegionMissions(region.id);
+  const airfields = getRegionAirfields(region.id);
 
   return (
     <div className="screen map-screen">
@@ -57,6 +59,17 @@ export function MapScreen() {
       )}
 
       <p className="region-desc">{region.description}</p>
+
+      {airfields.length > 0 && (
+        <div className="airfield-list">
+          {airfields.map((a) => (
+            <div key={a.id} className="airfield-chip" title={`${a.runwayLengthM}m · ${a.surface}`}>
+              {a.discoveryState === 'known' ? a.name : a.discoveryState === 'hidden' ? '¿ Pista sin descubrir ?' : '¿ Rumor de pista ?'}
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className="mission-list">
         {missions.length === 0 && (
           <p className="region-desc">Contratos de esta región en preparación. Completa las regiones anteriores para desbloquear su paquete de vuelo.</p>
