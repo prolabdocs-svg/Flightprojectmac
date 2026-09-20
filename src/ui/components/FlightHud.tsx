@@ -33,7 +33,6 @@ export function FlightHud({ telemetry, mission, freeFlightRegionName, freeFlight
   const setBrake = useMode2Store((s) => s.setBrake);
   const flapsDown = useMode2Store((s) => s.flapsDown);
   const toggleFlaps = useMode2Store((s) => s.toggleFlaps);
-  const deployChute = useMode2Store((s) => s.deployChute);
 
   // Spec 23.2/150.2: procedural engine sound driven by live RPM/throttle
   // telemetry. Lives here (not in FlightScreen/flightController, which are
@@ -159,7 +158,6 @@ export function FlightHud({ telemetry, mission, freeFlightRegionName, freeFlight
         <button className={flapsDown ? 'active' : ''} onClick={toggleFlaps}>
           <span className="control-code">FLP</span> {flapsDown ? 'RETRAER' : 'FLAPS'}
         </button>
-        <button onClick={deployChute}><span className="control-code">!</span> PARACAÍDAS</button>
       </div>
 
       <div className="hud-keyboard-hint" aria-hidden="true">
