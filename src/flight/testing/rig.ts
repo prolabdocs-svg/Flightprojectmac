@@ -94,7 +94,7 @@ export async function createAirframeRig(def: AircraftDefinition, opts: { altM?: 
     return log[log.length - 1];
   };
   const controls = sim.controls;
-  return { sim, phys, world, run, log, controls };
+  return { sim, phys, world, run, log, controls, wind };
 }
 
 /** Simple attitude-hold pilot used by flight tests: pitch/roll targets in degrees (nose up +, right wing down +). */

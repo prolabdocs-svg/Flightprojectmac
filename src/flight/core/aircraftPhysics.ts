@@ -76,6 +76,8 @@ export class AircraftPhysics {
   alphaRad = 0;
   betaRad = 0;
   wingCl = 0;
+  /** Margin (rad) between the most-loaded wing element's AoA and the AoA of CLmax. < 0 = past the stall peak. */
+  stallMarginRad = 1;
   liftBodyN = 0;
   dragBodyN = 0;
 
@@ -89,6 +91,7 @@ export class AircraftPhysics {
   private lastFuelForMass = -1;
   private readonly wingAc: Vec3;
   private readonly wingElementCount: number;
+  private readonly wingAlphaClMax: number;
 
   constructor(world: RAPIER.World, def: AircraftDefinition, terrainHeight: (x: number, z: number) => number = () => 0) {
     this.world = world;
@@ -113,6 +116,7 @@ export class AircraftPhysics {
       this.bluffResults.push(newElementResult());
     }
     this.wingElementCount = this.elements.filter((e) => e.spec.group === 'wing').length;
+    this.wingAlphaClMax = tables.wing.alphaClMaxRad;
     this.wingAc = def.geometry.wingAcPosition;
 
     this.body = world.createRigidBody(
@@ -208,6 +212,7 @@ export class AircraftPhysics {
     c.groundLiftGain = groundLiftGain(wingHeight, this.def.geometry.wingspanM);
 
     let clArea = 0;
+    let maxWingAlpha = -Math.PI;
     let wingArea = 0;
     let lift = 0;
     let drag = 0;
@@ -227,6 +232,7 @@ export class AircraftPhysics {
       if (i < this.wingElementCount) {
         clArea += r.cl * s.areaM2;
         wingArea += s.areaM2;
+        if (r.alphaRad > maxWingAlpha) maxWingAlpha = r.alphaRad;
       }
       lift += r.liftN;
       drag += r.dragN;
@@ -237,6 +243,7 @@ export class AircraftPhysics {
       this.momentBody.x += r.mx; this.momentBody.y += r.my; this.momentBody.z += r.mz;
       drag += r.dragN;
     }
+    this.stallMarginRad = this.wingAlphaClMax - maxWingAlpha;
     this.liftBodyN = lift;
     this.dragBodyN = drag;
   }

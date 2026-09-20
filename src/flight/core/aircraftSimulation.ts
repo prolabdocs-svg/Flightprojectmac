@@ -7,6 +7,8 @@ import type RAPIER from '@dimforge/rapier3d-compat';
 import { AircraftPhysics } from './aircraftPhysics';
 import { PHYSICS_DT } from './constants';
 import { FlightControls, type PilotCommand } from '../controls/flightControls';
+import { FlightAssistance, type AssistLevel } from '../controls/flightAssistance';
+import { attitude } from './coordinates';
 import { Propulsion } from '../propulsion/propulsion';
 import { LandingGear, type GearSummary, type GroundQuery } from '../ground/landingGear';
 import { StructuralContacts } from '../ground/structuralContact';
@@ -22,6 +24,8 @@ export const FLAT_GROUND: GroundQuery = {
 export interface SimCommand extends PilotCommand {
   engineOn: boolean;
   /** Landing gear still attached / drag+brake penalty from damage (defaults: attached, 1). */
+  /** Assistance level for this tick (default: simulation = raw pilot command). */
+  assist?: AssistLevel;
   gearAttached?: boolean;
   gearPenalty?: number;
 }
@@ -29,6 +33,9 @@ export interface SimCommand extends PilotCommand {
 export class AircraftSimulation {
   readonly physics: AircraftPhysics;
   readonly controls: FlightControls;
+  readonly assistance = new FlightAssistance();
+  /** The command actually sent to the mixer after assistance (for telemetry). */
+  readonly assisted: PilotCommand = { pitch: 0, roll: 0, yaw: 0, throttle: 0, brake: 0 };
   readonly propulsion: Propulsion | null;
   readonly gear: LandingGear;
   readonly structure: StructuralContacts;
@@ -37,6 +44,9 @@ export class AircraftSimulation {
   /** Damage-system hook: 0..1 effectiveness per surface id. */
   effectiveness: (damageId: string) => number = () => 1;
   timeS = 0;
+  private readonly fwd = new THREE.Vector3();
+  private readonly left = new THREE.Vector3();
+  private readonly up = new THREE.Vector3();
   private readonly hubAir = new THREE.Vector3();
   private readonly hubR = new THREE.Vector3();
 
@@ -68,8 +78,14 @@ export class AircraftSimulation {
   /** Advances one fixed tick. `wind` is the world-space wind at the aircraft (m/s). */
   step(cmd: SimCommand, wind: THREE.Vector3): void {
     const phys = this.physics;
-    const surf = this.controls.step(cmd, PHYSICS_DT);
     phys.readState(wind);
+    this.assistance.setLevel(cmd.assist ?? 'simulation');
+    const att = attitude(phys.frame, this.fwd, this.left, this.up);
+    this.assistance.apply(cmd, {
+      bankRad: att.rollRad, pitchRad: att.pitchRad, p: phys.wBody.z, q: -phys.wBody.x, r: -phys.wBody.y,
+      betaRad: phys.betaRad, airspeedMs: phys.airspeedMs, stallMarginRad: phys.stallMarginRad, onGround: this.gear.summary.wheelsOnGround > 0,
+    }, PHYSICS_DT, this.assisted);
+    const surf = this.controls.step(this.assisted, PHYSICS_DT);
 
     let slip = null;
     let gyro: THREE.Vector3 | null = null;
