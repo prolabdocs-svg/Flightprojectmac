@@ -4,9 +4,27 @@
     {
       "name": "project-flight",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "--", "--host"],
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--host"
+      ],
       "port": 5173,
       "autoPort": true
+    },
+    {
+      "name": "flight-orchestrator",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "vite",
+        "--port",
+        "5181",
+        "--strictPort",
+        "--host",
+        "127.0.0.1"
+      ],
+      "port": 5181
     }
   ]
 }

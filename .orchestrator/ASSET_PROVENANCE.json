@@ -1,0 +1,35 @@
+{
+  "source_of_truth_declared_in_repo": "public/assets/models/README.md: 'airframes/project_flight_roster.blend is the editable Blender source and the GLB files are the mobile-ready exports. All geometry is original, low-poly, meter-scaled and uses named meshes for controls and damage integration.'",
+  "generators": ["tools/blender_build_assets.py", "tools/blender_generate_roster.py (parses the master-spec roster directly to keep IDs/export set aligned)"],
+  "licensing_note": "Provenance is asserted ('original geometry') but not yet formally signed off per STEAM_RELEASE.md's own checklist -- tracked as RISK-07 / LEGAL-03. This audit takes no position on the truth of the originality claim; it only reports what is documented versus what is recorded as approved.",
+  "on_disk_inventory": {
+    "airframes": { "count": 70, "declared_by": "public/assets/models/README.md: '70 canonical airframes from the master spec, one GLB per stable frame ID'", "source_blend": "airframes/project_flight_roster.blend" },
+    "upgrades": { "count": 19, "declared_by": "public/assets/models/README.md: '19 visible, modular upgrades: props, tires, tanks, high-lift, avionics, gear, floats, cargo and winglets'" },
+    "micro_air": { "count": 110, "pattern": "air_mic_001..110.glb" },
+    "micro_env": { "count": 105, "pattern": "env_mic_001..105.glb" },
+    "micro_vfx": { "count": 30, "pattern": "vfx_001..030.glb" },
+    "world": { "count": 26, "files": "airfield_windsock, barn_a/b, checkpoint_beacon, coastal_cliff_landmark, coastal_palm, coastal_port, conifer_tree, dry_scrub_tree, emergency_strip_marker, farmhouse_a/b, fence_post, powerline_tower, radio_tower, reservoir_dam, riparian_tree, river_truss_bridge, road_bridge_small, runway_modular_segment, small_workshop, stepped_quarry, utility_pole, volcanic_cone_landmark, water_tower, windmill_landmark" },
+    "hero_aircraft": { "count": 1, "file": "pf_aircraft_ultralight.glb", "declared_by": "public/assets/models/README.md: 'Hero tube-and-fabric homebuilt prototype with articulated named controls'" },
+    "blend_source_files": 3,
+    "total_glb_files": 361,
+    "textures": ["public/assets/textures/aircraft-fabric-v1.png", "public/assets/textures/field-ground-v1.png"],
+    "counting_method": "find public/assets/models -name '*.glb' | wc -l, run directly in this audit"
+  },
+  "runtime_reachability_audit": {
+    "method": "Exhaustive grep of every call to assetLibrary.load(domain, id) and assetUrl(domain, id) across src/. Only 2 call sites exist in the entire codebase: src/render/FlightScene.ts:144 (domain 'world', id from ACTIVE_REGION_ASSETS) and src/render/FlightScene.ts:158 (domain 'airframe', id from FRAME_ASSET_IDS).",
+    "domains_defined_in_type": ["airframe", "upgrade", "world", "micro"],
+    "domains_actually_loaded_at_runtime": ["world", "airframe (single id only)"],
+    "world_domain": { "on_disk": 26, "referenced_in_ACTIVE_REGION_ASSETS": 23, "unreferenced": 3, "note": "3 world GLBs exist on disk but are not placed in any of the 8 regions' ACTIVE_REGION_ASSETS arrays in src/render/assetManifest.ts." },
+    "airframe_domain": { "on_disk": 70, "referenced_at_runtime": 4, "referenced_ids": "hero_ultralight (frame_zero, special-cased path outside airframes/), l1_01 (frame_yardbird), a2_01 (frame_trailblazer), g3_01 (frame_bush_king) -- FRAME_ASSET_IDS (src/render/assetManifest.ts) now covers every FrameDefinition in src/content/parts.ts#FRAMES, selectable via BuilderScreen's frame selector and state/profileStore.ts#selectFrame", "unreferenced": 66 },
+    "upgrade_domain": { "on_disk": 19, "referenced_at_runtime": 0, "note": "assetUrl() supports building an 'upgrade' path but grep found zero call sites anywhere in src/ that invoke assetLibrary.load('upgrade', ...)." },
+    "micro_domain": { "on_disk": 245, "referenced_at_runtime": 0, "note": "Same as upgrade: type-level support exists (assetManifest.ts case 'micro'), zero call sites." },
+    "headline_finding": "27 of 361 GLB files (about 7.5%) are reachable from the running game as of the frame-selector fix (src/ui/screens/BuilderScreen.tsx, src/state/profileStore.ts#selectFrame, src/render/assetManifest.ts#FRAME_ASSET_IDS). The other 334 are exported, licensed, and shipped inert in public/ -- present in the production bundle's static asset folder but never fetched by any code path."
+  },
+  "distinct_but_related_system": {
+    "name": "worldVisualIdentity.ts landmark system",
+    "description": "src/render/worldVisualIdentity.ts assigns one LandmarkKind (silos/headframe/rock-gateway/lookout/lighthouse/stacks/radio-mast) per terrain family, rendered via a glyph + label (data structure, not confirmed to be a 3D model reference) -- this is a separate, smaller, and apparently fully-wired data-driven system, distinct from the orphaned GLB library above. Included here so the two are not conflated: the landmark *assignment* logic is implemented and tested (worldVisualIdentity.test.ts), even though most of the *asset library* it could theoretically draw from is unused."
+  },
+  "unknowns": [
+    "Whether the 333 unreferenced GLBs represent (a) content genuinely planned for later tiers/regions and simply not yet wired, (b) abandoned work from an earlier version of the roster generator, or (c) intentionally pre-exported for a future patch. No commit message, doc, or code comment in this repo states which. Flagged rather than guessed -- see TASK_GRAPH.json ASSET-01."
+  ]
+}

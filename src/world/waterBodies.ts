@@ -35,8 +35,8 @@ interface WaterBodySeed {
 // (a real basin, not an arbitrary coordinate), so the surrounding terrain slopes down toward
 // it rather than the lake sitting on a ridge (spec §222 QA: no "water over ridge").
 const WATER_BODY_SEEDS: WaterBodySeed[] = [
-  { id: 'backcountry_lake', regionId: 'backcountry', kind: 'lake', center: [300, 75], radiusM: 90 },
-  { id: 'coast_run_bay', regionId: 'coast_run', kind: 'lake', center: [300, 75], radiusM: 130 },
+  { id: 'backcountry_lake', regionId: 'backcountry', kind: 'lake', center: [300, 65], radiusM: 90 },
+  { id: 'coast_run_bay', regionId: 'coast_run', kind: 'lake', center: [340, 1250], radiusM: 220 },
 ];
 
 /** Builds this region's water bodies, sampling the surface elevation once per body from

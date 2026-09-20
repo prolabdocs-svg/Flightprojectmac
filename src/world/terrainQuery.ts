@@ -81,25 +81,63 @@ function clamp01(v: number): number {
 }
 
 /**
- * Builds the natural (ungraded) elevation function: low-frequency sine/cosine hills scaled
- * by a per-terrain "roughness" factor (quarries are rockier than open meadows). Runway
- * grading is layered on top by `createTerrainQueryService`, not here — this is the raw
- * terrain a runway gets carved flat out of.
+ * Per-terrain-type elevation profiles (pure functions of local x/y, no RNG). Each region's
+ * `environment.terrain` gets its own distinct relief shape instead of one shared sine/cosine
+ * blend, so meadow/quarry/canyon/etc. actually feel different underfoot instead of only
+ * differing by an amplitude scalar. Exported for direct unit testing of each profile's shape.
  *
  * `WorldEnvironment`'s plane is authored in local plane space (x, y) and then rotated -90deg
  * about X to become the world XZ ground plane, which maps local y -> world -z. Working
  * directly in world space here, that means local x = worldX and local y = -worldZ.
  */
+export const NATURAL_ELEVATION_PROFILES: Record<RegionDefinition['environment']['terrain'], (x: number, y: number) => number> = {
+  // Gentle agricultural basin + low rolling hills: small amplitude, bounded radial dip.
+  meadow: (x, y) => Math.sin(x * 0.0035) * 7 + Math.cos(y * 0.004) * 6 + Math.sin(Math.hypot(x, y) * 0.0007) * 4,
+  // Terraced quarry benches (repeating stepped plateaus) layered over rocky base hills, so
+  // there is always at least one hard bank/step outside the graded pad.
+  quarry: (x, y) => {
+    const base = Math.sin(x * 0.006) * 10 + Math.cos(y * 0.007) * 9;
+    const benchAxis = x * 0.6 + y * 0.4;
+    const benchCyclePos = ((benchAxis % 220) + 220) % 220;
+    const bench = Math.floor(benchCyclePos / 55) * 9;
+    return base + bench;
+  },
+  // Corridor/valley floor with rising walls that flatten into mesas away from the axis.
+  canyon: (x, y) => {
+    const wallProfile = 55 * Math.tanh(Math.abs(x) / 220);
+    const floorRipple = Math.sin(y * 0.004) * 6 + Math.cos(x * 0.01) * 3;
+    return wallProfile + floorRipple - 10;
+  },
+  // Glacial rolling hills (higher frequency/amplitude than meadow) with lake-basin lows.
+  forest: (x, y) => Math.sin(x * 0.006) * 14 + Math.cos(y * 0.007) * 12 + Math.sin((x - y) * 0.003) * 8,
+  // Coastal plain that drops via a smooth bluff/cliff into the sea as world +z advances
+  // (local y becomes increasingly negative) — a directional gradient, not symmetric noise.
+  coast: (x, y) => {
+    const plain = Math.sin(x * 0.004) * 5 + Math.cos(y * 0.005) * 4;
+    const distToSea = -y - 650;
+    const cliffDrop = -38 * (0.5 + 0.5 * Math.tanh(distToSea / 120));
+    return plain + cliffDrop;
+  },
+  // Flat industrial platform with a shallow river-valley dip; the flattest profile.
+  industrial: (x, y) => {
+    const plain = Math.sin(x * 0.003) * 3 + Math.cos(y * 0.0035) * 3;
+    const riverValley = -8 * Math.exp(-((x - 50) ** 2) / (2 * 300 * 300));
+    return plain + riverValley;
+  },
+  // Broad, wide-wavelength dunes: low spatial frequency so nearby points barely change.
+  desert: (x, y) => Math.sin(x * 0.0009) * 16 + Math.cos(y * 0.0011) * 13 + Math.sin((x + y) * 0.0006) * 8,
+  // Access valley/pass cut through a tall mountain range: tallest, roughest profile.
+  range: (x, y) => 130 * Math.tanh(Math.abs(x) / 180) + Math.sin(y * 0.003) * 20 - 15,
+};
+
+/**
+ * Builds the natural (ungraded) elevation function for a region's terrain type. Runway
+ * grading is layered on top by `createTerrainQueryService`, not here — this is the raw
+ * terrain a runway gets carved flat out of.
+ */
 function createNaturalElevationFn(region: RegionDefinition): (x: number, z: number) => number {
-  const roughness = region.environment.terrain === 'quarry' ? 1.9 : 0.75;
-  return (worldX: number, worldZ: number): number => {
-    const localX = worldX;
-    const localY = -worldZ;
-    return (
-      (Math.sin(localX * 0.004) * 18 + Math.cos(localY * 0.005) * 14 + Math.sin((localX + localY) * 0.008) * 9) *
-      roughness
-    );
-  };
+  const profile = NATURAL_ELEVATION_PROFILES[region.environment.terrain];
+  return (worldX: number, worldZ: number): number => profile(worldX, -worldZ);
 }
 
 /** Creates the shared terrain query service for a given region. Deterministic, no RNG. */

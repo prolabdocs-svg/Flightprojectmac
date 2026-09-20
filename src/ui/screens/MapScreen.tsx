@@ -1,10 +1,12 @@
 import { useGameStore } from '../../state/gameStore';
 import { useProfileStore } from '../../state/profileStore';
 import { getRegionMissions, isMissionAvailableToProfile } from '../../content/missions';
+import { evaluateMissionReadiness } from '../../content/missionReadiness';
 import { REGIONS, isRegionUnlocked } from '../../content/regions';
 import { getAirfield, getRegionAirfields } from '../../world/airfields';
 import { RouteGraph } from '../../world/routePlanner';
 import { MenuNavigation } from '../components/MenuNavigation';
+import { getDistantLandmarkKind, LANDMARK_PRESENTATION } from '../../render/worldVisualIdentity';
 import type { CSSProperties } from 'react';
 import './Screens.css';
 
@@ -19,6 +21,7 @@ export function MapScreen() {
 
   const region = REGIONS.find((r) => r.id === selectedRegionId) ?? REGIONS[0];
   const missions = getRegionMissions(region.id);
+  const landmark = LANDMARK_PRESENTATION[getDistantLandmarkKind(region)];
   const airfields = getRegionAirfields(region.id);
   const routeGraph = new RouteGraph();
   const routes = airfields.flatMap((airfield) => routeGraph.neighbors(airfield.id).map((edge) => ({
@@ -67,6 +70,9 @@ export function MapScreen() {
       <section className={`route-map route-map-${region.environment.terrain}`} aria-label={`Mapa de ${region.name}`}>
         <span className="route-map-compass">N</span>
         <span className="route-map-caption">SECTOR DE VUELO</span>
+        <span className="route-map-identity" title={`Hito de navegación: ${landmark.label}`}>
+          <b aria-hidden="true">{landmark.glyph}</b>{landmark.label}
+        </span>
         {airfields.map((airfield) => (
           <div className={`route-map-pin route-map-pin-${airfield.discoveryState}`} key={airfield.id} style={pointStyle(airfield.position)}>
             <i />
@@ -116,12 +122,13 @@ export function MapScreen() {
         )}
         {missions.map((m) => {
           const best = profile.completedMissions[m.id]?.bestScore;
-          const locked = !isMissionAvailableToProfile(m, profile);
+          const campaignLocked = !isMissionAvailableToProfile(m, profile);
+          const readiness = campaignLocked ? null : evaluateMissionReadiness(m, profile.currentBuild);
           return (
             <button
               key={m.id}
               className="mission-card"
-              disabled={locked}
+              disabled={campaignLocked}
               onClick={() => {
                 selectMission(m.id);
                 goTo('briefing');
@@ -131,7 +138,12 @@ export function MapScreen() {
               <div className="mission-card-family">{m.family}</div>
               <div className="mission-card-reward">${m.rewardBaseCash} · {m.rewardBaseRp} RP</div>
               {best !== undefined && <div className="mission-card-best">Mejor: {best.toFixed(0)} m</div>}
-              {locked && <div className="mission-card-locked">Bloqueada</div>}
+              {campaignLocked && <div className="mission-card-locked">Bloqueada</div>}
+              {readiness && !readiness.ready && (
+                <div className="mission-card-locked mission-card-locked-capability" title={readiness.shortfalls.join(' · ')}>
+                  {m.aircraftRequirement?.label ?? 'Avión no apto'}
+                </div>
+              )}
             </button>
           );
         })}

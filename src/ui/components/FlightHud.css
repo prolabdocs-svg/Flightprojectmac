@@ -239,4 +239,5 @@
 
 @media (max-width: 600px) and (orientation: portrait) {
   .hud-secondary-controls { top:auto; bottom:calc(clamp(94px, 14vw, 138px) + 44px); right:8px; transform:scale(.78); transform-origin:right bottom; }
+  .hud-keyboard-hint { display: none; }
 }

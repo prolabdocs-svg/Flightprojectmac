@@ -2,7 +2,7 @@
 // Implements a simplified version of spec sections 35 (Aircraft Entity Model) and 36 (Mass/CoM).
 
 import type { AeroSurfaceSpec, AircraftBuild, EngineSpec, FrameDefinition, PartCategory, Vec3 } from '../core/types';
-import { FRAMES, FRAME_ZERO, getPart } from './parts';
+import { FRAMES, FRAME_ZERO, getFrame, getPart } from './parts';
 
 export interface ResolvedAircraft {
   frame: FrameDefinition;
@@ -22,6 +22,35 @@ export function defaultBuild(): AircraftBuild {
     frameId: FRAME_ZERO.id,
     installed: { ...FRAME_ZERO.defaultLoadout },
   };
+}
+
+/**
+ * Build for `frame`, keeping whatever the player already had installed where the new
+ * frame's hardpoints accept it and falling back to the frame's own default loadout
+ * otherwise. Used by airframe selection (state/profileStore.ts) and by save migration
+ * (save/save.ts), so a frame swap can never produce a loadout the frame doesn't accept.
+ */
+export function buildForFrame(frame: FrameDefinition, previous?: AircraftBuild): AircraftBuild {
+  const installed: AircraftBuild['installed'] = {};
+  for (const hardpoint of frame.hardpoints) {
+    const carried = previous?.installed[hardpoint.category];
+    installed[hardpoint.category] = carried && hardpoint.accepts.includes(carried)
+      ? carried
+      : frame.defaultLoadout[hardpoint.category];
+  }
+  return { frameId: frame.id, installed };
+}
+
+/** Parts a frame comes with, i.e. what buying it puts in the player's inventory. */
+export function frameLoadoutPartIds(frame: FrameDefinition): string[] {
+  return Object.values(frame.defaultLoadout).filter(Boolean) as string[];
+}
+
+/** Resolves a persisted build back to a frame the player actually owns, repairing any
+ * loadout the frame no longer accepts. Unknown or unowned frames fall back to the starter. */
+export function sanitizeBuild(build: AircraftBuild | undefined, ownedFrameIds: string[]): AircraftBuild {
+  const frame = build && ownedFrameIds.includes(build.frameId) ? getFrame(build.frameId) : undefined;
+  return buildForFrame(frame ?? FRAME_ZERO, build);
 }
 
 function addWeighted(acc: Vec3, mass: number, pos: Vec3, totalMass: number): Vec3 {

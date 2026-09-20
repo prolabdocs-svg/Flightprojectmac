@@ -5,8 +5,8 @@ import { useProfileStore } from '../../state/profileStore';
 import { useMode2Store } from '../../input/mode2Store';
 import './Screens.css';
 
-// Spec 82.2 First-run onboarding: Mode 2 explanation, minimal steps to first mission.
-// Spec 16.1/16.2: let the player feel the gimbals respond before their first real flight.
+// Spec 82.2 First-run onboarding: explain every supported control surface before the first mission.
+// Spec 16.1/16.2: let touch players feel the gimbals respond before their first real flight.
 const STEP_COUNT = 4;
 
 /** A single draggable Mode 2 practice gimbal. Left = throttle(sticky)/rudder(spring).
@@ -117,8 +117,8 @@ export function OnboardingScreen() {
         <>
           <h2>Bienvenido al taller</h2>
           <p>
-            Construyes tu propia aeronave y la vuelas con un transmisor RC virtual en <strong>Mode 2</strong>. Sugerencia:
-            juega en horizontal (landscape) para más espacio de vuelo.
+            Construyes tu propia aeronave y la vuelas con un transmisor RC virtual en <strong>Mode 2</strong>. En móvil,
+            juega en horizontal para tener más espacio de vuelo.
           </p>
           <div className="mode2-diagram">
             <div className="mode2-col">
@@ -131,6 +131,11 @@ export function OnboardingScreen() {
               <p>Vertical: Elevator / Pitch</p>
               <p>Horizontal: Aileron / Roll</p>
             </div>
+          </div>
+          <div className="desktop-controls-card">
+            <strong>Teclado y mando</strong>
+            <p><kbd>W</kbd>/<kbd>S</kbd> potencia · <kbd>↑</kbd>/<kbd>↓</kbd> cabeceo · <kbd>←</kbd>/<kbd>→</kbd> alabeo · <kbd>A</kbd>/<kbd>D</kbd> timón</p>
+            <p><kbd>E</kbd> motor · <kbd>F</kbd> flaps · <kbd>Espacio</kbd> freno · <kbd>Esc</kbd> pausa. Con mando: sticks para volar, <kbd>RT</kbd> potencia y <kbd>Menu</kbd> pausa.</p>
           </div>
         </>
       )}
@@ -173,7 +178,8 @@ export function OnboardingScreen() {
           <h2>Listo para volar</h2>
           <p>
             Tu primer vuelo es en un campo tranquilo, sin viento y sin castigo por practicar. Puedes repetir este
-            tutorial cuando quieras desde Ajustes.
+            tutorial cuando quieras desde Ajustes. Durante el vuelo, pausa cuando quieras para reiniciar, ir al mapa o
+            volver al taller.
           </p>
         </>
       )}

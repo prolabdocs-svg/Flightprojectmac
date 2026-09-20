@@ -4,6 +4,8 @@ import { createTerrainQueryService, type TerrainQueryService } from '../world/te
 import { BIOME_COLORS } from '../world/biomeWeights';
 import { createSeededRandom } from '../core/seededRandom';
 import { getAmbientTrafficPose } from '../world/ambientTraffic';
+import { buildWaterBodies } from '../world/waterBodies';
+import { getDistantLandmarkKind, getTerrainVisualProfile, type TerrainVisualProfile } from './worldVisualIdentity';
 
 /** Presentation-only region kit.  Simulation reads the matching data profile through
  * sim/weather.ts, so visual density can be changed independently of flight behaviour. */
@@ -13,6 +15,8 @@ export class WorldEnvironment {
   private readonly windSock: THREE.Mesh;
   private readonly rain: THREE.Points | null;
   private readonly ambientAircraft: THREE.Group[] = [];
+  private readonly waterSurfaces: THREE.Mesh[] = [];
+  private readonly waterShorelines: THREE.Mesh[] = [];
   private readonly region: RegionDefinition;
   readonly terrainQuery: TerrainQueryService;
 
@@ -21,6 +25,7 @@ export class WorldEnvironment {
     this.terrainQuery = createTerrainQueryService(region);
     this.root.name = `environment:${region.id}`;
     this.addTerrain();
+    this.addWaterSurfaces();
     this.addClouds();
     this.windSock = this.addWindSock();
     this.rain = region.environment.weather === 'rain' ? this.addRain() : null;
@@ -32,7 +37,10 @@ export class WorldEnvironment {
 
   private addTerrain() {
     const size = 6000;
-    const segments = 96;
+    // 192x192 remains a single mobile-friendly draw call (one static plane, built once),
+    // while giving the elevation/biome interpolation and near-player relief noticeably
+    // finer triangles than the previous 160x160 grid.
+    const segments = 192;
     const geo = new THREE.PlaneGeometry(size, size, segments, segments);
     const pos = geo.attributes.position;
     // Elevation now comes from the shared TerrainQueryService (src/world/terrainQuery.ts) so
@@ -76,19 +84,21 @@ export class WorldEnvironment {
       colors.set([color.r, color.g, color.b], i * 3);
     }
     geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-    // The shared detail texture supplies grain, while this per-region tint preserves biome
-    // identity at low altitude instead of making every close surface read as The Field.
-    const terrainMat = new THREE.MeshStandardMaterial({ color: base.clone().lerp(new THREE.Color('#ffffff'), 0.55), vertexColors: true, roughness: 0.98, metalness: 0, flatShading: true });
-    // Generated as a dedicated, tileable albedo asset. Vertex colours remain in the
-    // shader as macro variation, while this map contributes the close-range grass/soil
-    // detail that procedural geometry alone cannot carry.
-    new THREE.TextureLoader().load('/assets/textures/field-ground-v1.png', (texture) => {
-      texture.colorSpace = THREE.SRGBColorSpace;
-      texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
-      texture.repeat.set(34, 34);
-      texture.anisotropy = 4;
-      terrainMat.map = texture;
-      terrainMat.needsUpdate = true;
+    // Keep the world deliberately graphic. The previous photographic grass albedo fought
+    // the low-poly aircraft/props and multiplied with vertex colours into muddy patches.
+    // Smooth normals plus denser geometry preserve the shared physical relief without
+    // exposing the terrain as a coarse faceted grid.
+    const profile = getTerrainVisualProfile(this.region);
+    const detailRng = createSeededRandom('world-environment-ground-detail', this.region.id);
+    const detailTexture = this.buildGroundDetailTexture(profile, detailRng);
+    detailTexture.repeat.set(size / profile.parcelScaleM, size / profile.parcelScaleM);
+    const terrainMat = new THREE.MeshStandardMaterial({
+      color: '#ffffff',
+      map: detailTexture,
+      vertexColors: true,
+      roughness: 0.96,
+      metalness: 0,
+      flatShading: false,
     });
     const terrain = new THREE.Mesh(geo, terrainMat);
     terrain.rotation.x = -Math.PI / 2;
@@ -102,20 +112,198 @@ export class WorldEnvironment {
     this.root.add(horizon);
   }
 
+  /** Deterministic procedural ground-detail texture (CanvasTexture, no photography, no
+   * flat/uniform color from any altitude). Multiplied against the per-vertex biome color
+   * so it adds macro mottling + fine speckle everywhere, and — for farmland-like terrains
+   * (TerrainVisualProfile.parcels) — soft-edged cultivated parcels with discrete furrow
+   * lines, tiled across the terrain by `parcelScaleM` (spec: readable field boundaries,
+   * not a repeating photographic decal or a flat plate of color). */
+  private buildGroundDetailTexture(profile: TerrainVisualProfile, rng: ReturnType<typeof createSeededRandom>): THREE.CanvasTexture {
+    const size = 512;
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = size;
+    const ctx = canvas.getContext('2d')!;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, size, size);
+
+    // Macro mottling: broad soft blotches in both the accent and detail tones, at low
+    // opacity so they tint rather than overpower the underlying biome vertex color.
+    for (let i = 0; i < 26; i++) {
+      const color = rng.next() > 0.5 ? profile.groundAccent : profile.groundDetail;
+      ctx.fillStyle = color;
+      ctx.globalAlpha = 0.05 + rng.next() * 0.08;
+      const r = 40 + rng.next() * 120;
+      ctx.beginPath();
+      ctx.ellipse(rng.next() * size, rng.next() * size, r, r * (0.6 + rng.next() * 0.5), rng.next() * Math.PI, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    if (profile.parcels) {
+      // Irregular parcel grid: a handful of jittered cells (not a perfect grid) with a
+      // discrete boundary line and internal furrows running a consistent direction per
+      // cell, so tended land reads as tended from 150-500m instead of a flat green plate.
+      const cells = 4;
+      const cellSize = size / cells;
+      for (let cx = 0; cx < cells; cx++) {
+        for (let cy = 0; cy < cells; cy++) {
+          const jitterX = (rng.next() - 0.5) * cellSize * 0.18;
+          const jitterY = (rng.next() - 0.5) * cellSize * 0.18;
+          const x0 = cx * cellSize + jitterX, y0 = cy * cellSize + jitterY;
+          const w = cellSize * (0.86 + rng.next() * 0.12), h = cellSize * (0.86 + rng.next() * 0.12);
+          ctx.globalAlpha = 0.16;
+          ctx.strokeStyle = profile.groundDetail;
+          ctx.lineWidth = 2;
+          ctx.strokeRect(x0, y0, w, h);
+
+          ctx.globalAlpha = 0.1;
+          ctx.strokeStyle = profile.groundAccent;
+          ctx.lineWidth = 1;
+          const vertical = (cx + cy) % 2 === 0;
+          const furrowCount = 5 + Math.floor(rng.next() * 4);
+          for (let f = 1; f < furrowCount; f++) {
+            ctx.beginPath();
+            if (vertical) {
+              const fx = x0 + (w * f) / furrowCount;
+              ctx.moveTo(fx, y0);
+              ctx.lineTo(fx, y0 + h);
+            } else {
+              const fy = y0 + (h * f) / furrowCount;
+              ctx.moveTo(x0, fy);
+              ctx.lineTo(x0 + w, fy);
+            }
+            ctx.stroke();
+          }
+        }
+      }
+    }
+
+    // Fine micro speckle keeps close-range ground from reading as a smooth plastic
+    // surface even inside a single parcel/blotch.
+    ctx.globalAlpha = 1;
+    for (let i = 0; i < 900; i++) {
+      ctx.fillStyle = rng.next() > 0.5 ? profile.groundDetail : '#ffffff';
+      ctx.globalAlpha = 0.04 + rng.next() * 0.05;
+      const r = 0.6 + rng.next() * 1.6;
+      ctx.beginPath();
+      ctx.arc(rng.next() * size, rng.next() * size, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+    texture.colorSpace = THREE.SRGBColorSpace;
+    return texture;
+  }
+
+  /** Hydrology already flattens the shared terrain/physics query inside each lake footprint.
+   * This thin, transparent surface makes that same water playable space visually explicit
+   * without a second terrain mesh, texture download, or a water simulation. */
+  private addWaterSurfaces() {
+    const bodies = buildWaterBodies(this.region.id, (x, z) => this.terrainQuery.getElevation(x, z));
+    for (const body of bodies) {
+      const material = new THREE.MeshPhysicalMaterial({
+        color: this.region.environment.terrain === 'coast' ? '#287e9b' : '#356f86',
+        roughness: 0.18,
+        metalness: 0.06,
+        transparent: true,
+        opacity: 0.78,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      });
+      const water = new THREE.Mesh(new THREE.CircleGeometry(body.radiusM, 48), material);
+      water.name = `water:${body.id}`;
+      water.rotation.x = -Math.PI / 2;
+      water.position.set(body.center[0], body.surfaceElevationM + 0.045, body.center[1]);
+      water.receiveShadow = true;
+      this.waterSurfaces.push(water);
+      this.root.add(water);
+
+      // The terrain is deliberately flattened beneath each water body for collision,
+      // which leaves a mathematically clean circular edge. A thin, translucent shore
+      // band breaks that edge up from the chase camera and gives the lake/bay a readable
+      // boundary without changing the water footprint, terrain query, or physics plane.
+      const shoreline = new THREE.Mesh(
+        new THREE.RingGeometry(body.radiusM * 0.94, body.radiusM * 1.035, 48),
+        new THREE.MeshBasicMaterial({
+          color: this.region.environment.terrain === 'coast' ? '#d7d0a5' : '#89a96d',
+          transparent: true,
+          opacity: 0.22,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+        }),
+      );
+      shoreline.name = `shoreline:${body.id}`;
+      shoreline.rotation.x = -Math.PI / 2;
+      shoreline.position.set(body.center[0], body.surfaceElevationM + 0.052, body.center[1]);
+      this.waterShorelines.push(shoreline);
+      this.root.add(shoreline);
+    }
+
+    // Coast Run is a coast rather than an inland circular lake. The playable airstrip
+    // sits on the bluff at z≈400; beyond the transition at z≈650 this continuous sea
+    // carries the horizon all the way out, while the authored bay above provides a
+    // readable nearby shoreline. This is visual-only because terrainQuery already drops
+    // to the same sea elevation in that direction.
+    if (this.region.environment.terrain === 'coast') {
+      const seaY = this.terrainQuery.getElevation(0, 1800) + 0.06;
+      const sea = new THREE.Mesh(
+        new THREE.PlaneGeometry(6000, 2400, 1, 1),
+        new THREE.MeshPhysicalMaterial({ color: '#1e7894', roughness: 0.16, metalness: 0.1, transparent: true, opacity: 0.84, depthWrite: false, side: THREE.DoubleSide }),
+      );
+      sea.name = 'water:coast-run-open-sea';
+      sea.rotation.x = -Math.PI / 2;
+      sea.position.set(0, seaY, 1900);
+      this.waterSurfaces.push(sea);
+      this.root.add(sea);
+      const beach = new THREE.Mesh(
+        new THREE.PlaneGeometry(6000, 42),
+        new THREE.MeshBasicMaterial({ color: '#dfcc94', transparent: true, opacity: 0.75, depthWrite: false, side: THREE.DoubleSide }),
+      );
+      beach.rotation.x = -Math.PI / 2;
+      beach.position.set(0, this.terrainQuery.getElevation(0, 680) + 0.08, 700);
+      this.root.add(beach);
+    }
+  }
+
   /** A single tall, high-contrast structure placed far from the runway so it stays
    * visible from great distance/altitude and acts as a "visual compass" while flying —
    * the same role GTA San Andreas' Vinewood sign or the Gant bridge play: a landmark
    * you can orient toward without needing a map. Cheap (a handful of primitives), so it
    * doesn't compete with the InstancedMesh prop budget used elsewhere in this file. */
   private addDistantLandmark() {
-    const isQuarry = this.region.environment.terrain === 'quarry';
-    const x = isQuarry ? -620 : 560;
-    const z = isQuarry ? 980 : 1120;
+    const landmarkKind = getDistantLandmarkKind(this.region);
+    const x = landmarkKind === 'headframe' ? -620 : 560;
+    const z = landmarkKind === 'headframe' ? 980 : 1120;
     const groundY = this.terrainQuery.getElevation(x, z);
     const group = new THREE.Group();
     group.position.set(x, groundY, z);
 
-    if (isQuarry) {
+    if (landmarkKind === 'lighthouse') {
+      // A navigation lighthouse makes the coastal route identifiable from the first
+      // climb, rather than reusing the inland grain silos in every non-quarry biome.
+      // Its warm lantern is intentionally emissive (not a point light), keeping the
+      // same mobile lighting budget while retaining a clear long-range focal point.
+      const towerMat = new THREE.MeshStandardMaterial({ color: '#eee5cf', roughness: 0.78, metalness: 0.04 });
+      const bandMat = new THREE.MeshStandardMaterial({ color: '#b94b31', roughness: 0.64, metalness: 0.08 });
+      const tower = new THREE.Mesh(new THREE.CylinderGeometry(9, 14, 100, 14), towerMat);
+      tower.position.y = 50;
+      group.add(tower);
+      for (const y of [30, 70]) {
+        const band = new THREE.Mesh(new THREE.CylinderGeometry(9.3, 10.8, 9, 14), bandMat);
+        band.position.y = y;
+        group.add(band);
+      }
+      const lantern = new THREE.Mesh(
+        new THREE.CylinderGeometry(7, 7, 12, 12),
+        new THREE.MeshStandardMaterial({ color: '#ffd77b', emissive: '#7f4a12', emissiveIntensity: 1.1, roughness: 0.35 }),
+      );
+      lantern.position.y = 105;
+      group.add(lantern);
+      const roof = new THREE.Mesh(new THREE.ConeGeometry(10, 14, 12), new THREE.MeshStandardMaterial({ color: '#314e57', roughness: 0.55, metalness: 0.28 }));
+      roof.position.y = 118;
+      group.add(roof);
+    } else if (landmarkKind === 'headframe') {
       // Derelict headframe/watchtower: tall lattice tower topped by a rust-red beacon
       // platform, readable in silhouette from kilometres away over the quarry haze.
       const legMat = new THREE.MeshStandardMaterial({ color: '#3f3a33', roughness: 0.85, metalness: 0.4 });
@@ -130,6 +318,64 @@ export class WorldEnvironment {
       const platform = new THREE.Mesh(new THREE.BoxGeometry(24, 4, 24), new THREE.MeshStandardMaterial({ color: '#8a2f22', roughness: 0.7, metalness: 0.3 }));
       platform.position.set(0, 150, 0);
       group.add(platform);
+    } else if (landmarkKind === 'stacks') {
+      // Stacks give the industrial basin a distinct, legible skyline even through its
+      // heavier haze. They use static emissive tips instead of extra point lights.
+      const stackMat = new THREE.MeshStandardMaterial({ color: '#5d5b55', roughness: 0.86, metalness: 0.28 });
+      const tipMat = new THREE.MeshStandardMaterial({ color: '#d55732', emissive: '#5f170d', emissiveIntensity: 0.7, roughness: 0.55 });
+      for (const [ox, height] of [[-18, 120], [12, 164], [36, 94]] as const) {
+        const stack = new THREE.Mesh(new THREE.CylinderGeometry(7, 10, height, 12), stackMat);
+        stack.position.set(ox, height / 2, 0);
+        group.add(stack);
+        const tip = new THREE.Mesh(new THREE.CylinderGeometry(7.35, 7.35, 7, 12), tipMat);
+        tip.position.set(ox, height - 3.5, 0);
+        group.add(tip);
+      }
+    } else if (landmarkKind === 'radio-mast') {
+      // A radio mast is a thin, high-contrast desert navigation aid; it stays readable
+      // against the pale ground without pretending the sparse route is a farm district.
+      const mastMat = new THREE.MeshStandardMaterial({ color: '#7c3d28', roughness: 0.68, metalness: 0.38 });
+      const mast = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 3.2, 160, 6), mastMat);
+      mast.position.y = 80;
+      group.add(mast);
+      for (const y of [45, 92, 139]) {
+        const brace = new THREE.Mesh(new THREE.BoxGeometry(48, 0.7, 0.7), mastMat);
+        brace.position.y = y;
+        brace.rotation.z = 0.18;
+        group.add(brace);
+      }
+      const beacon = new THREE.Mesh(new THREE.SphereGeometry(3.3, 10, 8), new THREE.MeshStandardMaterial({ color: '#f06a37', emissive: '#78200e', emissiveIntensity: 0.9 }));
+      beacon.position.y = 162;
+      group.add(beacon);
+    } else if (landmarkKind === 'rock-gateway') {
+      // A red-rock gateway echoes the canyon route's geology and provides a broad
+      // silhouette that can be recognized before the player reaches the canyon walls.
+      const rockMat = new THREE.MeshStandardMaterial({ color: '#9b4930', roughness: 0.98, flatShading: true });
+      for (const xOffset of [-34, 34]) {
+        const pillar = new THREE.Mesh(new THREE.CylinderGeometry(13, 18, 105, 7), rockMat);
+        pillar.position.set(xOffset, 52, 0);
+        group.add(pillar);
+      }
+      const lintel = new THREE.Mesh(new THREE.BoxGeometry(86, 20, 25), rockMat);
+      lintel.position.y = 101;
+      lintel.rotation.z = -0.04;
+      group.add(lintel);
+    } else if (landmarkKind === 'lookout') {
+      // Lookout towers belong to both dense forest and alpine range routes, but their
+      // dark timber and orange roof differentiate them from the agricultural silos.
+      const timber = new THREE.MeshStandardMaterial({ color: '#483d2f', roughness: 0.92 });
+      for (const [ox, oz] of [[-10, -10], [10, -10], [-10, 10], [10, 10]] as const) {
+        const leg = new THREE.Mesh(new THREE.CylinderGeometry(1.4, 2.1, 112, 6), timber);
+        leg.position.set(ox, 56, oz);
+        group.add(leg);
+      }
+      const cabin = new THREE.Mesh(new THREE.BoxGeometry(34, 18, 30), new THREE.MeshStandardMaterial({ color: '#c36a3d', roughness: 0.75 }));
+      cabin.position.y = 118;
+      group.add(cabin);
+      const roof = new THREE.Mesh(new THREE.ConeGeometry(29, 22, 4), timber);
+      roof.position.y = 138;
+      roof.rotation.y = Math.PI / 4;
+      group.add(roof);
     } else {
       // Grain-silo cluster + weathervane spire standing well above the tree line,
       // marking the far edge of the field from any altitude.
@@ -155,28 +401,47 @@ export class WorldEnvironment {
    * do, without adding any collidable geometry or per-frame cost. One InstancedMesh. */
   private addRidgeline() {
     const rng = createSeededRandom('world-environment-ridgeline', this.region.id);
-    const quarry = this.region.environment.terrain === 'quarry';
-    for (const [radius, color, height] of [[1500, quarry ? '#4c493f' : '#355141', 190], [2300, quarry ? '#625a4d' : '#58715d', 330]] as const) {
-      const count = 48;
-      const vertices: number[] = [];
-      const indices: number[] = [];
-      for (let i = 0; i <= count; i++) {
+    const profile = getTerrainVisualProfile(this.region);
+    const jaggedness = profile.horizonJaggedness;
+    // A continuous low-frequency noise (sum of a few irrational-ratio sine waves, not
+    // just per-vertex random jitter) perturbs both the radius and the height. Earlier
+    // versions joined two radial rings into a giant vertical ribbon; at runway level it
+    // could cut straight across the sky. These are now overlapping low-poly mountain
+    // masses seated on the actual terrain, retaining a continuous far silhouette without
+    // any suspended band geometry.
+    const silhouette = (angle: number, seed: number): number =>
+      Math.sin(angle * 2.7 + seed) * 0.5 + Math.sin(angle * 5.3 + seed * 1.7) * 0.3 + Math.sin(angle * 11.1 + seed * 2.9) * 0.2;
+
+    // Three depth layers give the horizon recession. Their footprints overlap around
+    // each ring, so they read as ranges rather than a row of isolated traffic cones.
+    const layers = [
+      { radius: 1250, color: profile.horizonColors[0], height: 115, seed: 1.3 },
+      { radius: 1850, color: profile.horizonColors[1], height: 190, seed: 4.1 },
+      { radius: 2500, color: profile.horizonColors[2], height: 275, seed: 7.9 },
+    ] as const;
+
+    for (const layer of layers) {
+      const count = 28;
+      const mountains = new THREE.InstancedMesh(
+        new THREE.ConeGeometry(1, 1, jaggedness > 0.7 ? 7 : 10),
+        new THREE.MeshBasicMaterial({ color: layer.color, fog: true }),
+        count,
+      );
+      const matrix = new THREE.Matrix4();
+      for (let i = 0; i < count; i++) {
         const angle = (i / count) * Math.PI * 2;
-        const nearHeight = 22 + rng.next() * 55;
-        const farHeight = height * (0.58 + rng.next() * 0.65);
-        for (const [distance, y] of [[radius, nearHeight], [radius + 760, farHeight]] as const) {
-          vertices.push(Math.cos(angle) * distance, y, Math.sin(angle) * distance);
-        }
-        if (i) {
-          const prev = (i - 1) * 2, current = i * 2;
-          indices.push(prev, prev + 1, current, prev + 1, current + 1, current);
-        }
+        const noise = silhouette(angle, layer.seed);
+        const radiusJitter = 1 + noise * 0.14 * jaggedness;
+        const distance = layer.radius * radiusJitter;
+        const x = Math.cos(angle) * distance;
+        const z = Math.sin(angle) * distance;
+        const height = layer.height * (0.6 + (noise * 0.5 + 0.5) * (0.42 + jaggedness * 0.35));
+        const footprint = (layer.radius * Math.PI * 2 / count) * (0.7 + jaggedness * 0.18);
+        matrix.compose(new THREE.Vector3(x, this.terrainQuery.getElevation(x, z) + height / 2, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, rng.next() * Math.PI, 0)), new THREE.Vector3(footprint, height, footprint));
+        mountains.setMatrixAt(i, matrix);
       }
-      const geo = new THREE.BufferGeometry();
-      geo.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
-      geo.setIndex(indices);
-      geo.computeVertexNormals();
-      this.root.add(new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color, fog: true, side: THREE.DoubleSide })));
+      mountains.instanceMatrix.needsUpdate = true;
+      this.root.add(mountains);
     }
   }
 
@@ -187,10 +452,14 @@ export class WorldEnvironment {
    * matching the efficient-instancing pattern used throughout this file/FlightScene. */
   private addGroundScatter() {
     const rng = createSeededRandom('world-environment-scatter', this.region.id);
-    const isQuarry = this.region.environment.terrain === 'quarry';
-    const count = 60;
+    const terrainKind = this.region.environment.terrain;
+    const isQuarry = terrainKind === 'quarry';
+    // A forest already owns a dedicated cluster canopy pass in FlightScene. Keeping
+    // this generic icosahedral rock pass dense there made the distant woods read as
+    // scattered black balls rather than a woodland, so reserve it for a few rocks.
+    const count = terrainKind === 'forest' ? 14 : 60;
     const geo = isQuarry ? new THREE.DodecahedronGeometry(1, 0) : new THREE.IcosahedronGeometry(1, 0);
-    const mat = new THREE.MeshStandardMaterial({ color: isQuarry ? '#756a5c' : '#4d6b3d', roughness: 1, metalness: isQuarry ? 0.15 : 0 });
+    const mat = new THREE.MeshStandardMaterial({ color: isQuarry ? '#756a5c' : terrainKind === 'forest' ? '#60734c' : '#4d6b3d', roughness: 1, metalness: isQuarry ? 0.15 : 0 });
     const mesh = new THREE.InstancedMesh(geo, mat, count);
     const m = new THREE.Matrix4();
     // World spec section 227 QA: no prop/tree may land on a graded runway. Placement below
@@ -303,6 +572,17 @@ export class WorldEnvironment {
     for (let i = 0; i < this.clouds.length; i++) this.clouds[i].position.x = ((-900 + i * 371 + elapsedS * (0.7 + i * 0.04)) % 2100) - 1050;
     this.windSock.rotation.y = Math.atan2(wind.x, wind.z);
     this.windSock.rotation.z = -Math.PI / 2 + Math.min(0.48, wind.length() * 0.045);
+    for (let i = 0; i < this.waterSurfaces.length; i++) {
+      const material = this.waterSurfaces[i].material as THREE.MeshPhysicalMaterial;
+      // Barely perceptible luminance variation sells an exposed water surface while
+      // retaining a fixed collision plane and avoiding shader-driven wave cost.
+      material.opacity = 0.72 + Math.sin(elapsedS * 1.4 + i) * 0.06;
+    }
+    for (let i = 0; i < this.waterShorelines.length; i++) {
+      const material = this.waterShorelines[i].material as THREE.MeshBasicMaterial;
+      // A very slow opacity drift reads as lapping light rather than a static decal.
+      material.opacity = 0.19 + Math.sin(elapsedS * 0.75 + i * 1.7) * 0.045;
+    }
     for (let i = 0; i < this.ambientAircraft.length; i++) {
       const pose = getAmbientTrafficPose(this.region.id, i, elapsedS);
       this.ambientAircraft[i].position.set(pose.x, pose.y, pose.z);

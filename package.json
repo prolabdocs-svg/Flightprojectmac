@@ -1,15 +1,60 @@
 {
   "name": "project-flight",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
+  "description": "A physics-based DIY aircraft builder and flight game.",
+  "author": "PROJECT FLIGHT Team",
+  "engines": {
+    "node": ">=22 <27"
+  },
   "type": "module",
+  "main": "electron/main.cjs",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "desktop:run": "npm run build && electron .",
+    "desktop:package": "npm run desktop:package:mac",
+    "desktop:package:mac": "npm run build && electron-builder --mac --universal --dir",
+    "desktop:package:mac:arm64": "npm run build && electron-builder --mac --arm64 --dir",
+    "desktop:package:win": "npm run build && electron-builder --win --x64 --dir",
+    "desktop:package:linux": "npm run build && electron-builder --linux --x64 --dir"
+  },
+  "build": {
+    "appId": "com.projectflight.game",
+    "productName": "PROJECT FLIGHT",
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "target": [
+        "dir"
+      ],
+      "icon": "build/icon.icns"
+    },
+    "win": {
+      "target": [
+        "dir"
+      ],
+      "icon": "build/icon.ico"
+    },
+    "linux": {
+      "target": [
+        "dir"
+      ],
+      "icon": "build/icon.png",
+      "category": "Game"
+    }
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.20.0",
@@ -26,9 +71,12 @@
     "@types/three": "^0.186.0",
     "@vitejs/plugin-react": "^6.1.1",
     "@vitest/coverage-v8": "^5.0.1",
+    "electron": "^44.4.1",
+    "electron-builder": "^26.15.3",
     "fake-indexeddb": "^6.2.5",
     "jsdom": "^30.0.1",
     "oxlint": "^1.81.0",
+    "png-to-ico": "^3.0.1",
     "typescript": "~6.0.2",
     "vite": "^8.3.0",
     "vitest": "^5.0.1"

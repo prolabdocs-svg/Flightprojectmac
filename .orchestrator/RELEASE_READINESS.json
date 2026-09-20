@@ -1,0 +1,35 @@
+{
+  "claim": "NOT RELEASE READY. This audit does not claim, and explicitly disclaims, public-sale readiness.",
+  "basis": "RELEASE_READINESS.md's own release command gate passes locally (npm test, npm run build, npm audit --audit-level=high, git diff --check all PASS as of 2026-09-17), but that gate is explicitly scoped by the same document as only the repo-verifiable subset. Every other ship-criteria row (Core loop manual smoke test, PWA over real HTTPS, Accessibility scan/audit, Device coverage, Content playthrough) is UNKNOWN or NOT_STARTED, and all mandatory pre-publication commercial/legal work is unstarted.",
+  "repo_gate_summary": { "npm_test": "PASS (344/344, 46 files)", "npm_run_build": "PASS", "npm_audit_high": "PASS (0 vulns; prior audit)", "git_diff_check": "PASS", "npm_run_lint": "PASS (zero warnings/errors)" },
+  "ship_criteria_status_counts": { "PASS": 1, "PASS_qualified_unit_or_validation_or_automated_only": 3, "UNKNOWN": 2, "NOT_STARTED": 1, "total_rows": 7, "detail_ref": "QUALITY_GATES.json#ship_criteria" },
+  "blocking_before_any_release_claim": [
+    "Golden vertical slice not yet committed (VS-01) -- desktop shell, CI workflow, and error boundary live only in the working tree",
+    "No manual core-loop smoke test recorded (VS-04)",
+    "No device-profiled visual capture across the 8 regions -- VIS-004, spec's own P0 release gate (ASSET-03)",
+    "Automated accessibility scan now passes (Lighthouse 1.00), but no manual WCAG 2.2 AA audit of HUD, virtual sticks and assistive technologies has been recorded (A11Y-02)",
+    "No production-HTTPS PWA verification (PWA-01)",
+    "No real-device QA matrix (QA-01)",
+    "All commercial/legal pre-publication work unstarted: pricing, privacy policy, terms, age rating, asset-licensing sign-off (LEGAL-01/02/03)",
+    "Steamworks account/signing/notarization/store page not started (DESKTOP-03) if desktop/Steam release is pursued"
+  ],
+  "non_blocking_but_material": [
+    "333 of 361 exported 3D assets are unreachable at runtime (RISK-02) -- does not break anything currently shipping, but represents undocumented scope gap vs the spec's 8-generation aircraft roster",
+    "Rapier+Three engine bundle is >1.2MB gzip before gameplay assets, on a mobile-first PWA (RISK-04)",
+    "README mission count (16) vs actual (17) doc drift (RISK-10)"
+  ],
+  "what_is_solid": [
+    "316/316 automated tests pass covering flight physics, aero, damage, content-validation, save/migration, world systems, input, audio-mapping",
+    "Production build succeeds cleanly (tsc strict + vite)",
+    "0 known high/critical dependency vulnerabilities",
+    "Core architecture matches README's documented tech stack exactly (verified against package.json and source tree, not just asserted)",
+    "8 regions / 17 missions are real, content-validated, and cross-referentially consistent (contentValidation.test.ts)"
+  ],
+  "do_not_claim": [
+    "WCAG conformance (RELEASE_READINESS.md's own instruction, restated here)",
+    "Performance scores",
+    "Public-sale readiness",
+    "'Art-complete' (VISUAL_STATE.md's own instruction: closed-beta visual review level only, not public-sale art-complete)",
+    "Desktop/Steam build correctness beyond what STEAM_RELEASE.md itself already qualifies (packaging succeeds locally; signing/notarization/store review not done)"
+  ]
+}

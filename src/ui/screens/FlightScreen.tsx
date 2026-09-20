@@ -6,10 +6,11 @@ import { useProfileStore } from '../../state/profileStore';
 import { useMode2Store, getResolvedControls } from '../../input/mode2Store';
 import { mapGamepad } from '../../input/gamepad';
 import { resolveAircraft } from '../../content/assembly';
-import { getMission } from '../../content/missions';
+import { getMission, isMissionAvailableToProfile } from '../../content/missions';
+import { evaluateMissionReadiness } from '../../content/missionReadiness';
 import { getRegion } from '../../content/regions';
 import { initPhysics, createWorld } from '../../sim/physics';
-import { FlightController, DEFAULT_RUNWAY_CONDITIONS, type FlightTelemetry } from '../../sim/flightController';
+import { FlightController, DEFAULT_RUNWAY_CONDITIONS, type FlightTelemetry, type ResolvedControls } from '../../sim/flightController';
 import { getAirfield, getFreeFlightAirfield, type RunwaySurface } from '../../world/airfields';
 
 /** Roughness (0-1, see landingValidator.ts) per runway surface. Airfields don't store this
@@ -64,6 +65,14 @@ export function FlightScreen() {
     let lastNow = performance.now();
 
     async function boot() {
+      // Last-resort guard against the map/briefing invariant: a contract the profile
+      // hasn't unlocked, or the current build can't reasonably complete, must never
+      // actually launch here even if UI navigation/state was bypassed to reach RUN.
+      if (mission && (!isMissionAvailableToProfile(mission, profile) || !evaluateMissionReadiness(mission, profile.currentBuild).ready)) {
+        goTo('briefing');
+        return;
+      }
+
       await initPhysics();
       if (disposed || !canvasRef.current) return;
 
@@ -104,14 +113,14 @@ export function FlightScreen() {
       const runwayConditions = !runwayAirfield && region.id === 'the_field'
         ? { ...baseRunwayConditions, roughness: Math.max(0.04, baseRunwayConditions.roughness - getHomeBaseBenefits(profile.homeBase).runwayRoughnessReduction) }
         : baseRunwayConditions;
-      const controller = new FlightController(world, aircraft, spawn, mission?.spawnHeadingDeg ?? 0, terrainQuery, runwayConditions, getRegionObstacles(region.id));
+      const controller = new FlightController(world, aircraft, spawn, mission?.spawnHeadingDeg ?? 0, terrainQuery, runwayConditions, getRegionObstacles(region.id, terrainQuery));
       controllerRef.current = controller;
 
       const paint = getPaint(profile.selectedPaintId);
       const scene = new FlightScene(canvasRef.current, region, paint && {
         fabricColor: paint.fabricColor,
         tubeColor: paint.tubeColor,
-      });
+      }, profile.currentBuild.frameId);
       scene.setTargetMarker(mission?.targetPoint, mission?.targetRadiusM ?? 20);
       sceneRef.current = scene;
 
@@ -132,6 +141,7 @@ export function FlightScreen() {
         scene.dispose();
         world.free();
         audioService.stopFlight();
+        if (import.meta.env.DEV) delete (window as unknown as { __pf?: unknown }).__pf;
       };
 
       const resize = () => {
@@ -168,6 +178,9 @@ export function FlightScreen() {
         useMode2Store.getState().setBrake(down(' '));
       };
       const onKeyDown = (event: KeyboardEvent) => {
+        // Native range controls are the screen-reader/keyboard alternative to the touch
+        // gimbals. Do not hijack their arrow keys for the global flight shortcuts.
+        if (event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement || event.target instanceof HTMLTextAreaElement) return;
         if (event.repeat && ['e', 'f', 'escape'].includes(event.key.toLowerCase())) return;
         const key = event.key.toLowerCase();
         if (['arrowleft', 'arrowright', 'arrowup', 'arrowdown', ' ', 'a', 'd', 'w', 's', 'e', 'f', 'escape'].includes(key)) {
@@ -183,6 +196,7 @@ export function FlightScreen() {
         applyKeyboardAxes();
       };
       const onKeyUp = (event: KeyboardEvent) => {
+        if (event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement || event.target instanceof HTMLTextAreaElement) return;
         pressed.delete(event.key.toLowerCase());
         applyKeyboardAxes();
       };
@@ -258,6 +272,85 @@ export function FlightScreen() {
       let lastStalled = false;
       const engineSpec = aircraft.engine;
 
+      /** Advances the authoritative simulation by whole fixed ticks and applies every
+       * per-tick side effect (feedback, damage visuals, end of flight). Shared by the
+       * real-time loop and the dev-only deterministic driver below. */
+      const advanceSim = (steps: number, controlsFor: () => ResolvedControls) => {
+        let telem: FlightTelemetry | null = null;
+        for (let step = 0; step < steps; step++) {
+          previousPosition.copy(currentPosition);
+          previousQuaternion.copy(currentQuaternion);
+
+          const bodyPosition = controller.body.translation();
+          windPosition.set(bodyPosition.x, bodyPosition.y, bodyPosition.z);
+          const wind = getEnvironmentWind(region, elapsedFlightS, windPosition);
+          telem = controller.step(controlsFor(), wind);
+          elapsedFlightS += FIXED_DT;
+
+          const stepPosition = controller.body.translation();
+          const stepRotation = controller.body.rotation();
+          currentPosition.set(stepPosition.x, stepPosition.y, stepPosition.z);
+          currentQuaternion.set(stepRotation.x, stepRotation.y, stepRotation.z, stepRotation.w).normalize();
+        }
+        if (!telem) return;
+        lastTelemetry = telem;
+        setTelemetry(telem);
+
+        // Impact feedback: screen shake + stinger the moment damage/crash severity escalates.
+        if (telem.crashOutcome !== lastCrashOutcome && telem.crashOutcome !== 'none') {
+          const magnitude = telem.crashOutcome === 'totalLoss' ? 0.55 : 0.22;
+          scene.triggerImpactShake(magnitude, telem.crashOutcome === 'totalLoss' ? 0.6 : 0.35);
+          audioService.playEvent(telem.crashOutcome === 'totalLoss' ? 'crash' : 'hardLanding', 1);
+        }
+        if (telem.lastTouchdownVsMs !== null && telem.lastTouchdownVsMs !== lastTouchdown && !telem.crashed) {
+          const sink = Math.abs(telem.lastTouchdownVsMs);
+          audioService.playEvent('touchdown', sinkRateToIntensity(sink));
+          scene.triggerImpactShake(Math.min(0.25, sink * 0.06), 0.25);
+        }
+        lastTouchdown = telem.lastTouchdownVsMs;
+        if (telem.engineOn !== lastEngineOn) audioService.playEvent(telem.engineOn ? 'engineStart' : 'engineStop');
+        lastEngineOn = telem.engineOn;
+        if (telem.stalled && !lastStalled) audioService.playEvent('stallBreak');
+        lastStalled = telem.stalled;
+        lastCrashOutcome = telem.crashOutcome;
+
+        if (telem.damagedPartIds.length !== lastDamagedCount || telem.detachedPartIds.length !== lastDetachedCount) {
+          const wingDamaged = telem.damagedPartIds.some((id) => id !== 'elevator' && id !== 'rudder');
+          const wingDetached = telem.detachedPartIds.some((id) => id !== 'elevator' && id !== 'rudder');
+          const tailDamaged = telem.damagedPartIds.some((id) => id === 'elevator' || id === 'rudder');
+          const tailDetached = telem.detachedPartIds.some((id) => id === 'elevator' || id === 'rudder');
+          scene.setPartVisualState('wing', wingDamaged, wingDetached);
+          scene.setPartVisualState('tail', tailDamaged, tailDetached);
+          lastDamagedCount = telem.damagedPartIds.length;
+          lastDetachedCount = telem.detachedPartIds.length;
+        }
+
+        if ((telem.crashed || telem.landed) && endTimerRef.current === null) {
+          const final = telem;
+          endTimerRef.current = window.setTimeout(() => {
+            const result = computeFlightResult(mission, final, aircraft, profile.currentBuild, profile.homeBase);
+            applyFlightResult(result);
+            setLastResult(result);
+            goTo('results');
+          }, 1600);
+        }
+      };
+
+      if (import.meta.env.DEV) {
+        // Dev/QA only: fly the real simulation deterministically from the console or an
+        // automated browser (background tabs throttle requestAnimationFrame).
+        (window as unknown as { __pf?: unknown }).__pf = {
+          controller,
+          simulate: (seconds: number, overrides: Partial<ResolvedControls> | ((t: FlightTelemetry | null) => Partial<ResolvedControls>) = {}) => {
+            const ticks = Math.round(seconds / FIXED_DT);
+            for (let i = 0; i < ticks; i++) {
+              advanceSim(1, () => ({ ...getResolvedControls(), ...(typeof overrides === 'function' ? overrides(lastTelemetry) : overrides) }));
+            }
+            return lastTelemetry;
+          },
+        };
+      }
+
       const loop = () => {
         if (disposed) return;
         const now = performance.now();
@@ -270,67 +363,7 @@ export function FlightScreen() {
         if (!useGameStore.getState().paused) {
           const frame = clock.advance(frameDt);
           renderAlpha = frame.alpha;
-          let telem: FlightTelemetry | null = null;
-          for (let step = 0; step < frame.steps; step++) {
-            previousPosition.copy(currentPosition);
-            previousQuaternion.copy(currentQuaternion);
-
-            const controls = getResolvedControls();
-            const bodyPosition = controller.body.translation();
-            windPosition.set(bodyPosition.x, bodyPosition.y, bodyPosition.z);
-            const wind = getEnvironmentWind(region, elapsedFlightS, windPosition);
-            telem = controller.step(controls, wind);
-            elapsedFlightS += FIXED_DT;
-
-            const stepPosition = controller.body.translation();
-            const stepRotation = controller.body.rotation();
-            currentPosition.set(stepPosition.x, stepPosition.y, stepPosition.z);
-            currentQuaternion.set(stepRotation.x, stepRotation.y, stepRotation.z, stepRotation.w).normalize();
-          }
-          if (telem) {
-            lastTelemetry = telem;
-            setTelemetry(telem);
-
-            // Impact feedback: screen shake + stinger the moment damage/crash severity
-            // escalates, and re-tint/hide the placeholder wing/tail meshes to reflect the
-            // functional damage FlightController is already applying to aero forces.
-            if (telem.crashOutcome !== lastCrashOutcome && telem.crashOutcome !== 'none') {
-              const magnitude = telem.crashOutcome === 'totalLoss' ? 0.55 : 0.22;
-              scene.triggerImpactShake(magnitude, telem.crashOutcome === 'totalLoss' ? 0.6 : 0.35);
-              audioService.playEvent(telem.crashOutcome === 'totalLoss' ? 'crash' : 'hardLanding', 1);
-            }
-            if (telem.lastTouchdownVsMs !== null && telem.lastTouchdownVsMs !== lastTouchdown && !telem.crashed) {
-              const sink = Math.abs(telem.lastTouchdownVsMs);
-              audioService.playEvent('touchdown', sinkRateToIntensity(sink));
-              scene.triggerImpactShake(Math.min(0.25, sink * 0.06), 0.25);
-            }
-            lastTouchdown = telem.lastTouchdownVsMs;
-            if (telem.engineOn !== lastEngineOn) audioService.playEvent(telem.engineOn ? 'engineStart' : 'engineStop');
-            lastEngineOn = telem.engineOn;
-            if (telem.stalled && !lastStalled) audioService.playEvent('stallBreak');
-            lastStalled = telem.stalled;
-            lastCrashOutcome = telem.crashOutcome;
-
-            if (telem.damagedPartIds.length !== lastDamagedCount || telem.detachedPartIds.length !== lastDetachedCount) {
-              const wingDamaged = telem.damagedPartIds.some((id) => id !== 'elevator' && id !== 'rudder');
-              const wingDetached = telem.detachedPartIds.some((id) => id !== 'elevator' && id !== 'rudder');
-              const tailDamaged = telem.damagedPartIds.some((id) => id === 'elevator' || id === 'rudder');
-              const tailDetached = telem.detachedPartIds.some((id) => id === 'elevator' || id === 'rudder');
-              scene.setPartVisualState('wing', wingDamaged, wingDetached);
-              scene.setPartVisualState('tail', tailDamaged, tailDetached);
-              lastDamagedCount = telem.damagedPartIds.length;
-              lastDetachedCount = telem.detachedPartIds.length;
-            }
-
-            if ((telem.crashed || telem.landed) && endTimerRef.current === null) {
-              endTimerRef.current = window.setTimeout(() => {
-                const result = computeFlightResult(mission, telem!, aircraft, profile.currentBuild, profile.homeBase);
-                applyFlightResult(result);
-                setLastResult(result);
-                goTo('results');
-              }, 1600);
-            }
-          }
+          advanceSim(frame.steps, getResolvedControls);
         } else {
           // Pause/background boundaries must not retain fractional catch-up time.
           clock.reset();

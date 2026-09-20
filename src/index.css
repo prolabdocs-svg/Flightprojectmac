@@ -100,3 +100,38 @@ button:focus-visible, input:focus-visible {
   font-family: system-ui, sans-serif;
   background: rgba(0, 0, 0, 0.6);
 }
+
+.fatal-recovery {
+  min-height: 100%;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 16px;
+  padding: 32px;
+  text-align: center;
+  color: var(--text);
+  background: radial-gradient(circle at top, #2a3337, var(--bg) 62%);
+  font-family: var(--font-ui);
+}
+
+.fatal-recovery h1,
+.fatal-recovery p {
+  margin: 0;
+}
+
+.fatal-recovery-kicker {
+  color: var(--cyan);
+  font-family: var(--font-technical);
+  font-size: 0.8rem;
+  letter-spacing: 0.16em;
+}
+
+.fatal-recovery button {
+  min-height: 48px;
+  padding: 0 24px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--on-accent);
+  background: var(--accent-strong);
+  font: 700 0.9rem var(--font-ui);
+}

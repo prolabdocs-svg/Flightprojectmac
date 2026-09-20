@@ -1,0 +1,104 @@
+{
+  "risks": [
+    {
+      "risk_id": "RISK-01",
+      "title": "Entire desktop/Steam shell and CI workflow exist only in the uncommitted working tree",
+      "severity": "high",
+      "likelihood": "certain (already true today)",
+      "description": "electron/main.cjs, package.json's desktop:* scripts and electron-builder config, build/ icons, .github/workflows/quality.yml, RELEASE_READINESS.md, STEAM_RELEASE.md, AppErrorBoundary.tsx, and buildInfo.ts are all untracked or modified-but-uncommitted. None of this survives `git clean -fd` / a lost working copy / a fresh clone.",
+      "evidence": ["PROJECT_STATE.json#git.notable_uncommitted_scope"],
+      "mitigating_task": "VS-01",
+      "owner": "user (per this audit's instructions, uncommitted work is user-owned and not to be altered)"
+    },
+    {
+      "risk_id": "RISK-02",
+      "title": "333 of 361 exported 3D assets are unreachable at runtime",
+      "severity": "medium",
+      "likelihood": "certain (already true today)",
+      "description": "Exhaustive grep of every assetLibrary.load()/assetUrl() call site in src/ shows only the 'world' domain (23/26 ids used) and one hardcoded airframe id ('hero_ultralight') are ever loaded. 69 of 70 airframe generations, all 19 upgrade models, and all 245 micro-asset models (air_mic/env_mic/vfx) sit in public/ fully exported, licensed, and dead. This was not previously called out in VISUAL_DEBT.md, meaning current visual-debt tracking undercounts the actual gap between spec-authored content (8 frame generations, spec section 24.1) and shipped-reachable content (1 frame).",
+      "evidence": ["ASSET_PROVENANCE.json"],
+      "mitigating_task": "ASSET-01",
+      "owner": "unassigned"
+    },
+    {
+      "risk_id": "RISK-03",
+      "title": "No device-profiled visual capture evidence exists (VIS-004, spec's own P0 release gate)",
+      "severity": "high",
+      "likelihood": "certain (already true today)",
+      "description": "VISUAL_DEBT.md marks VIS-004 as 'Open' with player visibility 'Release gate' and severity P0. VISUAL_STATE.md independently names this as the current bottleneck. No capture/profile evidence for target mobile hardware exists in the repo.",
+      "evidence": ["VISUAL_DEBT.md row VIS-004", "VISUAL_STATE.md 'Current bottleneck' line"],
+      "mitigating_task": "ASSET-03",
+      "owner": "Tech Art (per VISUAL_DEBT.md)"
+    },
+    {
+      "risk_id": "RISK-04",
+      "title": "Mobile payload: >1.2MB gzip of engine code (Rapier+Three) before any gameplay asset, on a mobile-first PWA",
+      "severity": "medium",
+      "likelihood": "certain (measured)",
+      "description": "Production build measured this audit: rapier chunk 1093.93 kB gzip, three.js 164.53 kB gzip. The spec's stated primary platform is 'navegador movil (iOS/Android), PWA instalable.' No lazy-loading of the physics/render engines was found; screens are already route-split but the engine bundle is not deferred past first flight load.",
+      "evidence": ["PROJECT_STATE.json#bundle_evidence"],
+      "mitigating_task": "ASSET-04",
+      "owner": "unassigned"
+    },
+    {
+      "risk_id": "RISK-05",
+      "title": "Accessibility WCAG 2.2 AA target unverified beyond attribute presence",
+      "severity": "medium",
+      "likelihood": "likely",
+      "description": "aria-*/reduced-motion code exists in 12+ files, but RELEASE_READINESS.md requires an automated scan plus a manual audit of the custom flight HUD and virtual sticks -- neither has been run. Custom touch controls are exactly the kind of component automated scanners under-cover.",
+      "evidence": ["RELEASE_READINESS.md ship-criteria row 'Accessibility'"],
+      "mitigating_task": "A11Y-01, A11Y-02",
+      "owner": "unassigned"
+    },
+    {
+      "risk_id": "RISK-06",
+      "title": "Flight model realism/difficulty balance has zero external playtest data",
+      "severity": "low",
+      "likelihood": "certain (already true today)",
+      "description": "README explicitly self-flags this: deterministic unit tests cover takeoff/stall/recovery/landing, but no human playtest telemetry exists. Any marketing claim about difficulty or realism would currently be unsupported.",
+      "evidence": ["README.md 'What's stubbed / explicitly TODO' flight-model bullet"],
+      "mitigating_task": "QA-03",
+      "owner": "unassigned"
+    },
+    {
+      "risk_id": "RISK-07",
+      "title": "All commercial/legal pre-publication work is unstarted",
+      "severity": "high",
+      "likelihood": "certain (already true today)",
+      "description": "Pricing, storefront copy, privacy policy, terms, age rating, jurisdiction disclosures, and formal asset-licensing sign-off are all listed as unstarted mandatory pre-publication items in RELEASE_READINESS.md and STEAM_RELEASE.md. None can be inferred or completed from repository state.",
+      "evidence": ["RELEASE_READINESS.md#Mandatory pre-publication work", "STEAM_RELEASE.md#Steamworks handoff checklist"],
+      "mitigating_task": "LEGAL-01, LEGAL-02, LEGAL-03",
+      "owner": "release owner (external to repo, per both docs' own framing)"
+    },
+    {
+      "risk_id": "RISK-08",
+      "title": "STEAM_RELEASE.md's smoke-test claim is undated/unreproduced by this audit",
+      "severity": "low",
+      "likelihood": "possible",
+      "description": "STEAM_RELEASE.md states the macOS package 'has been smoke-tested locally' but gives no date and this audit deliberately did not re-run npm run desktop:package (long-running, mutates release/, out of scope for a planning-only pass). The claim should not be treated as current proof without a fresh, dated run.",
+      "evidence": ["STEAM_RELEASE.md 'Local desktop verification' section"],
+      "mitigating_task": "DESKTOP-02",
+      "owner": "unassigned"
+    },
+    {
+      "risk_id": "RISK-09",
+      "title": "VIS-005 texture generation blocked on external vendor credits",
+      "severity": "low",
+      "likelihood": "certain (already true today)",
+      "description": "VISUAL_DEBT.md VIS-005: AI texture generation for a planned terrain tile cannot run because the configured provider has no remaining credits. Explicit instruction in the doc: do not substitute unreviewed art in the meantime.",
+      "evidence": ["VISUAL_DEBT.md row VIS-005"],
+      "mitigating_task": "ASSET-02",
+      "owner": "Materials (per VISUAL_DEBT.md)"
+    },
+    {
+      "risk_id": "RISK-10",
+      "title": "Doc/code drift: README claims 16 missions, code defines 17",
+      "severity": "low",
+      "likelihood": "certain (already true today)",
+      "description": "Minor but concrete evidence of documentation drift; worth checking whether other README claims (e.g. exact counts) have similarly drifted from src/content/*.ts as the campaign was extended.",
+      "evidence": ["PROJECT_STATE.json#source_stats"],
+      "mitigating_task": "VS-03",
+      "owner": "unassigned"
+    }
+  ]
+}

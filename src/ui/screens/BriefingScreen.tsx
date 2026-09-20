@@ -1,5 +1,7 @@
 import { useGameStore } from '../../state/gameStore';
+import { useProfileStore } from '../../state/profileStore';
 import { getMission } from '../../content/missions';
+import { evaluateMissionReadiness } from '../../content/missionReadiness';
 import { getRegion } from '../../content/regions';
 import './Screens.css';
 
@@ -7,12 +9,15 @@ import './Screens.css';
 export function BriefingScreen() {
   const goTo = useGameStore((s) => s.goTo);
   const selectedMissionId = useGameStore((s) => s.selectedMissionId);
+  const build = useProfileStore((s) => s.profile.currentBuild);
   const mission = selectedMissionId ? getMission(selectedMissionId) : null;
 
   if (!mission) {
     goTo('map');
     return null;
   }
+
+  const readiness = evaluateMissionReadiness(mission, build);
 
   return (
     <div className="screen briefing-screen">
@@ -38,8 +43,16 @@ export function BriefingScreen() {
           </div>
         ))}
       </div>
-      <button className="primary-btn" onClick={() => goTo('run')}>
-        START
+      {mission.aircraftRequirement && (
+        <div className={`briefing-requirement${readiness.ready ? ' briefing-requirement-ready' : ''}`}>
+          <strong>{mission.aircraftRequirement.label}</strong>
+          {readiness.ready
+            ? <div className="requirement-row">Tu avión actual cumple este contrato.</div>
+            : readiness.shortfalls.map((s) => <div key={s} className="requirement-row">{s}</div>)}
+        </div>
+      )}
+      <button className="primary-btn" disabled={!readiness.ready} onClick={() => goTo('run')}>
+        {readiness.ready ? 'START' : 'AVIÓN NO APTO'}
       </button>
     </div>
   );

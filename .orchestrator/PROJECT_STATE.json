@@ -1,0 +1,85 @@
+{
+  "audit_date": "2026-09-17",
+  "audit_tool": "ponytail forensic-audit (plugin: ponytail 4.10.0, mode: full)",
+  "repo_path": "/Users/sebastianpeimbert/Desktop/PROJECT FLIGHT",
+  "git": {
+    "branch": "main",
+    "ahead_of_origin_main_by": 30,
+    "head_commit": "2edbc9d",
+    "head_commit_subject": "Merge audio agent: procedural flight audio driven by live telemetry",
+    "recent_commits": [
+      "2edbc9d Merge audio agent: procedural flight audio driven by live telemetry",
+      "f9e430e gameplay(flight): flight model v2 - data-driven spec, rate-command handling, gear suspension, structural contact",
+      "4dbc7dd gameplay(audio): procedural flight loop (engine/prop/wind/rumble/stall) + events",
+      "4d66b23 visual: checkpoint external visual-convergence pass (GLB airframe, graded runway strip, portrait chase, StrictMode-safe flight boot)",
+      "7361e2f refactor(contracts): pitch sign convention, data-driven fuel capacity, performance API, route distance helper"
+    ],
+    "working_tree_modified_files": 25,
+    "working_tree_untracked_paths": [
+      ".github/workflows/quality.yml",
+      "RELEASE_READINESS.md",
+      "STEAM_RELEASE.md",
+      "build/ (icon assets)",
+      "electron/main.cjs",
+      "public/offline.html",
+      "src/buildInfo.ts",
+      "src/render/assetManifest.test.ts",
+      "src/render/worldVisualIdentity.test.ts",
+      "src/render/worldVisualIdentity.ts",
+      "src/ui/components/AppErrorBoundary.tsx"
+    ],
+    "uncommitted_work_ownership": "USER-OWNED. Not verified as proof of a working feature by this audit merely because it exists. Evidence below (npm test/build/lint/audit) ran against the actual working tree (uncommitted changes included, since npm reads the filesystem, not git HEAD), so the PASS results do cover this code -- but no git history, review, or diff-based reasoning was used to validate it, per instructions.",
+    "notable_uncommitted_scope": "The entire Electron/Steam desktop shell (electron/main.cjs, package.json's desktop:* scripts, electron/electron-builder deps, build/ icons, STEAM_RELEASE.md) exists only in the working tree -- zero commits reference it. Same for the CI workflow (.github/workflows/quality.yml), the error boundary, buildInfo version stamp, and RELEASE_READINESS.md itself.",
+    "git_diff_check": "clean (exit 0, no whitespace errors)"
+  },
+  "environment": {
+    "node_installed": "v26.5.0",
+    "npm_installed": "11.17.0",
+    "package_json_engines": ">=22 <27",
+    "ci_node_version": "22 (.github/workflows/quality.yml, untracked)"
+  },
+  "command_evidence": {
+    "npm_test": { "result": "PASS", "detail": "41 test files, 316 tests passed, 6.94s. vitest run.", "date": "2026-09-17" },
+    "npm_run_build": { "result": "PASS", "detail": "tsc -b && vite build succeeded, 93 modules, dist/ written, 479ms vite build phase.", "date": "2026-09-17" },
+    "npm_run_lint": { "result": "PASS_WITH_WARNING", "detail": "oxlint: 1 warning (react/only-export-components in src/ui/screens/BuilderScreen.tsx:116) -- not an error, does not fail the command.", "date": "2026-09-17" },
+    "npm_audit_high": { "result": "PASS", "detail": "found 0 vulnerabilities at --audit-level=high.", "date": "2026-09-17" },
+    "git_diff_check": { "result": "PASS", "detail": "exit 0, no whitespace/conflict-marker errors." }
+  },
+  "tech_stack": {
+    "runtime": "TypeScript strict + Vite 8 + React 19 (UI only) + vanilla Three.js 0.186 (scene graph) + Rapier3D WASM 0.20 (physics) + Zustand 5 (state) + IndexedDB save (Zod-validated schema)",
+    "desktop": "Electron 44 + electron-builder 26 (uncommitted, see above)",
+    "test": "Vitest 5 + jsdom 30 + fake-indexeddb",
+    "lint": "oxlint 1.81 (not ESLint)"
+  },
+  "source_stats": {
+    "src_files_total": 100,
+    "test_files": 41,
+    "tests_passing": 316,
+    "regions_implemented": 8,
+    "missions_implemented": 17,
+    "readme_claims_16_missions": "README says 'Sixteen missions across eight regions'; actual content module defines 17 mission ids. Doc/code drift, not a functional defect -- flagged as unknown for RELEASE_READINESS to reconcile, not corrected here."
+  },
+  "bundle_evidence": {
+    "dist_total_size": "24M",
+    "largest_chunks_gzip": {
+      "rapier-*.js": "1093.93 kB gzip (2851.77 kB raw)",
+      "three-*.js": "164.53 kB gzip (648.46 kB raw)",
+      "react-vendor-*.js": "68.25 kB gzip",
+      "FlightScreen-*.js": "25.31 kB gzip"
+    },
+    "note": "Screens are already route-code-split (one chunk per screen). Physics (Rapier WASM+JS) is the dominant payload at >1MB gzip before any gameplay asset streams -- relevant to the PWA's stated mobile-first target and first-flight load time. Not measured against a real network/device in this audit."
+  },
+  "asset_provenance_summary": "See ASSET_PROVENANCE.json. Headline finding: 361 GLB files exist on disk under public/assets/models; only 24 unique asset ids (23 world props + 1 airframe: 'hero_ultralight') are ever passed to assetLibrary.load(...) at runtime. 69 of 70 exported airframes, all 19 upgrade models, and all 245 micro-asset models (air_mic/env_mic/vfx) are unreferenced by any source file.",
+  "docs_read_in_full": [
+    "README.md",
+    "RELEASE_READINESS.md",
+    "VISUAL_STATE.md",
+    "VISUAL_DEBT.md",
+    "PROJECT_FLIGHT_MERGE_STATUS.md",
+    "STEAM_RELEASE.md",
+    "public/assets/models/README.md"
+  ],
+  "docs_read_by_toc_and_targeted_section": [
+    "PROJECT_FLIGHT_MASTER_VISUAL_IMPLEMENTATION_SPEC_v5.0.md (16686 lines; read full TOC/headers; read sections 17 Production/QA/DoD, 23 Master Task Matrix, 24 Master Asset Register, 33 Final Definition of Done in full; sections 35+ 'O001...' are a 136-subsystem particularization template, sampled by structure only, not transcribed as claims)"
+  ]
+}

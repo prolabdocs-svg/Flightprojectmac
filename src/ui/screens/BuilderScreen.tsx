@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useGameStore } from '../../state/gameStore';
 import { useProfileStore } from '../../state/profileStore';
-import { FRAME_ZERO, PARTS, getPart } from '../../content/parts';
+import { FRAME_ZERO, FRAMES, PARTS, getFrame } from '../../content/parts';
 import { installPart, resolveAircraft } from '../../content/assembly';
 import { TECH_NODES } from '../../content/techtree';
 import type { PartCategory } from '../../core/types';
@@ -20,10 +20,13 @@ export function BuilderScreen() {
   const profile = useProfileStore((s) => s.profile);
   const setBuild = useProfileStore((s) => s.setBuild);
   const buyPart = useProfileStore((s) => s.buyPart);
+  const buyFrame = useProfileStore((s) => s.buyFrame);
+  const selectFrame = useProfileStore((s) => s.selectFrame);
   const [category, setCategory] = useState<PartCategory>('engine');
 
+  const frame = getFrame(profile.currentBuild.frameId) ?? FRAME_ZERO;
   const aircraft = resolveAircraft(profile.currentBuild);
-  const hardpoint = FRAME_ZERO.hardpoints.find((h) => h.category === category);
+  const hardpoint = frame.hardpoints.find((h) => h.category === category);
   const options = hardpoint ? PARTS.filter((p) => hardpoint.accepts.includes(p.id)) : [];
   const installedId = profile.currentBuild.installed[category];
 
@@ -48,6 +51,20 @@ export function BuilderScreen() {
     setBuild(installPart(profile.currentBuild, category, partId));
   };
 
+  const handleSelectFrame = (frameId: string, priceCash: number, requiresTechId?: string) => {
+    if (isPartLocked(requiresTechId)) return;
+    const owned = profile.ownedFrameIds.includes(frameId);
+    if (!owned) {
+      const ok = buyFrame(frameId, priceCash);
+      if (!ok) return;
+    }
+    selectFrame(frameId);
+    const nextFrame = getFrame(frameId);
+    if (nextFrame && !nextFrame.hardpoints.some((h) => h.category === category)) {
+      setCategory(nextFrame.hardpoints[0].category);
+    }
+  };
+
   return (
     <div className="screen builder-screen">
       <header className="screen-header">
@@ -69,8 +86,34 @@ export function BuilderScreen() {
         <span>Combustible: {aircraft.fuelCapacityL} L</span>
       </div>
 
+      <div className="part-options">
+        {FRAMES.map((f) => {
+          const owned = profile.ownedFrameIds.includes(f.id);
+          const isSelected = frame.id === f.id;
+          const locked = isPartLocked(f.requiresTechId);
+          const techNode = f.requiresTechId ? TECH_NODES.find((n) => n.id === f.requiresTechId) : undefined;
+          return (
+            <button
+              key={f.id}
+              className={`part-card ${isSelected ? 'installed' : ''} ${locked ? 'locked' : ''}`}
+              disabled={locked}
+              onClick={() => handleSelectFrame(f.id, f.priceCash ?? 0, f.requiresTechId)}
+            >
+              <div className="part-card-name">{f.name}</div>
+              <div className="part-card-desc">{f.description}</div>
+              <div className="part-card-meta">
+                Tier {f.tier} · {owned ? 'En inventario' : `$${f.priceCash ?? 0}`}
+              </div>
+              {locked && <div className="part-card-meta">Requiere tech: {techNode?.name ?? f.requiresTechId}</div>}
+              {isSelected && <div className="part-card-badge">SELECCIONADO</div>}
+              {locked && <div className="part-card-badge part-card-badge-locked">BLOQUEADO</div>}
+            </button>
+          );
+        })}
+      </div>
+
       <div className="category-tabs">
-        {FRAME_ZERO.hardpoints.map((h) => (
+        {frame.hardpoints.map((h) => (
           <button key={h.id} className={h.category === category ? 'active' : ''} onClick={() => setCategory(h.category)}>
             {h.category}
           </button>
@@ -110,9 +153,4 @@ export function BuilderScreen() {
       <MenuNavigation active="builder" goTo={goTo} />
     </div>
   );
-}
-
-// Re-exported for potential future use by tests / other screens.
-export function partLabel(id: string): string {
-  return getPart(id)?.name ?? id;
 }

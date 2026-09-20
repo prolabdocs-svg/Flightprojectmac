@@ -7,8 +7,13 @@ import { WorldEnvironment } from './WorldEnvironment';
 import { createSeededRandom, type SeededRandom } from '../core/seededRandom';
 import { assetLibrary } from './assetLibrary';
 import { ACTIVE_REGION_ASSETS, FRAME_ASSET_IDS } from './assetManifest';
+import { getSettlementPlacements } from '../world/settlementLayout';
 import { ChaseCamera, type ChaseCameraInput } from './ChaseCamera';
-import { getFreeFlightAirfield, type RunwaySurface } from '../world/airfields';
+import { getFreeFlightAirfield, type AirfieldDefinition, type RunwaySurface } from '../world/airfields';
+import { buildTerrainFollowingMesh, getRunwaySafeZone, isInsideZone, layoutRoadTiles } from './fieldAirfieldLayout';
+import { getRegionRoadNetwork } from './regionRoadNetworks';
+import { buildTreeClusterInstancedMesh, type TreeClusterPlacement } from './vegetation';
+import { orientWorldProp } from './blenderAxisFix';
 
 export class FlightScene {
   scene = new THREE.Scene();
@@ -16,7 +21,10 @@ export class FlightScene {
   renderer: THREE.WebGLRenderer;
   aircraftGroup = new THREE.Group();
   private readonly streamedProps = new THREE.Group();
-  private targetRing: THREE.Mesh | null = null;
+  /** A ground ring alone disappears against terrain at flight altitude. The marker adds
+   * sparse vertical beacons while retaining the precise ring used for landing. */
+  private targetMarker: THREE.Group | null = null;
+  private targetPulseMaterials: THREE.MeshBasicMaterial[] = [];
   private readonly chase = new ChaseCamera();
   private readonly environment: WorldEnvironment;
 
@@ -31,7 +39,7 @@ export class FlightScene {
   // sessions (see src/core/seededRandom.ts).
   private readonly worldRng: SeededRandom;
 
-  constructor(canvas: HTMLCanvasElement, region: RegionDefinition, paint?: { fabricColor: string; tubeColor: string }) {
+  constructor(canvas: HTMLCanvasElement, region: RegionDefinition, paint?: { fabricColor: string; tubeColor: string }, frameId: string = 'frame_zero') {
     this.worldRng = createSeededRandom('flight-scene-landmarks', region.id);
     const lowPowerMobile = window.matchMedia('(pointer: coarse)').matches && navigator.hardwareConcurrency <= 4;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
@@ -56,6 +64,7 @@ export class FlightScene {
     // Keep nearby terrain and navigation anchors readable; haze belongs on the distant
     // ridge layers, not across the first kilometre of a flight scene.
     this.scene.fog = new THREE.Fog(fogColor, 700, 3200);
+    this.addAtmosphericSky(region);
 
     // Lighting: warm low-angle "workshop afternoon" key light + cool sky fill,
     // matching the DIY-garage/golden-hour mood (spec 10 tono, 83.1) rather than
@@ -77,6 +86,14 @@ export class FlightScene {
     sun.shadow.camera.far = 500;
     sun.shadow.bias = -0.0002;
     this.scene.add(sun);
+    // A deliberately simple solar disc gives the horizon a directional focal point.
+    // It is presentation-only and costs one draw call, unlike a skybox/HDR on mobile.
+    const sunDisc = new THREE.Mesh(
+      new THREE.CircleGeometry(54, 32),
+      new THREE.MeshBasicMaterial({ color: 0xffe3ab, transparent: true, opacity: 0.72, depthWrite: false, fog: false }),
+    );
+    sunDisc.position.set(-780, 420, 1280);
+    this.scene.add(sunDisc);
     const rim = new THREE.DirectionalLight(0x9fc7ff, 0.35);
     rim.position.set(-220, 160, -260);
     this.scene.add(rim);
@@ -94,8 +111,18 @@ export class FlightScene {
     const runwayWidth = airfield?.runwayWidthM ?? 24;
     const runwayLength = airfield?.runwayLengthM ?? 220;
     const runwayY = this.environment.terrainQuery.getElevation(...runwayCenter);
-    const runwayGeo = new THREE.PlaneGeometry(runwayWidth, runwayLength);
-    const runwayMat = new THREE.MeshStandardMaterial({ color: this.runwayColor(airfield?.surface), roughness: 0.9, metalness: 0.03 });
+    const runwayGeo = new THREE.PlaneGeometry(runwayWidth, runwayLength, Math.max(4, Math.round(runwayWidth / 3)), Math.max(8, Math.round(runwayLength / 6)));
+    this.roughenRunwayGeometry(runwayGeo, airfield?.surface, this.worldRng);
+    const runwayMat = new THREE.MeshStandardMaterial({
+      color: this.runwayColor(airfield?.surface),
+      // The canvas speckle map reads as giant dark discs on a grass strip from the
+      // chase camera. Grass already gets readable material variation from the shared
+      // terrain around it; keep the graded runway clean and reserve texture detail for
+      // hard/unpaved surfaces where ruts are a useful navigational cue.
+      map: airfield?.surface === 'grass' ? null : this.buildRunwaySurfaceTexture(airfield?.surface, this.worldRng),
+      roughness: 0.9,
+      metalness: 0.03,
+    });
     const runway = new THREE.Mesh(runwayGeo, runwayMat);
     runway.rotation.x = -Math.PI / 2;
     runway.position.set(runwayCenter[0], runwayY + 0.025, runwayCenter[1]);
@@ -107,10 +134,14 @@ export class FlightScene {
     if (region.environment.terrain === 'quarry') {
       this.buildScrapValleyLandmarks();
     } else if (region.environment.terrain === 'meadow') {
-      this.buildTheFieldLandmarks();
+      this.buildTheFieldLandmarks(airfield);
     } else {
       this.buildTerrainLandmarks(region.environment.terrain);
     }
+    // Continuous road network connecting the airfield to the region's hero landmark
+    // and a branch/second connection (regionRoadNetworks.ts), one system shared by
+    // all 8 regions instead of per-region bespoke road code.
+    this.buildRegionRoadNetwork(region.id);
 
     // Keep a first-frame proxy while the GLB streams, then replace it with the
     // authored airframe already shipped with the game.
@@ -120,21 +151,57 @@ export class FlightScene {
     this.scene.add(this.streamedProps);
     // Loading is deliberately non-blocking. The authored proxy is visible on the first
     // frame; GLB swaps in only when it has arrived, which is essential on mobile/PWA.
-    void this.hydrateRuntimeAssets(region, paint);
+    void this.hydrateRuntimeAssets(region, paint, frameId);
   }
 
-  private async hydrateRuntimeAssets(region: RegionDefinition, paint?: { fabricColor: string; tubeColor: string }) {
-    void this.hydrateAircraft(FRAME_ASSET_IDS.frame_zero, paint);
+  /**
+   * The background colour alone made every time of day look like an editor viewport.
+   * This single, inward-facing sphere gives the flight camera a real atmospheric
+   * falloff (warm haze at the horizon, cooler zenith) without a texture download or
+   * a post-processing pass. It deliberately ignores fog and depth writes: terrain and
+   * clouds remain the only world geometry the player can fly toward.
+   */
+  private addAtmosphericSky(region: RegionDefinition): void {
+    const horizon = new THREE.Color(region.skyColor).lerp(new THREE.Color('#fff0cf'), region.environment.timeOfDay === 'sunset' ? 0.28 : 0.12);
+    const zenith = new THREE.Color(region.skyColor).lerp(new THREE.Color('#2e6191'), region.environment.weather === 'overcast' ? 0.25 : 0.48);
+    const storm = region.environment.weather === 'windy' || region.environment.weather === 'overcast';
+    const sky = new THREE.Mesh(
+      new THREE.SphereGeometry(5200, 32, 16),
+      new THREE.ShaderMaterial({
+        side: THREE.BackSide,
+        depthWrite: false,
+        fog: false,
+        uniforms: {
+          horizonColor: { value: horizon },
+          zenithColor: { value: zenith },
+          cloudiness: { value: storm ? 0.22 + region.environment.cloudCover * 0.18 : 0.05 + region.environment.cloudCover * 0.1 },
+        },
+        vertexShader: `varying float heightRatio; void main() { heightRatio = normalize(position).y * .5 + .5; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+        fragmentShader: `uniform vec3 horizonColor; uniform vec3 zenithColor; uniform float cloudiness; varying float heightRatio; void main() { float t = smoothstep(.18, .9, heightRatio); vec3 colour = mix(horizonColor, zenithColor, t); colour = mix(colour, vec3(.62, .67, .7), cloudiness * (1.0 - t) * .45); gl_FragColor = vec4(colour, 1.0); }`,
+      }),
+    );
+    sky.name = `atmospheric-sky:${region.id}`;
+    this.scene.add(sky);
+  }
 
-    const placements = ACTIVE_REGION_ASSETS[region.id];
-    if (!placements) return;
+  private async hydrateRuntimeAssets(region: RegionDefinition, paint: { fabricColor: string; tubeColor: string } | undefined, frameId: string) {
+    const assetId = FRAME_ASSET_IDS[frameId];
+    if (!assetId) {
+      // A declared frame id with no manifest entry is a content bug, not a runtime
+      // fallback path: surface it instead of silently rendering the wrong airframe.
+      console.error(`FlightScene: no FRAME_ASSET_IDS entry for frame id "${frameId}", falling back to frame_zero`);
+    }
+    void this.hydrateAircraft(assetId ?? FRAME_ASSET_IDS.frame_zero, paint);
+
+    const placements = [...(ACTIVE_REGION_ASSETS[region.id] ?? []), ...getSettlementPlacements(region.id)];
+    if (placements.length === 0) return;
     await Promise.all(placements.map(async ({ id, position: [x, z], scale = 1, rotationY = 0 }) => {
       try {
         const prop = await assetLibrary.load('world', id);
-        prop.position.set(x, this.environment.terrainQuery.getElevation(x, z), z);
-        prop.scale.setScalar(scale);
-        prop.rotation.y = rotationY;
-        this.streamedProps.add(prop);
+        const wrapper = orientWorldProp(prop, rotationY);
+        wrapper.position.set(x, this.environment.terrainQuery.getElevation(x, z), z);
+        wrapper.scale.setScalar(scale);
+        this.streamedProps.add(wrapper);
       } catch {
         // Existing procedural landmarks are the graceful fallback for every prop.
       }
@@ -149,7 +216,8 @@ export class FlightScene {
       // convention. The authored airframe was therefore arriving with its fuselage
       // upright like a mast. One root correction preserves the Blender asset's axes
       // without baking a duplicate or touching its named child meshes.
-      aircraft.rotation.x = Math.PI / 2;
+      aircraft.rotation.x = 0;
+      aircraft.scale.setScalar(6);
       aircraft.traverse((object) => {
         const mesh = object as THREE.Mesh;
         if (mesh.isMesh) {
@@ -179,29 +247,36 @@ export class FlightScene {
       });
       this.aircraftGroup.add(aircraft);
       this.aircraftGroup.visible = true;
-    } catch {
-      // The proxy remains a resilient offline fallback for a failed asset request.
+    } catch (err) {
+      // The proxy remains a resilient offline fallback for a failed asset request,
+      // but the failure itself must stay visible for diagnosis rather than vanish.
+      console.error(`FlightScene: failed to load airframe asset "${id}"`, err);
       this.aircraftGroup.visible = true;
     }
   }
 
-  /** Lightweight kits for the six later campaign regions. Each uses a handful of
-   * instanced/simple meshes, keeping their silhouette and navigation language distinct
-   * without turning free flight into a mobile draw-call stress test. */
+  /** Lightweight kits for the six later campaign regions. Human infrastructure (workshops,
+   * bridges, ports, mills, beacons) is authored GLB streamed from ACTIVE_REGION_ASSETS
+   * (assetManifest.ts) — this only builds the procedural macroform (mesas, mountains,
+   * skyline) that has no GLB counterpart, plus cheap instanced vegetation for scale. */
   private buildTerrainLandmarks(terrain: RegionDefinition['environment']['terrain']) {
     const ground = (x: number, z: number) => this.environment.terrainQuery.getElevation(x, z);
     const rockMat = new THREE.MeshStandardMaterial({ color: '#96593d', roughness: .95 });
-    const greenMat = new THREE.MeshStandardMaterial({ color: '#365d3a', roughness: .9 });
     const concreteMat = new THREE.MeshStandardMaterial({ color: '#69706d', roughness: .8, metalness: .15 });
-    const sandMat = new THREE.MeshStandardMaterial({ color: '#b99864', roughness: 1 });
 
     if (terrain === 'canyon') {
+      // Red Canyon: a ring of eroded mesas as the navigation macroform; the beacon
+      // (checkpoint_beacon) is the streamed GLB infrastructure anchor.
       const mesas = new THREE.InstancedMesh(new THREE.CylinderGeometry(1, 1.25, 1, 7), rockMat, 18);
       const matrix = new THREE.Matrix4();
-      for (let i = 0; i < 18; i++) {
-        const angle = i * 2.399, dist = 140 + (i % 5) * 105;
-        const x = Math.cos(angle) * dist, z = 260 + Math.sin(angle) * dist;
-        const h = 45 + (i % 4) * 24, radius = 18 + (i % 3) * 11;
+      // Keep the playable Mesa Roja strip clear. The original ring began at 140m and
+      // could put a 100m column directly beside the aircraft on spawn; that reads as a
+      // broken collider/asset, not a canyon. These are now distant valley walls that
+      // frame the route instead of swallowing its first camera shot.
+      for (let i = 0; i < 14; i++) {
+        const angle = i * 2.399, dist = 430 + (i % 5) * 125;
+        const x = Math.cos(angle) * dist, z = 420 + Math.sin(angle) * dist;
+        const h = 50 + (i % 4) * 20, radius = 24 + (i % 3) * 10;
         matrix.compose(new THREE.Vector3(x, ground(x, z) + h / 2, z), new THREE.Quaternion(), new THREE.Vector3(radius, h, radius));
         mesas.setMatrixAt(i, matrix);
       }
@@ -211,19 +286,24 @@ export class FlightScene {
     }
 
     if (terrain === 'forest' || terrain === 'range') {
+      // Backcountry/The Range: conifer stand as vegetation/scale (conifer_tree,
+      // riparian_tree and reservoir_dam GLBs anchor the lake/dam infrastructure).
+      // Trunk+canopy clusters (vegetation.ts) instead of bare cone proxies.
       const count = terrain === 'forest' ? 115 : 64;
-      const trees = new THREE.InstancedMesh(new THREE.ConeGeometry(2.8, terrain === 'forest' ? 15 : 20, 7), greenMat, count);
-      const matrix = new THREE.Matrix4();
+      const placements: TreeClusterPlacement[] = [];
       for (let i = 0; i < count; i++) {
-        const angle = i * 2.399, dist = 80 + (i % 12) * 55;
-        const x = Math.cos(angle) * dist, z = 220 + Math.sin(angle) * dist;
-        const scale = .75 + (i % 5) * .14;
-        matrix.compose(new THREE.Vector3(x, ground(x, z) + 7 * scale, z), new THREE.Quaternion(), new THREE.Vector3(scale, scale, scale));
-        trees.setMatrixAt(i, matrix);
+        const angle = i * 2.399, dist = 170 + (i % 12) * 55;
+        // A forest begins beyond the cleared strip, not in the propeller arc. The
+        // placement stays deterministic but retries until it is outside the shared
+        // graded-runway footprint used by simulation and rendering.
+        const { x, z } = this.placeOffRunway(() => ({ x: Math.cos(angle) * dist, z: 220 + Math.sin(angle) * dist }));
+        placements.push({ x, z, groundY: ground(x, z), scale: (.75 + (i % 5) * .14) * (terrain === 'range' ? 1.3 : 1), rotationY: this.worldRng.next() * Math.PI * 2 });
       }
-      trees.instanceMatrix.needsUpdate = true;
+      const trees = buildTreeClusterInstancedMesh(placements, this.worldRng, terrain === 'range' ? '#2e4a30' : '#33562f');
       this.scene.add(trees);
       if (terrain === 'range') {
+        // Cumbre: the region's navigation macroform, distinct from the mesas/cliffs of
+        // the other regions.
         const peak = new THREE.Mesh(new THREE.ConeGeometry(120, 310, 7), new THREE.MeshStandardMaterial({ color: '#70766d', roughness: 1 }));
         peak.position.set(-340, ground(-340, 720) + 155, 720);
         this.scene.add(peak);
@@ -232,38 +312,46 @@ export class FlightScene {
     }
 
     if (terrain === 'coast') {
-      const cliff = new THREE.Mesh(new THREE.BoxGeometry(420, 95, 55), rockMat);
-      cliff.position.set(-210, ground(-210, 410) + 47, 410);
-      this.scene.add(cliff);
+      // Coast Run: the cliff macroform and port infrastructure are streamed GLBs
+      // (coastal_cliff_landmark, coastal_port); palms remain the only procedural piece,
+      // giving the shoreline scale/vegetation cheaply via instancing. A trunk without a
+      // crown reads as a broken black pole from the runway, so both layers are instanced.
       const palms = new THREE.InstancedMesh(new THREE.CylinderGeometry(.24, .42, 1, 6), new THREE.MeshStandardMaterial({ color: '#6f5335', roughness: 1 }), 22);
+      const crowns = new THREE.InstancedMesh(new THREE.DodecahedronGeometry(1, 0), new THREE.MeshStandardMaterial({ color: '#35613d', roughness: .95, flatShading: true }), 22);
       const matrix = new THREE.Matrix4();
       for (let i = 0; i < 22; i++) {
         const x = -90 + i * 16, z = 180 + (i % 4) * 95, h = 9 + (i % 3) * 3;
         matrix.compose(new THREE.Vector3(x, ground(x, z) + h / 2, z), new THREE.Quaternion(), new THREE.Vector3(1, h, 1));
         palms.setMatrixAt(i, matrix);
+        matrix.compose(new THREE.Vector3(x, ground(x, z) + h + 1.2, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, i * 1.7, .12)), new THREE.Vector3(4.8, 1.35, 4.8));
+        crowns.setMatrixAt(i, matrix);
       }
       palms.instanceMatrix.needsUpdate = true;
+      crowns.instanceMatrix.needsUpdate = true;
       this.scene.add(palms);
+      this.scene.add(crowns);
       return;
     }
 
     if (terrain === 'industrial') {
-      for (let i = 0; i < 7; i++) {
-        const x = -145 + i * 52, z = 280 + (i % 2) * 85, h = 22 + (i % 3) * 12;
-        const warehouse = new THREE.Mesh(new THREE.BoxGeometry(42, h, 55), concreteMat);
-        warehouse.position.set(x, ground(x, z) + h / 2, z);
-        this.scene.add(warehouse);
+      // Industrial Belt: bridges/workshop are streamed GLB anchors; the skyline macroform
+      // is a cluster of instanced smokestacks (cylinders, not box warehouses).
+      const stacks = new THREE.InstancedMesh(new THREE.CylinderGeometry(4, 5, 1, 10), new THREE.MeshStandardMaterial({ color: '#7f5341', roughness: .85 }), 6);
+      const matrix = new THREE.Matrix4();
+      for (let i = 0; i < 6; i++) {
+        const x = -80 + i * 42, z = 300 + (i % 2) * 60, h = 60 + (i % 3) * 30;
+        matrix.compose(new THREE.Vector3(x, ground(x, z) + h / 2, z), new THREE.Quaternion(), new THREE.Vector3(1, h, 1));
+        stacks.setMatrixAt(i, matrix);
       }
-      const stack = new THREE.Mesh(new THREE.CylinderGeometry(4, 5, 95, 10), new THREE.MeshStandardMaterial({ color: '#7f5341', roughness: .85 }));
-      stack.position.set(115, ground(115, 330) + 47.5, 330);
-      this.scene.add(stack);
+      stacks.instanceMatrix.needsUpdate = true;
+      this.scene.add(stacks);
       return;
     }
 
     if (terrain === 'desert') {
-      const hangar = new THREE.Mesh(new THREE.BoxGeometry(86, 25, 68), sandMat);
-      hangar.position.set(-80, ground(-80, 250) + 12.5, 250);
-      this.scene.add(hangar);
+      // High Desert: workshop/mill/scrub are streamed GLB anchors; the radio-mast
+      // macroform (matches worldVisualIdentity's 'radio-mast' landmark) is the only
+      // procedural piece left, so the region keeps a tall navigation silhouette.
       const tower = new THREE.Mesh(new THREE.CylinderGeometry(2.2, 3.6, 125, 8), concreteMat);
       tower.position.set(130, ground(130, 440) + 62.5, 440);
       this.scene.add(tower);
@@ -273,7 +361,7 @@ export class FlightScene {
   /** Region 1 landmarks (spec 12.2): barn, water tower, scattered trees.
    * Materials given intentional roughness/metalness so they don't read as flat
    * default-gray primitives — weathered wood barn, galvanized-steel tower. */
-  private buildTheFieldLandmarks() {
+  private buildTheFieldLandmarks(airfield: AirfieldDefinition | undefined) {
     // Farm workshop: a readable construction kit (walls, roof, door, apron) rather
     // than the old monolithic red cube. It is intentionally warm enough to anchor the
     // field, but broken into believable materials and silhouette layers.
@@ -288,8 +376,20 @@ export class FlightScene {
     }
     const door = new THREE.Mesh(new THREE.PlaneGeometry(4.4, 4.6), new THREE.MeshStandardMaterial({ color: '#263130', roughness: .9 })); door.position.set(0, 2.55, 8.04); barn.add(door);
     for (const x of [-5.7, 5.7]) { const trim = new THREE.Mesh(new THREE.BoxGeometry(.28, 8, .3), trimMat); trim.position.set(x, 4, 8.14); barn.add(trim); }
-    const apron = new THREE.Mesh(new THREE.PlaneGeometry(23, 19), new THREE.MeshStandardMaterial({ color: '#7e7057', roughness: 1 })); apron.rotation.x = -Math.PI / 2; apron.position.set(0, .015, 11); apron.receiveShadow = true; barn.add(apron);
     this.scene.add(barn);
+
+    // Workshop apron: terrain-sampled grid (not a flat plane in the barn's own local
+    // frame) so it follows the ground under the barn instead of floating/clipping.
+    const barnApronX = -40, barnApronZ = 20 + 11;
+    const barnApronData = buildTerrainFollowingMesh(23, 19, 5, barnApronX, barnApronZ, (x, z) => this.environment.terrainQuery.getElevation(x, z), 0.015);
+    const barnApronGeo = new THREE.BufferGeometry();
+    barnApronGeo.setAttribute('position', new THREE.BufferAttribute(barnApronData.positions, 3));
+    barnApronGeo.setIndex(barnApronData.indices);
+    barnApronGeo.computeVertexNormals();
+    const barnApron = new THREE.Mesh(barnApronGeo, new THREE.MeshStandardMaterial({ color: '#7e7057', roughness: 1 }));
+    barnApron.position.set(barnApronX, 0, barnApronZ);
+    barnApron.receiveShadow = true;
+    this.scene.add(barnApron);
 
     const towerMat = new THREE.MeshStandardMaterial({ color: '#9b9b9b', roughness: 0.55, metalness: 0.5 });
     const towerGroundY = this.environment.terrainQuery.getElevation(35, 260);
@@ -303,24 +403,23 @@ export class FlightScene {
     towerTank.position.set(35, towerGroundY + 17, 260);
     this.scene.add(towerTank);
 
-    const treeMat = new THREE.MeshStandardMaterial({ color: '#3f6b34', roughness: 0.9, metalness: 0 });
-    // One draw call for the repeated vegetation instead of one per tree (GDD §41.4).
-    const trees = new THREE.InstancedMesh(new THREE.ConeGeometry(2.8, 9, 6), treeMat, 40);
-    const treeMatrix = new THREE.Matrix4();
+    // Trunk+canopy clusters (vegetation.ts) instead of a bare cone proxy — each instance
+    // reads as a tree crown from the air, not a spike. One draw call, same as before.
+    const treePlacements: TreeClusterPlacement[] = [];
     for (let i = 0; i < 40; i++) {
       const { x, z } = this.placeOffRunway(() => {
         const angle = this.worldRng.next() * Math.PI * 2;
         const dist = 80 + this.worldRng.next() * 500;
         return { x: Math.cos(angle) * dist, z: 150 + Math.sin(angle) * dist };
       });
-      const scale = 0.8 + this.worldRng.next() * 0.4;
-      // Sampled from TerrainQueryService so trees sit on the now-undulating ground
-      // instead of floating/clipping on a flat Y=0 assumption.
-      const groundY = this.environment.terrainQuery.getElevation(x, z);
-      treeMatrix.compose(new THREE.Vector3(x, groundY + 4.5 * scale, z), new THREE.Quaternion(), new THREE.Vector3(scale, scale, scale));
-      trees.setMatrixAt(i, treeMatrix);
+      treePlacements.push({
+        x, z,
+        groundY: this.environment.terrainQuery.getElevation(x, z),
+        scale: 0.8 + this.worldRng.next() * 0.4,
+        rotationY: this.worldRng.next() * Math.PI * 2,
+      });
     }
-    trees.instanceMatrix.needsUpdate = true;
+    const trees = buildTreeClusterInstancedMesh(treePlacements, this.worldRng, '#3f6b34');
     this.scene.add(trees);
 
     // A sparse fence line and hay bales make the near field feel owned and scaled.
@@ -330,6 +429,125 @@ export class FlightScene {
       const x = -95 + i * 11, z = 56;
       if (this.environment.terrainQuery.isOnGradedRunway(x, z)) continue;
       const post = new THREE.Mesh(postGeo, postMat); post.position.set(x, this.environment.terrainQuery.getElevation(x, z) + .65, z); this.scene.add(post);
+    }
+
+    if (airfield) this.buildFieldAirfieldCompound(airfield);
+  }
+
+  /** First-minute-of-flight upgrade for field_home (spec: "aeródromo vivo"): an apron
+   * compound just outside the runway safe zone (open hangar, gravel apron, tie-downs,
+   * fuel point), plus an access road out to the existing farmhouse/barn cluster so the
+   * airfield reads as part of one working landscape instead of an isolated strip. */
+  private buildFieldAirfieldCompound(airfield: AirfieldDefinition): void {
+    const ground = (x: number, z: number) => this.environment.terrainQuery.getElevation(x, z);
+    const safeZone = getRunwaySafeZone(airfield);
+    const [, , rz] = airfield.position;
+    // East of the strip and well south of it, clear of both the safe buffer and the
+    // graded pad radius (runwayLengthM/2 + grading margin, see airfieldTerrain.ts) so the
+    // compound's own collider never intrudes the pad (obstacles.test.ts).
+    const compoundX = safeZone.maxX + 83;
+    const compoundZ = rz - 110;
+
+    // Gravel apron: the working surface tying hangar, parking and fuel together. Built
+    // from a terrain-sampled grid (fieldAirfieldLayout.ts#buildTerrainFollowingMesh)
+    // rather than one flat plane, so it hugs the undulating ground instead of floating
+    // over or clipping into it. The hangar itself is the streamed field_hangar_compound
+    // GLB (assetManifest.ts), placed by hydrateRuntimeAssets at this same compound
+    // anchor — no procedural hangar geometry is built here to avoid a duplicate.
+    const apronMat = new THREE.MeshStandardMaterial({ color: '#8c8371', roughness: 1 });
+    const apronData = buildTerrainFollowingMesh(34, 40, 6, compoundX, compoundZ, ground);
+    const apronGeo = new THREE.BufferGeometry();
+    apronGeo.setAttribute('position', new THREE.BufferAttribute(apronData.positions, 3));
+    apronGeo.setIndex(apronData.indices);
+    apronGeo.computeVertexNormals();
+    const apron = new THREE.Mesh(apronGeo, apronMat);
+    apron.position.set(compoundX, 0, compoundZ);
+    apron.receiveShadow = true;
+    this.scene.add(apron);
+
+    // Fuel point: a small tank plus a hose-reel stand, closer to the apron edge.
+    const fuelMat = new THREE.MeshStandardMaterial({ color: '#a13b2e', roughness: .5, metalness: .4 });
+    const fuelX = compoundX + 12, fuelZ = compoundZ + 10;
+    const fuelTank = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 1.1, 3.4, 12), fuelMat);
+    fuelTank.rotation.z = Math.PI / 2; fuelTank.position.set(fuelX, ground(fuelX, fuelZ) + 1.1, fuelZ); fuelTank.castShadow = true; this.scene.add(fuelTank);
+    const fuelStandZ = compoundZ + 8;
+    const fuelStand = new THREE.Mesh(new THREE.CylinderGeometry(.18, .18, 2.2, 6), new THREE.MeshStandardMaterial({ color: '#3a3a3a', roughness: .8 }));
+    fuelStand.position.set(fuelX, ground(fuelX, fuelStandZ) + 1.1, fuelStandZ); this.scene.add(fuelStand);
+
+    // Tie-down parking: three faded rectangles with a corner cone marker each, each pad
+    // its own terrain-sampled grid so it doesn't float/clip on the sloped apron edge.
+    const tieDownMat = new THREE.MeshStandardMaterial({ color: '#6c6455', roughness: 1 });
+    const coneMat = new THREE.MeshStandardMaterial({ color: '#d9611f', roughness: .7 });
+    for (let i = 0; i < 3; i++) {
+      const px = compoundX + 5 + i * 6.5, pz = compoundZ + 13;
+      const padData = buildTerrainFollowingMesh(4.5, 6, 2, px, pz, ground, 0.03);
+      const padGeo = new THREE.BufferGeometry();
+      padGeo.setAttribute('position', new THREE.BufferAttribute(padData.positions, 3));
+      padGeo.setIndex(padData.indices);
+      padGeo.computeVertexNormals();
+      const pad = new THREE.Mesh(padGeo, tieDownMat); pad.position.set(px, 0, pz); this.scene.add(pad);
+      const coneX = px - 2, coneZ = pz - 3;
+      const cone = new THREE.Mesh(new THREE.ConeGeometry(.3, .6, 8), coneMat); cone.position.set(coneX, ground(coneX, coneZ) + .3, coneZ); this.scene.add(cone);
+    }
+
+    // Access road out to the region's hero landmark is now built once for every region
+    // by buildRegionRoadNetwork (regionRoadNetworks.ts), called from the constructor —
+    // this compound only owns the apron/fuel/tie-downs. ruralCore stays in sync with
+    // that network's the_field primary target (field_village_cluster's anchor).
+    const ruralCore: [number, number] = [160, 350];
+    this.buildFieldRuralCore(ruralCore, safeZone);
+  }
+
+  /** Builds the continuous access road connecting a region's airfield to its hero
+   * landmark, plus a branch to a second anchor (regionRoadNetworks.ts), as terrain-
+   * following InstancedMesh tiles styled per biome. Shared by all 8 regions instead of
+   * bespoke per-region road code. */
+  private buildRegionRoadNetwork(regionId: string): void {
+    const network = getRegionRoadNetwork(regionId);
+    if (!network) return;
+    const ground = (x: number, z: number) => this.environment.terrainQuery.getElevation(x, z);
+    const roadMat = new THREE.MeshStandardMaterial({ color: network.style.colorHex, roughness: 1 });
+    const tileGeo = new THREE.PlaneGeometry(network.style.widthM, network.style.tileLengthM);
+    const matrix = new THREE.Matrix4();
+    for (const waypoints of network.links) {
+      const tiles = layoutRoadTiles(waypoints, network.style.tileLengthM);
+      if (tiles.length === 0) continue;
+      const road = new THREE.InstancedMesh(tileGeo, roadMat, tiles.length);
+      tiles.forEach((tile, i) => {
+        const y = ground(tile.x, tile.z) + 0.02;
+        matrix.compose(
+          new THREE.Vector3(tile.x, y, tile.z),
+          new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, tile.rotationY)),
+          new THREE.Vector3(1, 1, 1),
+        );
+        road.setMatrixAt(i, matrix);
+      });
+      road.instanceMatrix.needsUpdate = true;
+      road.receiveShadow = true;
+      this.scene.add(road);
+    }
+  }
+
+  /** A fenced field around the streamed field_village_cluster GLB anchor, so the
+   * settlement's edge reads as cultivated land. The houses/barn themselves are the
+   * authored field_village_cluster GLB (assetManifest.ts) — no primitive box+cone
+   * houses here to avoid duplicating it. */
+  private buildFieldRuralCore(center: readonly [number, number], safeZone: ReturnType<typeof getRunwaySafeZone>): void {
+    const ground = (x: number, z: number) => this.environment.terrainQuery.getElevation(x, z);
+    // Parcelled field: a flat tinted patch plus a low fence line, distinct from the
+    // wilder procedural scatter so the settlement's edge reads as cultivated land.
+    const parcelMat = new THREE.MeshStandardMaterial({ color: '#8fa15a', roughness: 1 });
+    const parcelX = center[0] + 2, parcelZ = center[1] - 30;
+    const parcel = new THREE.Mesh(new THREE.PlaneGeometry(30, 22), parcelMat);
+    parcel.rotation.x = -Math.PI / 2; parcel.position.set(parcelX, ground(parcelX, parcelZ) + 0.01, parcelZ); parcel.receiveShadow = true;
+    this.scene.add(parcel);
+
+    const fenceMat = new THREE.MeshStandardMaterial({ color: '#5c4a32', roughness: 1 });
+    const fenceGeo = new THREE.CylinderGeometry(.08, .1, 1.1, 5);
+    for (let i = 0; i < 10; i++) {
+      const x = parcelX - 15 + i * 3.3, z = parcelZ - 11;
+      if (isInsideZone(x, z, safeZone)) continue;
+      const post = new THREE.Mesh(fenceGeo, fenceMat); post.position.set(x, ground(x, z) + .55, z); this.scene.add(post);
     }
   }
 
@@ -526,6 +744,61 @@ export class FlightScene {
     this.aircraftGroup.add(noseWheel);
   }
 
+  /** Directive spec XII: "delete the visual concept of the green rectangle runway" —
+   * a flat solid-color plane reads as a placeholder regardless of surface type. A
+   * cheap canvas noise texture (patches, ruts, scattered rock speckle) breaks up the
+   * uniform color without the cost of a real ground material/shader. */
+  private buildRunwaySurfaceTexture(surface: RunwaySurface | undefined, rng: SeededRandom): THREE.CanvasTexture {
+    const size = 256;
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = size;
+    const ctx = canvas.getContext('2d')!;
+    const base = this.runwayColor(surface) as string;
+    ctx.fillStyle = base;
+    ctx.fillRect(0, 0, size, size);
+    const unpaved = surface === 'dirt' || surface === 'grass' || surface === 'gravel' || surface === undefined;
+    const blotches = unpaved ? 220 : 50;
+    for (let i = 0; i < blotches; i++) {
+      const shade = unpaved ? (rng.next() > 0.5 ? '#00000022' : '#ffffff18') : '#00000014';
+      ctx.fillStyle = shade;
+      // Pebbles and tire-worn variation, not the oversized dark discs that previously
+      // made a dirt strip look like a procedural paint splatter from chase camera.
+      const r = unpaved ? 0.6 + rng.next() * 2.4 : 0.5 + rng.next() * 2;
+      ctx.beginPath();
+      ctx.ellipse(rng.next() * size, rng.next() * size, r, r * (0.5 + rng.next() * 0.6), rng.next() * Math.PI, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    if (surface === 'dirt' || surface === undefined) {
+      // Wheel ruts: two faint darker tracks running the length of the strip.
+      ctx.strokeStyle = '#00000030';
+      ctx.lineWidth = 4;
+      for (const x of [size * 0.4, size * 0.6]) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, size);
+        ctx.stroke();
+      }
+    }
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+    texture.repeat.set(3, 14);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    return texture;
+  }
+
+  /** Unpaved strips are graded dirt, not a mathematically flat pad — perturb the
+   * mesh's own vertices slightly so the runway reads as a real surface at low
+   * grazing angles instead of a billiard-table plane (directive spec XII). */
+  private roughenRunwayGeometry(geo: THREE.PlaneGeometry, surface: RunwaySurface | undefined, rng: SeededRandom): void {
+    if (surface === 'tarmac' || surface === 'salt') return;
+    const pos = geo.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      pos.setZ(i, pos.getZ(i) + (rng.next() - 0.5) * 0.06);
+    }
+    pos.needsUpdate = true;
+    geo.computeVertexNormals();
+  }
+
   private runwayColor(surface: RunwaySurface | undefined): THREE.ColorRepresentation {
     switch (surface) {
       case 'grass': return '#78925b';
@@ -556,18 +829,34 @@ export class FlightScene {
   }
 
   setTargetMarker(pos: [number, number, number] | undefined, radiusM: number) {
-    if (this.targetRing) {
-      this.scene.remove(this.targetRing);
-      this.targetRing = null;
+    if (this.targetMarker) {
+      this.scene.remove(this.targetMarker);
+      this.targetMarker = null;
     }
+    this.targetPulseMaterials = [];
     if (!pos) return;
-    const geo = new THREE.RingGeometry(radiusM * 0.92, radiusM, 32);
-    const mat = new THREE.MeshBasicMaterial({ color: '#ffcc33', side: THREE.DoubleSide, transparent: true, opacity: 0.8 });
-    const ring = new THREE.Mesh(geo, mat);
+    const marker = new THREE.Group();
+    const groundY = this.environment.terrainQuery.getElevation(pos[0], pos[2]);
+    const ringMaterial = new THREE.MeshBasicMaterial({ color: '#ffcc33', side: THREE.DoubleSide, transparent: true, opacity: 0.82, depthWrite: false });
+    const ring = new THREE.Mesh(new THREE.RingGeometry(radiusM * 0.9, radiusM, 40), ringMaterial);
     ring.rotation.x = -Math.PI / 2;
-    ring.position.set(pos[0], this.environment.terrainQuery.getElevation(pos[0], pos[2]) + 0.05, pos[2]);
-    this.targetRing = ring;
-    this.scene.add(ring);
+    ring.position.y = 0.05;
+    marker.add(ring);
+
+    // Four thin beacons make the zone readable while approaching, without obscuring the
+    // aircraft or suggesting an unrealistically tall obstacle at touchdown.
+    const beaconGeo = new THREE.BoxGeometry(0.32, 8, 0.32);
+    for (const [x, z] of [[-radiusM * 0.75, 0], [radiusM * 0.75, 0], [0, -radiusM * 0.75], [0, radiusM * 0.75]] as const) {
+      const beaconMaterial = new THREE.MeshBasicMaterial({ color: '#ffbb32', transparent: true, opacity: 0.72, depthWrite: false });
+      const beacon = new THREE.Mesh(beaconGeo, beaconMaterial);
+      beacon.position.set(x, 4, z);
+      marker.add(beacon);
+      this.targetPulseMaterials.push(beaconMaterial);
+    }
+    this.targetPulseMaterials.push(ringMaterial);
+    marker.position.set(pos[0], groundY, pos[2]);
+    this.targetMarker = marker;
+    this.scene.add(marker);
   }
 
   syncAircraft(position: THREE.Vector3, quaternion: THREE.Quaternion, dtS: number, cam: ChaseCameraInput) {
@@ -609,6 +898,11 @@ export class FlightScene {
    * FlightScreen from the same deterministic air-state, keeping render and sim aligned. */
   updateEnvironment(elapsedS: number, wind: THREE.Vector3) {
     this.environment.update(elapsedS, wind);
+    if (this.targetMarker) {
+      const pulse = 0.64 + Math.sin(elapsedS * 3.4) * 0.18;
+      for (const material of this.targetPulseMaterials) material.opacity = pulse;
+      this.targetMarker.rotation.y = elapsedS * 0.12;
+    }
   }
 
   dispose() {

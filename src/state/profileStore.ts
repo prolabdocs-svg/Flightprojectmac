@@ -3,6 +3,8 @@ import type { AircraftBuild, FlightResult, PlayerProfile } from '../core/types';
 import { createDefaultProfile, saveRepository, whenSaveRepositoryReady } from '../save/save';
 import { canUnlockTech } from '../content/techtree';
 import { MAX_HOME_BASE_LEVEL } from '../content/homeBase';
+import { getFrame } from '../content/parts';
+import { buildForFrame } from '../content/assembly';
 
 interface ProfileState {
   profile: PlayerProfile;
@@ -11,6 +13,7 @@ interface ProfileState {
   setBuild: (build: AircraftBuild) => void;
   buyPart: (partId: string, priceCash: number) => boolean;
   buyFrame: (frameId: string, priceCash: number) => boolean;
+  selectFrame: (frameId: string) => boolean;
   unlockTech: (nodeId: string, costRp: number) => boolean;
   buyPaint: (paintId: string, priceCash: number) => boolean;
   selectPaint: (paintId: string) => void;
@@ -52,6 +55,19 @@ export const useProfileStore = create<ProfileState>((set, get) => ({
     if (profile.ownedFrameIds.includes(frameId)) return true;
     if (profile.cash < priceCash) return false;
     set({ profile: { ...profile, cash: profile.cash - priceCash, ownedFrameIds: [...profile.ownedFrameIds, frameId] } });
+    get().persist();
+    return true;
+  },
+
+  // Atomic frame switch: only an owned, known frame may become currentBuild, and the
+  // resulting loadout is repaired to that frame's hardpoints (assembly.ts#buildForFrame)
+  // so an unowned/unknown id or an incompatible carried-over part can never land in state.
+  selectFrame: (frameId) => {
+    const { profile } = get();
+    if (!profile.ownedFrameIds.includes(frameId)) return false;
+    const frame = getFrame(frameId);
+    if (!frame) return false;
+    set({ profile: { ...profile, currentBuild: buildForFrame(frame, profile.currentBuild) } });
     get().persist();
     return true;
   },

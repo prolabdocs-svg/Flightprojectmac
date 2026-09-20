@@ -139,6 +139,10 @@ export const MISSIONS: Array<MissionDefinition & MissionAirfieldLinks> = [
     rewardBaseCash: 210,
     rewardBaseRp: 38,
     bonuses: [{ id: 'under_75', label: 'Menos de 75 s', check: 'timeUnder', value: 75, rewardCash: 45, rewardRp: 8 }],
+    // Side contract (not on the mandatory unlock path — red_canyon_route_01 alone opens
+    // Backcountry). Riding the ridge launch needs real acceleration off the ground; a
+    // Field Twin 18hp or the high-lift wing (both cheap, tech-free Builder buys) clears it.
+    aircraftRequirement: { maxTakeoffRollM: 45, label: 'Necesitas más aceleración en despegue (motor o ala mejorados)' },
   },
   // Región 4 — BACKCOUNTRY.
   {
@@ -174,6 +178,9 @@ export const MISSIONS: Array<MissionDefinition & MissionAirfieldLinks> = [
     rewardBaseCash: 245,
     rewardBaseRp: 45,
     bonuses: [{ id: 'fuel_55', label: 'Combustible > 55%', check: 'fuelRemaining', value: 0.55, rewardCash: 35, rewardRp: 0 }],
+    // Side contract (backcountry_stol_01 alone opens Coast Run). The narrow shoreline
+    // punishes a hard touchdown; the tech-free gear_field upgrade covers it.
+    aircraftRequirement: { minGearToleranceMs: 4.5, label: 'El tren ligero no aguanta la orilla: monta un tren de campo o mejor' },
   },
   // Región 5 — COAST RUN.
   {
@@ -209,6 +216,9 @@ export const MISSIONS: Array<MissionDefinition & MissionAirfieldLinks> = [
     rewardBaseCash: 285,
     rewardBaseRp: 52,
     bonuses: [{ id: 'under_90', label: 'Menos de 90 s', check: 'timeUnder', value: 90, rewardCash: 50, rewardRp: 8 }],
+    // Side contract (coast_navigation_01 alone opens Industrial Belt). Sea gusts punish a
+    // stiff touchdown the same way the backcountry shoreline does.
+    aircraftRequirement: { minGearToleranceMs: 4.5, label: 'Las ráfagas marinas exigen un tren más resistente' },
   },
   // Región 6 — INDUSTRIAL BELT.
   {
@@ -240,6 +250,9 @@ export const MISSIONS: Array<MissionDefinition & MissionAirfieldLinks> = [
     rewardBaseCash: 325,
     rewardBaseRp: 60,
     bonuses: [{ id: 'no_damage', label: 'Sin daños', check: 'noDamage', rewardCash: 45, rewardRp: 6 }],
+    // Side contract (industrial_speed_01 alone opens High Desert). The full corridor
+    // crossing needs more fuel margin than the starter tank carries; tank_12 (tech-free) covers it.
+    aircraftRequirement: { minRangeKm: 5.5, label: 'El tanque de 8L no llega: monta el tanque de 12L o mejor' },
   },
   // Región 7 — HIGH DESERT TEST RANGE.
   {
@@ -276,6 +289,9 @@ export const MISSIONS: Array<MissionDefinition & MissionAirfieldLinks> = [
     rewardBaseCash: 370,
     rewardBaseRp: 68,
     bonuses: [{ id: 'landing_quality', label: 'Aterrizaje suave', check: 'landingQuality', value: 0.76, rewardCash: 55, rewardRp: 8 }],
+    // Side contract (desert_record_01 alone opens The Range). A STOL contract living up
+    // to its name: the same short-roll bar as the ridge launch clears it.
+    aircraftRequirement: { maxTakeoffRollM: 45, label: 'Necesitas un despegue más corto (motor o ala mejorados)' },
   },
   // Región 8 — THE RANGE, the end-game mountain crossing.
   {
@@ -311,6 +327,14 @@ export const MISSIONS: Array<MissionDefinition & MissionAirfieldLinks> = [
     rewardBaseCash: 450,
     rewardBaseRp: 90,
     bonuses: [{ id: 'landing_quality', label: 'Aterrizaje impecable', check: 'landingQuality', value: 0.82, rewardCash: 80, rewardRp: 12 }],
+    // Campaign capstone, not on the mandatory unlock path (range_crossing_01 alone is the
+    // last required gate). Asks for both range and a landing-worthy gear at once; a
+    // tank_12 + gear_field starter build (both tech-free Builder buys) clears both bars.
+    aircraftRequirement: {
+      minRangeKm: 5.5,
+      minGearToleranceMs: 4.5,
+      label: 'La plataforma final exige más autonomía y un tren capaz de aguantar el aterrizaje',
+    },
   },
 ];
 

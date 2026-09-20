@@ -1,14 +1,14 @@
 # PROJECT FLIGHT
 
-A physics-based DIY-aircraft builder & flying game for mobile browsers, scaffolded from
+A physics-based DIY-aircraft builder & flying game for web and desktop, scaffolded from
 `PROJECT_FLIGHT_MASTER_GDD_TDD_PRODUCTION_SPEC.md`. You build a scrappy homebuilt aircraft in
 a garage, fly it with a virtual RC "Mode 2" transmitter, and improve it with cash/RP earned
 from flights.
 
 This is a **vertical-slice implementation**, not the full production scope in the spec. It
 follows the recommended stack and architecture, with an end-to-end core loop (garage → fly →
-results → garage). All eight authored regions now have a progressive two-contract campaign;
-their visual prop kits remain intentionally lightweight.
+results → garage). All eight authored regions have a progressive 16-contract campaign; their
+visual prop kits are intentionally lightweight and tuned for the shipping performance budget.
 
 ## Tech stack (per the spec's own "31.1 Stack recomendado")
 
@@ -34,6 +34,10 @@ for:
 This runs "on mobile" by being opened in Safari/Chrome on a phone (installable to the home
 screen via the manifest) — there is no native iOS/Android build step, matching the spec.
 
+For desktop distribution, the same production payload is wrapped in a sandboxed Electron shell
+for macOS, Windows and Linux. See [STEAM_RELEASE.md](STEAM_RELEASE.md) for the platform release
+checklist and the external Steamworks steps.
+
 ## Running it
 
 ```bash
@@ -51,6 +55,18 @@ exercises the PWA manifest/service worker path.
 
 There is no native mobile project (no Xcode/Android Studio step) — it is a web app that runs
 full-screen, landscape-oriented, and touch-first.
+
+## Desktop / Steam build
+
+```bash
+npm run desktop:run          # production build, then run the local desktop shell
+npm run desktop:package      # macOS universal directory for SteamPipe
+npm run desktop:package:win  # Windows x64 directory for SteamPipe
+npm run desktop:package:linux # Linux x64 directory for SteamPipe
+```
+
+Outputs go to `release/`. These scripts prepare native depots; publishing, signing,
+notarization and SteamPipe upload require the publisher's protected credentials.
 
 ## Content integrity checks
 
@@ -93,9 +109,9 @@ fault.
 - **World streaming**: eight authored campaign regions carry environment, weather, gust, cloud,
   and local wind-volume data. Each has a progressive contract chain; chunk scheduling and
   instanced vegetation keep rendering bounded on mobile.
-- **Three missions** covering three of the spec's mission families (Distance Run, Precision
-  Landing, STOL Challenge), with optional bonus objectives (no-damage, fuel remaining, landing
-  quality) feeding into the reward calculation. `src/content/missions.ts`,
+- **Sixteen missions across eight regions** covering Distance Run, Precision Landing, STOL,
+  navigation and speed contracts. Optional bonus objectives (no-damage, fuel remaining,
+  landing quality and time) feed into the reward calculation. `src/content/missions.ts`,
   `src/content/economy.ts`.
 - **Economy / progression**: cash + Research Points rewarded per flight (spec 14.2's shape:
   base + distance + landing quality + bonuses, with a floor so a crash never zeroes your
@@ -106,7 +122,8 @@ fault.
 - **Save system** (spec 44): a versioned `PlayerProfile` persisted to IndexedDB on every
   mutation, loaded at boot, and migrated from the legacy localStorage key when present.
 - **Audio**: Web Audio engine, UI, and result cues with saved music/SFX volume controls.
-- **PWA shell**: manifest + service worker precaching the app shell for offline boot.
+- **PWA and desktop shells**: manifest + service worker for offline web boot, plus a stable,
+  sandboxed `project-flight://` desktop origin for distributable builds.
 - **Flight HUD** (spec 24/82.12): speed/altitude/fuel/RPM readouts, mission distance banner,
   crash/landed state banner, secondary controls (engine start/stop, brake, flaps, emergency
   chute), and the two virtual sticks — all safe-area aware for notched phones.
@@ -119,8 +136,8 @@ localization, etc.). None of that is realistic to build "from scratch" in one pa
 scaffold focuses on making the **core loop real and playable** and leaves the rest as clearly
 marked extension points:
 
-- **Only Tier 0–1 aircraft content is playable.** The eight-region campaign contract is
-  playable, while the later regions still need bespoke landmark/prop breadth for final art.
+- **Only Tier 0–1 aircraft content is playable.** The eight-region campaign is playable, while
+  later regions still need broader bespoke landmark/prop passes for art-complete release review.
 - **Damage/detachment is implemented for primary aero surfaces**, but it is not yet a full
   per-module repair and visual-asset system.
 - **Workshop breadth is still limited.** The tech tree, Builder part market, and Paint screen
@@ -128,16 +145,16 @@ marked extension points:
 - **No replay/ghost system, no Daily Challenge, no Leaderboards, no cloud save/auth** (spec
   26–29, 45, 50). The `SaveRepository` interface exists so cloud sync can be added without
   touching game logic.
-- **No final 3D art assets.** The aircraft and terrain props are primitive Three.js geometry,
-  rather than the finished tube-frame/fabric-wing art direction; treat visuals as placeholders.
+- **Art is a mixed production set.** The starter tube-frame/fabric-wing aircraft is an authored
+  GLB and every region has streamed authored anchors; procedural terrain and lightweight
+  fallback kits remain by design. Final marketing captures still need a device-profiled art
+  review across the full campaign.
 - **Gamepad estándar:** mando USB/Bluetooth con Gamepad API (sticks, gatillos y botones
   estándar) está soportado. Un transmisor RC USB que no se exponga como gamepad estándar
   aún requerirá un adaptador/mapeo específico.
-- **Flight model is unbalanced/untuned.** It's internally consistent (soft stall, lift/drag
-  curves, thrust falloff with speed, a stability term) but the constants have not been tuned
-  against the spec's target feel — expect speeds/altitudes that are too extreme out of the box.
-  Look at `src/sim/flightController.ts` (thrust divisor, stability gain) and `src/sim/aero.ts`
-  (`clSlope`) first.
+- **Flight model is game-tuned rather than a real-flight trainer.** It has deterministic tests
+  for takeoff, stall, recovery and landing, but still needs external playtest telemetry before
+  any public claim about difficulty balance or realism.
 - **No WebGPU renderer / dynamic quality tiers** (spec 21/40/48) — plain WebGL2 via
   `THREE.WebGLRenderer`, fixed quality.
 - **Fixed timestep is implemented (60Hz accumulator loop) but Rapier's own `world.step()` is

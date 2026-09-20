@@ -1,0 +1,63 @@
+name: Release quality
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  web-quality:
+    name: Web build and simulation tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm audit --audit-level=high
+      - run: npm test -- --run
+      - run: npm run build
+      - run: git diff --check
+
+  mac-desktop-package:
+    name: macOS desktop package
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # This verifies a distributable desktop directory. Signing/notarization deliberately
+      # remains a protected release-environment responsibility, not a CI secret fallback.
+      - run: npm run desktop:package
+
+  windows-desktop-package:
+    name: Windows x64 desktop package
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run desktop:package:win
+
+  linux-desktop-package:
+    name: Linux x64 desktop package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run desktop:package:linux

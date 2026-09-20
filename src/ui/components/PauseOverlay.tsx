@@ -34,6 +34,15 @@ export function PauseOverlay() {
         >
           {selectedMissionId ? 'Abandonar contrato' : 'Salir al mapa'}
         </button>
+        <button
+          className="secondary-btn"
+          onClick={() => {
+            setPaused(false);
+            goTo('hangar');
+          }}
+        >
+          Volver al taller
+        </button>
       </div>
     </div>
   );

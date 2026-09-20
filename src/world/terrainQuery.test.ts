@@ -1,7 +1,22 @@
 import { describe, expect, it } from 'vitest';
-import { THE_FIELD, getRegion } from '../content/regions';
+import { REGIONS, THE_FIELD, getRegion } from '../content/regions';
 import { AIRFIELDS, getAirfield } from './airfields';
-import { createTerrainQueryService } from './terrainQuery';
+import { createTerrainQueryService, NATURAL_ELEVATION_PROFILES } from './terrainQuery';
+
+/** Samples a profile on a coarse grid to characterize its relief range/roughness. */
+function sampleGrid(profile: (x: number, y: number) => number, extent = 1200, step = 40): number[] {
+  const values: number[] = [];
+  for (let x = -extent; x <= extent; x += step) {
+    for (let y = -extent; y <= extent; y += step) {
+      values.push(profile(x, y));
+    }
+  }
+  return values;
+}
+
+function rangeOf(values: number[]): number {
+  return Math.max(...values) - Math.min(...values);
+}
 
 describe('createTerrainQueryService', () => {
   it('is flat across an airfield graded pad (two different points, same elevation)', () => {
@@ -155,5 +170,83 @@ describe('createTerrainQueryService', () => {
     const near = terrain.getBiomeWeights(300, 145); // near the backcountry lake edge
     const far = terrain.getBiomeWeights(-5000, -5000);
     expect(near).not.toEqual(far);
+  });
+});
+
+describe('per-terrain-type geography (NATURAL_ELEVATION_PROFILES)', () => {
+  it('every terrain type has a distinct profile (no two produce identical grids)', () => {
+    const grids = Object.entries(NATURAL_ELEVATION_PROFILES).map(
+      ([terrain, profile]) => [terrain, sampleGrid(profile)] as const,
+    );
+    for (let i = 0; i < grids.length; i++) {
+      for (let j = i + 1; j < grids.length; j++) {
+        expect(grids[i][1], `${grids[i][0]} vs ${grids[j][0]}`).not.toEqual(grids[j][1]);
+      }
+    }
+  });
+
+  it('meadow has a smaller relief range than canyon and range', () => {
+    const meadowRange = rangeOf(sampleGrid(NATURAL_ELEVATION_PROFILES.meadow));
+    const canyonRange = rangeOf(sampleGrid(NATURAL_ELEVATION_PROFILES.canyon));
+    const rangeRange = rangeOf(sampleGrid(NATURAL_ELEVATION_PROFILES.range));
+    expect(meadowRange).toBeLessThan(canyonRange);
+    expect(meadowRange).toBeLessThan(rangeRange);
+  });
+
+  it('meadow has a gentler average slope than canyon and range', () => {
+    const terrain = createTerrainQueryService(THE_FIELD);
+    const canyonTerrain = createTerrainQueryService(getRegion('red_canyon'));
+    const rangeTerrain = createTerrainQueryService(getRegion('the_range'));
+    const points: Array<[number, number]> = [];
+    for (let x = -1200; x <= 1200; x += 80) {
+      for (let z = -1200; z <= 1200; z += 80) points.push([x, z]);
+    }
+    const avg = (svc: ReturnType<typeof createTerrainQueryService>) =>
+      points.reduce((sum, [x, z]) => sum + svc.getSlopeDeg(x, z), 0) / points.length;
+    expect(avg(terrain)).toBeLessThan(avg(canyonTerrain));
+    expect(avg(terrain)).toBeLessThan(avg(rangeTerrain));
+  });
+
+  it('coast has a directional gradient toward the sea (not symmetric noise)', () => {
+    const coast = NATURAL_ELEVATION_PROFILES.coast;
+    // Local plane y maps to -worldZ; Coast Run opens out to sea in +worldZ,
+    // therefore increasingly negative local y must descend.
+    const near = coast(0, 0);
+    const mid = coast(0, -400);
+    const far = coast(0, -1200);
+    expect(near).toBeGreaterThan(mid);
+    expect(mid).toBeGreaterThan(far);
+  });
+
+  it('quarry has at least one hard bench/step (a jump much larger than the local roughness)', () => {
+    const quarry = NATURAL_ELEVATION_PROFILES.quarry;
+    const diffs: number[] = [];
+    for (let x = 0; x < 600; x += 2) {
+      diffs.push(Math.abs(quarry(x + 2, 900) - quarry(x, 900)));
+    }
+    const sorted = [...diffs].sort((a, b) => a - b);
+    const median = sorted[Math.floor(sorted.length / 2)];
+    expect(Math.max(...diffs)).toBeGreaterThan(median * 3);
+  });
+
+  it('desert has wide (low-frequency) undulation: adjacent samples barely change', () => {
+    const desert = NATURAL_ELEVATION_PROFILES.desert;
+    const quarry = NATURAL_ELEVATION_PROFILES.quarry;
+    const step = 5;
+    const desertDelta = Math.abs(desert(500 + step, 500) - desert(500, 500));
+    const quarryDelta = Math.abs(quarry(500 + step, 500) - quarry(500, 500));
+    expect(desertDelta).toBeLessThan(quarryDelta);
+  });
+
+  it('every airfield in every region still sits on a perfectly flat graded pad', () => {
+    for (const region of REGIONS) {
+      const terrain = createTerrainQueryService(region);
+      const regionAirfields = AIRFIELDS.filter((a) => a.regionId === region.id);
+      for (const airfield of regionAirfields) {
+        const [x, , z] = airfield.position;
+        expect(terrain.getSlopeDeg(x, z)).toBeCloseTo(0, 5);
+        expect(terrain.getElevation(x + 15, z)).toBe(terrain.getElevation(x - 15, z));
+      }
+    }
   });
 });

@@ -126,6 +126,8 @@ export interface Hardpoint {
 export interface FrameDefinition {
   id: string;
   name: string;
+  /** One-line role summary shown in the workshop's airframe selector. */
+  description?: string;
   tier: number;
   priceCash?: number;
   requiresTechId?: string;
@@ -157,6 +159,20 @@ export type MissionFamily =
   | 'stolChallenge'
   | 'timeTrial';
 
+/** Capability gate for a contract (spec 12.1: "destinos limitados por capacidad").
+ * Compared against sim/performance.ts#estimatePerformance for the player's current build,
+ * so it gates the whole aircraft (frame + installed parts), not just the airframe. */
+export interface AircraftRequirement {
+  /** Still-air range at cruise throttle, km. */
+  minRangeKm?: number;
+  /** Ground roll to liftoff on grass at full throttle, m. */
+  maxTakeoffRollM?: number;
+  /** Touchdown sink rate the gear absorbs undamaged, m/s. */
+  minGearToleranceMs?: number;
+  /** Player-facing reason, shown on the map card and the briefing. */
+  label: string;
+}
+
 export interface MissionDefinition {
   id: string;
   regionId: string;
@@ -171,6 +187,8 @@ export interface MissionDefinition {
   rewardBaseCash: number;
   rewardBaseRp: number;
   bonuses: MissionObjectiveBonus[];
+  /** Optional aircraft capability gate. Contracts without one are flyable by the starter. */
+  aircraftRequirement?: AircraftRequirement;
 }
 
 export interface RegionDefinition {

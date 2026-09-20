@@ -163,6 +163,31 @@
   font-size: 12px;
   opacity: 0.7;
 }
+.desktop-controls-card {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid rgba(198, 138, 46, 0.36);
+  border-radius: 12px;
+  background: rgba(198, 138, 46, 0.08);
+  text-align: left;
+}
+.desktop-controls-card p {
+  margin: 7px 0 0;
+  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 1.55;
+}
+.desktop-controls-card kbd {
+  display: inline-block;
+  min-width: 1.5em;
+  padding: 1px 4px;
+  border: 1px solid rgba(241, 239, 228, 0.32);
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.22);
+  color: var(--text);
+  font: 600 0.9em var(--font-technical);
+  text-align: center;
+}
 
 /* Hangar */
 .hangar-header {
@@ -323,6 +348,8 @@
 .route-map-compass, .route-map-caption { position:absolute; z-index:1; font:700 10px var(--font-technical); letter-spacing:.14em; color:var(--text); opacity:.72; }
 .route-map-compass { right:14px; top:12px; border:1px solid var(--border-strong); border-radius:50%; width:25px; height:25px; display:grid; place-items:center; }
 .route-map-caption { left:14px; top:13px; color:var(--cyan); }
+.route-map-identity { position:absolute; z-index:1; left:14px; bottom:12px; display:flex; align-items:center; gap:6px; color:rgba(245,242,227,.8); font:600 10px var(--font-technical); letter-spacing:.08em; text-transform:uppercase; text-shadow:0 1px 2px rgba(0,0,0,.72); }
+.route-map-identity b { display:grid; width:21px; height:21px; place-items:center; border:1px solid rgba(245,242,227,.42); background:rgba(8,12,13,.24); color:var(--accent-strong); font:700 15px/1 var(--font-display); }
 .route-map-pin { position:absolute; z-index:2; transform:translate(-50%,-50%); display:flex; align-items:center; gap:6px; color:var(--text); font:700 10px var(--font-technical); text-shadow:0 1px 2px #000; }
 .route-map-pin i { width:10px; height:10px; border:2px solid var(--accent-strong); border-radius:50%; background:#1a2020; box-shadow:0 0 0 4px rgba(240,106,42,.18); }
 .route-map-pin-hidden i, .route-map-pin-rumored i { border-color:var(--text-dim); box-shadow:none; }
@@ -387,6 +414,11 @@
   background: #444;
   padding: 2px 8px;
   border-radius: 10px;
+  max-width: 55%;
+  text-align: right;
+}
+.mission-card-locked-capability {
+  background: #7a4a12;
 }
 
 /* Briefing */
@@ -409,6 +441,22 @@
 .bonus-row {
   opacity: 0.85;
   padding: 2px 0;
+}
+.briefing-requirement {
+  background: rgba(122, 74, 18, 0.25);
+  border: 1px solid #7a4a12;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 13px;
+}
+.briefing-requirement-ready {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: var(--border);
+}
+.requirement-row {
+  opacity: 0.85;
+  padding: 2px 0;
+  font-size: 12px;
 }
 
 /* Builder */
@@ -527,6 +575,10 @@
   font-size: 12px;
   opacity: 0.8;
 }
+.results-caution {
+  font-size: 13px;
+  color: var(--danger, #d16b6b);
+}
 .results-costs {
   display: flex;
   gap: 16px;
@@ -586,6 +638,13 @@
 .option-row-slider input[type='range'] {
   width: 100%;
   accent-color: var(--accent);
+}
+.build-info {
+  margin: 4px 0 0;
+  color: var(--text-dim);
+  font: 600 10px var(--font-technical);
+  letter-spacing: .08em;
+  text-align: center;
 }
 
 /* Tech tree */
@@ -721,6 +780,9 @@
   justify-content: center;
   flex: 1;
   align-items: center;
+}
+@media (max-width: 520px) {
+  .desktop-controls-card p { font-size: 11px; }
 }
 .practice-pad-wrap {
   display: flex;

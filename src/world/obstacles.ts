@@ -1,5 +1,5 @@
-// Solid world obstacles the flight sim collides with (barns, towers, cranes, trees near
-// airfields, mesas...). Rendered props are presentation; this list is the physics truth.
+// Solid world obstacles the flight sim collides with. Collision volumes live on the
+// rendered placement itself, so the physics cannot silently drift away from the world art.
 // Shapes are deliberately primitive: an upright cylinder or a yaw-rotated box, both
 // standing on `baseY`. FlightController tests aircraft hard points against them.
 
@@ -20,9 +20,22 @@ export function pointInObstacle(o: Obstacle, px: number, py: number, pz: number)
   return Math.abs(lx) <= o.halfX && Math.abs(lz) <= o.halfZ;
 }
 
-/** Pure, deterministic obstacle list for a region (same data the renderer draws).
- * The world layer owns the contents; the flight sim only consumes it. */
-export function getRegionObstacles(regionId: string): Obstacle[] {
-  void regionId;
-  return [];
+/** Builds colliders from the exact streamed prop anchors. `baseY` is sampled from the
+ * shared terrain query, matching FlightScene's placement rather than assuming sea level. */
+export function getRegionObstacles(regionId: string, terrain: Pick<TerrainQueryService, 'getElevation'>): Obstacle[] {
+  return (ACTIVE_REGION_ASSETS[regionId] ?? []).reduce<Obstacle[]>((obstacles, placement) => {
+    const collision = placement.collision;
+    if (!collision) return obstacles;
+    const [x, z] = placement.position;
+    const scale = placement.scale ?? 1;
+    const base = { id: placement.id, x, z, baseY: terrain.getElevation(x, z) };
+    if (collision.kind === 'cylinder') {
+      obstacles.push({ ...base, kind: 'cylinder', radiusM: collision.radiusM * scale, heightM: collision.heightM * scale });
+      return obstacles;
+    }
+    obstacles.push({ ...base, kind: 'box', halfX: collision.halfX * scale, halfZ: collision.halfZ * scale, heightM: collision.heightM * scale, yawRad: placement.rotationY ?? 0 });
+    return obstacles;
+  }, []);
 }
+import { ACTIVE_REGION_ASSETS } from '../render/assetManifest';
+import type { TerrainQueryService } from './terrainQuery';

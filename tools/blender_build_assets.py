@@ -37,6 +37,8 @@ ORANGE = mat('safety_orange', (0.95, 0.22, 0.035), 0.0, 0.54)
 YELLOW = mat('crane_yellow', (0.92, 0.52, 0.03), 0.54, 0.42)
 WHITE = mat('marking_white', (0.82, 0.8, 0.66), 0.0, 0.76)
 CANOPY = mat('smoked_canopy', (0.035, 0.11, 0.14), 0.34, 0.16)
+SEAT = mat('seat_fabric', (0.03, 0.03, 0.03), 0.0, 0.85)
+ALU = mat('aluminum_rim', (0.72, 0.73, 0.75), 0.85, 0.25)
 
 def collection(name):
     c = bpy.data.collections.new(name)
@@ -48,10 +50,11 @@ def link(obj, c):
     c.objects.link(obj)
     return obj
 
-def cube(c, name, loc, scale, material, bevel=0.0):
+def cube(c, name, loc, scale, material, bevel=0.0, rot=None):
     bpy.ops.mesh.primitive_cube_add(location=loc)
     o=bpy.context.object; o.name=name; o.scale=scale
-    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+    if rot: o.rotation_euler=rot
+    bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
     if bevel:
         mod=o.modifiers.new('soft_edges','BEVEL'); mod.width=bevel; mod.segments=2
     o.data.materials.append(material); return link(o,c)
@@ -84,44 +87,88 @@ def export(c, filename):
     bpy.context.view_layer.objects.active = next(iter(c.objects))
     bpy.ops.export_scene.gltf(filepath=os.path.join(OUT, filename), export_format='GLB', use_selection=True, export_apply=True, export_materials='EXPORT')
 
-# Airframe: fully modeled tube-and-fabric ultralight with animation-ready named controls.
+# Airframe: weight-shift ultralight trike — tube boom, kingpost-braced sail wing,
+# tricycle gear, tandem seats, pusher engine. Modeled after real trike construction
+# (e.g. Quicksilver/Aviator MX-class) rather than a fixed cabin monoplane.
 c=collection('PF_AIRCRAFT_ULTRALIGHT')
-cube(c,'fuselage_keel',(0,-0.15,0),(.35,.3,2.35),TUBE,.08)
-for x in (-.42,.42):
-    rod(c,'longeron', (x,0,-2.2), (x,0,2.1), .055,TUBE)
-for z in (-1.9,-.8,.35,1.35):
-    rod(c,'fuselage_cross',(-.42,0,z),(.42,0,z),.04,TUBE)
-for x in (-.42,.42):
-    rod(c,'diagonal', (x,0,-1.8), (-x,0,-.8), .035,TUBE)
-    rod(c,'diagonal', (x,0,-.8), (-x,0,.35), .035,TUBE)
-    rod(c,'diagonal', (x,0,.35), (-x,0,1.35), .035,TUBE)
+rod(c,'boom_longeron',(0,.15,-2.9),(0,.15,2.55),.055,TUBE)
+# Wheel centers must land exactly on the strut's lower end point — the axle, not a
+# nearby approximation — or the wheel visibly floats off its own axle.
+NOSE_AXLE=(0,-.7,2.2)
+MAIN_AXLE_Y=-.75
+rod(c,'nose_strut',(0,.15,2.35),NOSE_AXLE,.04,TUBE)
+def wheel(name,loc,major=.34):
+    # Torus normal must point along X (axle sideways) so the wheel stands as a vertical
+    # disc facing forward — rotating around X instead lays it flat like a life-ring.
+    bpy.ops.mesh.primitive_torus_add(major_radius=major, minor_radius=.11, major_segments=14, minor_segments=7, location=loc, rotation=(0,math.pi/2,0))
+    o=bpy.context.object; o.name=name; o.data.materials.append(RUBBER); link(o,c)
+    cyl(c,name+'_hub',loc,major*.4,.05,ALU,10,(0,math.pi/2,0))
+wheel('nose_wheel',NOSE_AXLE,.3)
+for x in (-.95,.95):
+    axle=(x,MAIN_AXLE_Y,.35)
+    rod(c,'main_strut',(0,.15,.35),axle,.045,TUBE)
+    wheel('main_wheel',axle)
+# Tandem seats: pilot forward, passenger aft, spaced so the seat blocks (0.64m deep each)
+# don't overlap into a single fused shape.
+for i,z in enumerate((1.35,.15)):
+    seat=cube(c,f'cockpit_seat_{i}',(0,.42,z),(.32,.22,.32),SEAT,.05)
+    back=cube(c,f'cockpit_seat_back_{i}',(0,.68,z-.22),(.32,.32,.06),SEAT,.03); back.rotation_euler=(-.35,0,0)
+    # 2-point lap belt across each seat, called out explicitly on the reference sheet.
+    belt=cube(c,f'seat_belt_{i}',(0,.5,z+.02),(.34,.02,.06),ORANGE,.01); belt.rotation_euler=(-.5,0,0)
+# A real Quicksilver MX-class is 3-axis (stick + pedals + ailerons), not weight-shift —
+# the kingpost/cable bracing is authentic to the type, but control linkages were missing.
+rod(c,'control_stick',(0,.35,1.2),(0,.85,1.05),.018,TUBE)
+rod(c,'rudder_pedal_bar',(-.22,.05,2.05),(.22,.05,2.05),.02,TUBE)
+uv(c,'asi_gauge',(.16,.6,1.3),(.05,.05,.05),WHITE)
+rod(c,'kingpost_strut',(0,.15,.75),(0,1.6,.75),.045,TUBE)
+sweep=0.30
 for x in (-1,1):
-    cube(c,'wing_panel_L' if x<0 else 'wing_panel_R',(x*2.65,.28,0),(2.55,.06,.72),FABRIC,.035)
-    rod(c,'wing_leading',(x*.2,.28,.73),(x*5.12,.28,.73),.045,TUBE)
-    rod(c,'wing_trailing',(x*.2,.28,-.73),(x*5.12,.28,-.73),.035,TUBE)
-    for k in (1.25,2.5,3.75): rod(c,'wing_rib',(x*k,.25,-.70),(x*k,.25,.70),.023,TUBE)
-    cube(c,'aileron_L' if x<0 else 'aileron_R',(x*4.35,.25,-.53),(.75,.055,.2),FABRIC,.02)
-# High-contrast wingtips and a dark cockpit break up the large fabric silhouette at
-# chase-camera distance without spending triangles on invisible detail.
+    cube(c,'wing_panel_L' if x<0 else 'wing_panel_R',(x*2.75,1.62,.55),(2.7,.045,.95),FABRIC,.03,rot=(0,-sweep*x,0))
+    cube(c,'safety_tip_L' if x<0 else 'safety_tip_R',(x*5.35,1.62,-.15),(.08,.08,.9),ORANGE,.02,rot=(0,-sweep*x,0))
+    rod(c,'wing_leading',(x*.15,1.62,1.42),(x*5.4,1.62,.1),.045,TUBE)
+    rod(c,'wing_trailing',(x*.15,1.62,-.35),(x*5.05,1.62,-.75),.035,TUBE)
+    # Rib battens showing through the sail — the scalloped structure line real Quicksilver
+    # wings read by at close range — plus a hinged outboard aileron for genuine 3-axis roll.
+    for k in (1.4,2.35,3.3,4.25):
+        rod(c,'wing_rib',(x*k,1.615,-.32),(x*k,1.615,1.15),.018,TUBE)
+    aileron=cube(c,'aileron_L' if x<0 else 'aileron_R',(x*4.55,1.6,-.62),(.62,.035,.16),FABRIC,.015,rot=(0,-sweep*x,0))
+# Cable fan: kingpost + boom flying/landing wires bracing the wing, plus fore/aft stays —
+# this is the defining silhouette of a cable-braced trike wing and was entirely absent before.
+kp_top=(0,1.6,.75)
+boom_nose=(0,.16,2.3); boom_seat_rear=(0,.16,.1); boom_tail=(0,.16,-1.6)
 for x in (-1,1):
-    cube(c,'safety_tip_L' if x<0 else 'safety_tip_R',(x*5.13,.28,0),(.09,.075,.78),ORANGE,.025)
-seat = cube(c,'cockpit_seat',(0,.18,-.58),(.34,.18,.42),ENGINE,.04); seat.rotation_euler=(-.32,0,0)
-cube(c,'cockpit_coaming',(0,.52,-.22),(.42,.14,.56),CANOPY,.05)
-for x in (-1,1): rod(c,'cockpit_rail',(x*.42,.05,-1.05),(x*.42,.72,.26),.028,TUBE)
-for x in (-1,1): rod(c,'wing_brace',(x*.25,-.25,1.05),(x*4.3,.28,.2),.04,TUBE)
-cube(c,'horizontal_stabilizer',(0,.45,-2.85),(1.35,.05,.42),FABRIC,.025)
-cube(c,'elevator',(0,.45,-3.27),(1.35,.05,.16),FABRIC,.018)
-cube(c,'vertical_stabilizer',(0,1.05,-2.9),(.04,.6,.46),FABRIC,.02)
-cube(c,'rudder',(0,1.03,-3.30),(.04,.48,.16),FABRIC,.018)
-cube(c,'tail_warning',(0,1.05,-3.47),(.065,.48,.045),ORANGE,.012)
-cube(c,'engine_block',(0,.02,2.48),(.48,.38,.38),ENGINE,.08)
-for x in (-.28,.28): cyl(c,'cylinder_head',(x,.05,2.85),.18,.32,ENGINE,10,(math.pi/2,0,0))
-for y in (-.72,.72):
-    bpy.ops.mesh.primitive_torus_add(major_radius=.34, minor_radius=.105, major_segments=12, minor_segments=6, location=(y,-.78,.65), rotation=(math.pi/2,0,0))
-    o=bpy.context.object; o.name='main_wheel'; o.data.materials.append(RUBBER); link(o,c)
-    rod(c,'gear_strut',(y,-.7,.65),(y*.42,-.1,1.1),.04,TUBE)
-rod(c,'propeller_blade',(-1.12,0,3.0),(1.12,0,3.0),.06,WOOD)
-cyl(c,'prop_hub',(0,0,2.97),.13,.22,ENGINE,10,(math.pi/2,0,0))
+    tip=(x*5.35,1.62,-.15); inner=(x*1.2,1.55,1.1)
+    rod(c,'flying_wire',kp_top,tip,.01,TUBE)
+    rod(c,'flying_wire',boom_nose,tip,.01,TUBE)
+    rod(c,'landing_wire',boom_seat_rear,tip,.01,TUBE)
+    rod(c,'landing_wire',boom_tail,tip,.01,TUBE)
+    rod(c,'root_brace',kp_top,inner,.012,TUBE)
+rod(c,'fore_brace',boom_nose,kp_top,.014,TUBE)
+rod(c,'aft_brace',boom_seat_rear,kp_top,.014,TUBE)
+# Solid jury struts from the lower boom to the underside of each wing panel — a real
+# strut-braced high wing carries both these load tubes AND the cable bracing above,
+# not cables alone.
+for x in (-1,1):
+    rod(c,'wing_strut',(x*.5,.15,.95),(x*2.3,1.5,.4),.035,TUBE)
+# Fuel tank ahead of the front seat (which now runs to z=1.67), gravity-fed to the
+# pusher engine — kept clear of the seat back instead of overlapping it.
+cyl(c,'fuel_tank',(0,.42,2.0),.16,.4,GALV,10,(math.pi/2,0,0))
+rod(c,'fuel_line',(0,.28,1.8),(0,.2,1.0),.018,RUBBER)
+# Pusher engine behind the rear seat with a two-blade wood prop.
+cube(c,'engine_block',(0,.55,-.35),(.32,.3,.34),ENGINE,.06)
+for x in (-.16,.16): cyl(c,'cylinder_head',(x,.75,-.35),.11,.24,ENGINE,10,(math.pi/2,0,0))
+cyl(c,'prop_hub',(0,.55,-.68),.1,.16,ENGINE,10,(math.pi/2,0,0))
+rod(c,'exhaust_pipe',(.16,.42,-.2),(.24,.3,-.55),.03,ENGINE)
+for x in (-1,1):
+    blade=cube(c,'propeller_blade',(x*.5,.55,-.68),(.48,.015,.1),WOOD,.012)
+    blade.rotation_euler=(0,0,math.radians(8*x))
+# Boom-mounted tail — horizontal/vertical stabilizer, elevator, rudder.
+cube(c,'horizontal_stabilizer',(0,.3,-2.75),(1.1,.04,.36),FABRIC,.02)
+cube(c,'elevator',(0,.3,-3.1),(1.1,.04,.14),FABRIC,.015)
+cube(c,'vertical_stabilizer',(0,.75,-2.8),(.035,.5,.4),FABRIC,.02)
+cube(c,'rudder',(0,.75,-3.15),(.035,.4,.14),FABRIC,.015)
+cube(c,'tail_warning',(0,.75,-3.3),(.06,.42,.045),ORANGE,.012)
+rod(c,'tail_brace',(0,.16,-2.4),(0,.55,-2.8),.02,TUBE)
 export(c,'pf_aircraft_ultralight.glb')
 
 # The Field prop kit: barn, water tower, tree, runway markings, windsock.

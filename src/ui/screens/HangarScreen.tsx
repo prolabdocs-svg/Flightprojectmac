@@ -33,7 +33,10 @@ export function HangarScreen() {
       return;
     }
     selectMission(mission.id);
-    goTo('run');
+    // Give a first-time player the contract objective, reward and landing target
+    // before handing them the controls. The map already follows this route, so the
+    // primary hangar CTA should not bypass the playable mission loop.
+    goTo('briefing');
   };
 
   return (

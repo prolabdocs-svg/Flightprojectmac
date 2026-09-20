@@ -13,9 +13,11 @@
 //                                the cached copy immediately (if any) while refreshing in the
 //                                background.
 //
-// Bump CACHE_VERSION whenever SHELL_URLS changes so old precaches are dropped on activate.
+// Bump CACHE_VERSION whenever cache semantics or SHELL_URLS change so old precaches are
+// dropped on activate. Vite hashes entry chunks per build: serving an old cached HTML
+// document after deployment can otherwise reference chunks that no longer exist.
 
-const CACHE_VERSION = 'v2';
+const CACHE_VERSION = 'v4';
 const SHELL_CACHE = `project-flight-shell-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `project-flight-runtime-${CACHE_VERSION}`;
 const NETWORK_FIRST_CACHE = `project-flight-network-first-${CACHE_VERSION}`;
@@ -28,7 +30,7 @@ const CURRENT_CACHES = [SHELL_CACHE, RUNTIME_CACHE, NETWORK_FIRST_CACHE, SWR_CAC
 // /assets/*, which isn't known at author time — those get swept into the shell cache on first
 // fetch via the install-time addAll below for the entry points we do know, plus opportunistic
 // caching of same-origin /assets/* responses (see handleShellAsset).
-const SHELL_URLS = ['/', '/manifest.json', '/favicon.svg', '/icon-192.svg', '/icon-512.svg'];
+const SHELL_URLS = ['/', '/offline.html', '/manifest.json', '/favicon.svg', '/icon-192.svg', '/icon-512.svg'];
 
 // Same-origin path patterns treated as network-first (spec 46.2: leaderboard, daily challenge
 // config, account/cloud) and stale-while-revalidate (noncritical remote config, news/event cards).
@@ -76,7 +78,27 @@ async function handleCacheOnDemand(request) {
     return response;
   } catch (err) {
     if (cached) return cached;
+    // A branded, actionable offline screen is substantially better than the browser's
+    // generic network error for a PWA navigation that was not cached previously.
+    if (request.mode === 'navigate') {
+      const shell = await caches.open(SHELL_CACHE);
+      return (await shell.match('/offline.html')) ?? Response.error();
+    }
     throw err;
+  }
+}
+
+/** A navigation must prefer the newest HTML document. Static build chunks are content-hashed,
+ * so cache-first HTML can strand a returning player on an old entry point whose chunks were
+ * removed by a deployment. Offline still falls back to the last good shell. */
+async function handleNavigation(request) {
+  const shell = await caches.open(SHELL_CACHE);
+  try {
+    const response = await fetch(request);
+    if (response && response.status === 200) shell.put(request, response.clone());
+    return response;
+  } catch {
+    return (await shell.match(request)) ?? (await shell.match('/')) ?? (await shell.match('/offline.html')) ?? Response.error();
   }
 }
 
@@ -120,6 +142,11 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  if (request.mode === 'navigate') {
+    event.respondWith(handleNavigation(request));
+    return;
+  }
+
   if (matchesAny(url, NETWORK_FIRST_PATTERNS)) {
     event.respondWith(handleNetworkFirst(request));
     return;
@@ -130,7 +157,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // App shell navigations and static build assets: cache-first, populate on demand.
+  // Content-hashed static build assets: cache-first, populate on demand.
   event.respondWith(handleCacheOnDemand(request));
 });
 

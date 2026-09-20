@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { useGameStore } from '../../state/gameStore';
 import { audioService } from '../../audio/audioService';
 import './Screens.css';
+import { getResultsHeadline } from './resultsHeadline';
 
 // Spec 82.14 Results: score, rewards, damage, next action.
 export function ResultsScreen() {
@@ -15,28 +16,23 @@ export function ResultsScreen() {
     audioService.playTone(result.crashed ? 'fail' : result.crashOutcome === 'hardLanding' ? 'transition' : 'success');
   }, [result]);
 
+  // A stale deep link or interrupted session can reach Results without a payload. Redirect
+  // after commit rather than mutating the Zustand store while React is rendering.
+  useEffect(() => {
+    if (!result) goTo('hangar');
+  }, [goTo, result]);
+
   if (!result) {
-    goTo('hangar');
     return null;
   }
 
   const hasDamage = (result.damagedPartIds?.length ?? 0) > 0 || (result.detachedPartIds?.length ?? 0) > 0;
+  const headline = getResultsHeadline(result);
 
   return (
     <div className="screen results-screen">
-      <h2>
-        {!result.missionId && result.landed
-          ? 'Vuelo libre finalizado'
-          : result.crashed
-          ? 'Pérdida total'
-          : result.crashOutcome === 'hardLanding'
-            ? 'Aterrizaje forzoso'
-            : result.landed && result.missionCompleted !== false
-              ? 'Contrato completado'
-              : result.landed
-                ? 'Aterrizaje fuera de objetivo'
-              : 'Vuelo interrumpido'}
-      </h2>
+      <h2>{headline.title}</h2>
+      {headline.caution && <p className="results-caution">{headline.caution}</p>}
       {result.missionId && result.missionCompleted === false && !result.crashed && (
         <p className="results-bonuses">El vuelo cuenta para ganancias, pero no desbloquea la siguiente zona.</p>
       )}

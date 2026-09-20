@@ -3,6 +3,7 @@ import { useGameStore } from './state/gameStore';
 import { useProfileStore } from './state/profileStore';
 import { audioService } from './audio/audioService';
 import { PauseOverlay } from './ui/components/PauseOverlay';
+import { REGIONS } from './content/regions';
 
 const BootScreen = lazy(() => import('./ui/screens/BootScreen').then((m) => ({ default: m.BootScreen })));
 const OnboardingScreen = lazy(() => import('./ui/screens/OnboardingScreen').then((m) => ({ default: m.OnboardingScreen })));
@@ -28,6 +29,19 @@ export default function App() {
   const textSize = useProfileStore((s) => s.profile.settings.textSize);
   const handedness = useProfileStore((s) => s.profile.settings.handedness);
   const screenMounted = useRef(false);
+
+  // Developer-only visual-tour entry point. `?qaRegion=coast_run` (and the other
+  // authored region ids) starts a free flight immediately, making it possible to
+  // inspect every biome from the actual chase camera without unlocking a campaign
+  // profile or contaminating production navigation.
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    const regionId = new URLSearchParams(window.location.search).get('qaRegion');
+    if (!regionId || !REGIONS.some((region) => region.id === regionId)) return;
+    const state = useGameStore.getState();
+    state.selectFreeFlight(regionId);
+    state.goTo('run');
+  }, []);
 
   // Accessibility settings (spec 55.1/55.2/170.2): exposed as root data-attributes so any
   // screen's CSS can opt in without every screen needing its own wiring.
@@ -71,8 +85,10 @@ export default function App() {
   // Mobile/browser lifecycle: a hidden flight is always paused. This prevents an
   // accumulated wall-clock gap or stale control state from advancing physics on resume.
   useEffect(() => {
+    // Dev-only `?qa`: automated browsers hide/show the page between captures.
+    const qaMode = import.meta.env.DEV && new URLSearchParams(window.location.search).has('qa');
     const pauseActiveFlight = () => {
-      if (useGameStore.getState().screen === 'run') setPaused(true);
+      if (!qaMode && useGameStore.getState().screen === 'run') setPaused(true);
     };
     const onVisibilityChange = () => {
       if (document.hidden) pauseActiveFlight();

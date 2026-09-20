@@ -1,0 +1,147 @@
+{
+  "status_legend": {
+    "designed": "Specified in README/RELEASE_READINESS/STEAM_RELEASE/master spec but not necessarily coded.",
+    "implemented": "Source code exists that addresses the requirement.",
+    "working": "Automated test and/or a command run in this audit (npm test/build/lint/audit) demonstrates it functions.",
+    "polished": "Meets the master spec's own quality bar (visual scorecard PASS, QA test matrix, device capture) -- requires human/device review this audit could not perform.",
+    "release_ready": "Meets RELEASE_READINESS.md's ship criteria including production-host and real-device verification -- not achievable from a repo-only audit."
+  },
+  "pillars": [
+    {
+      "id": "PIL-CORE-LOOP",
+      "name": "Core game loop (Boot -> Onboarding -> Hangar -> Map -> Briefing -> Flight -> Results -> Hangar)",
+      "source": ["README.md#screen-flow", "RELEASE_READINESS.md#Core loop"],
+      "designed": true, "implemented": true, "working": "partial",
+      "polished": "unknown", "release_ready": false,
+      "evidence": ["src/App.tsx + src/ui/screens/*.tsx (all 10 screens present)", "npm test passes (316 tests) but no test exercises the full screen transition graph end-to-end"],
+      "unknowns": ["No automated or manual smoke test evidence was produced in this audit for 'no blocked screen' -- RELEASE_READINESS.md itself calls this a manual smoke test, not yet run/recorded here."]
+    },
+    {
+      "id": "PIL-FLIGHT-SIM",
+      "name": "Flight physics (Rapier rigid body + custom aero model, gear, damage/detachment, fixed-step clock)",
+      "source": ["README.md#flight-physics", "PROJECT_FLIGHT_MERGE_STATUS.md#3.1-3.2", "spec section 8/9 (TOC only, not transcribed)"],
+      "designed": true, "implemented": true, "working": true,
+      "polished": "unknown (no external playtest telemetry per README)", "release_ready": false,
+      "evidence": ["src/sim/{aero,flightController,flightModel,physics,engine,damageSystem}.ts", "src/sim/flightTest.test.ts, aero.test.ts, engine.test.ts, damageSystem.test.ts, performance.test.ts, probe/*.test.ts all pass", "src/core/fixedStepClock.ts + fixedStepClock.test.ts (per MERGE_STATUS 3.1)"],
+      "unknowns": ["README explicitly states this is 'game-tuned rather than a real-flight trainer' and 'still needs external playtest telemetry before any public claim about difficulty balance or realism' -- treat that as an open item, not resolved by unit tests."]
+    },
+    {
+      "id": "PIL-AIRCRAFT-ASSEMBLY",
+      "name": "Aircraft parts/hardpoint assembly system",
+      "source": ["README.md#aircraft-assembly", "spec section 6 (TOC only)"],
+      "designed": true, "implemented": true, "working": true,
+      "polished": false, "release_ready": false,
+      "evidence": ["src/content/{parts,assembly}.ts + assembly.test.ts pass"],
+      "unknowns": ["Only 'Frame Zero' (Tier 0) with two options per category is playable per README, against a spec that defines 8 frame generations (A0-A7, see spec section 24.1 asset register: PF_AIR_FRAME_YARDBIRD_A .. PROYECTONE_A). This is a scope gap between spec and shipped content, explicitly acknowledged by README, not a hidden defect."]
+    },
+    {
+      "id": "PIL-WORLD-CAMPAIGN",
+      "name": "8-region streamed campaign world with weather/gust/vegetation/landmarks",
+      "source": ["README.md#world-streaming", "PROJECT_FLIGHT_MERGE_STATUS.md#3 GPT/Master architecture", "VISUAL_STATE.md"],
+      "designed": true, "implemented": true, "working": true,
+      "polished": "in_progress (per VISUAL_STATE.md iteration 8)", "release_ready": false,
+      "evidence": ["src/content/regions.ts: 8 region ids confirmed by direct grep (the_field, scrap_valley, red_canyon, backcountry, coast_run, industrial_belt, high_desert_test_range, the_range)", "src/world/*.ts (chunks, vegetation, landmarks, floatingOrigin, biomeWeights, terrainQuery, waterBodies, etc.) all have passing tests", "src/render/worldVisualIdentity.ts assigns one landmark glyph per terrain family (data-driven, tested)"],
+      "unknowns": ["VISUAL_STATE.md's own stated bottleneck: 'later-region prop density/material variety still need device-profiled capture review before an art-complete claim.' VIS-002/VIS-003/VIS-004 in VISUAL_DEBT.md are open/in-progress, not resolved."]
+    },
+    {
+      "id": "PIL-VISUAL-ASSET-PIPELINE",
+      "name": "3D asset production pipeline (Blender source -> GLB export -> runtime streaming)",
+      "source": ["public/assets/models/README.md", "PROJECT_FLIGHT_MASTER_VISUAL_IMPLEMENTATION_SPEC_v5.0.md sections 15-16, 24-28 (asset registers/taxonomy)"],
+      "designed": true, "implemented": "partial", "working": "partial", "polished": false, "release_ready": false,
+      "evidence": [
+        "361 GLB files exist on disk across airframes/upgrades/world/micro (see ASSET_PROVENANCE.json)",
+        "Only the 'world' domain (23 of 26 world glbs referenced) and a single hardcoded 'airframe' id ('hero_ultralight') are ever passed to assetLibrary.load() -- confirmed by exhaustive grep of every .load()/assetUrl() call site in src/"
+      ],
+      "unknowns": [
+        "69 of 70 exported airframes (per-tier/-generation variants), all 19 'upgrade' models, and all 245 'micro' models (110 air_mic, 105 env_mic, 30 vfx) are exported and licensed as original art but have ZERO runtime call sites. This is 'designed + exported' but not 'implemented' in the sense of being reachable in the running game. Not previously called out in VISUAL_DEBT.md."
+      ]
+    },
+    {
+      "id": "PIL-ECONOMY-PROGRESSION",
+      "name": "Cash/RP economy, tech tree, paint customization, home-base upgrades",
+      "source": ["README.md#economy-progression"],
+      "designed": true, "implemented": true, "working": true, "polished": false, "release_ready": false,
+      "evidence": ["src/content/{economy,techtree,reputation,homeBase,missionProgress}.ts all with passing *.test.ts"],
+      "unknowns": ["README: 'a full inventory/workshop-upgrade loop is not' implemented -- explicit scope note, not a bug."]
+    },
+    {
+      "id": "PIL-SAVE-SYSTEM",
+      "name": "Versioned IndexedDB save + legacy localStorage migration",
+      "source": ["README.md#save-system", "RELEASE_READINESS.md#Saves"],
+      "designed": true, "implemented": true, "working": true, "polished": "unknown", "release_ready": false,
+      "evidence": ["src/save/save.ts + save.test.ts pass (uses fake-indexeddb)"],
+      "unknowns": ["RELEASE_READINESS.md's own exit condition is 'progress survives reload' -- unit tests cover migration logic in isolation, not a real browser reload cycle on a production host."]
+    },
+    {
+      "id": "PIL-AUDIO",
+      "name": "Procedural flight audio (engine/prop/wind/rumble/stall) driven by telemetry",
+      "source": ["git log: 4dbc7dd, 2edbc9d", "README.md#audio"],
+      "designed": true, "implemented": true, "working": true, "polished": "unknown", "release_ready": false,
+      "evidence": ["src/audio/{audioService,flightAudioMappings}.ts + flightAudioMappings.test.ts pass", "committed at 4dbc7dd, merged at 2edbc9d -- this is the only major pillar with a completed, committed merge in this recent history"],
+      "unknowns": []
+    },
+    {
+      "id": "PIL-INPUT",
+      "name": "RC Mode 2 virtual sticks (multitouch) + standard Gamepad API support",
+      "source": ["README.md#rc-mode-2"],
+      "designed": true, "implemented": true, "working": true, "polished": "unknown (touch/device untested)", "release_ready": false,
+      "evidence": ["src/input/{mode2Store,gamepad}.ts + tests pass", "src/ui/components/VirtualStick.tsx with pointerId capture per MERGE_STATUS 3.8"],
+      "unknowns": ["README: a USB RC transmitter not exposing as a standard Gamepad still needs a custom adapter -- explicitly out of scope."]
+    },
+    {
+      "id": "PIL-ACCESSIBILITY",
+      "name": "Keyboard path, focus visibility, text size, reduced motion, color-blind alternatives, WCAG 2.2 AA",
+      "source": ["RELEASE_READINESS.md#Accessibility", "spec section 4.14 Accessibility matrix (TOC only)"],
+      "designed": true, "implemented": "partial", "working": "unknown", "polished": "unknown", "release_ready": false,
+      "evidence": ["aria-*/reduced-motion/focus-related code present in 12+ files including App.tsx, FlightHud.tsx, MenuNavigation.tsx, Screens.css, SettingsScreen.tsx (grep-confirmed)"],
+      "unknowns": ["RELEASE_READINESS.md explicitly requires 'manual audit plus automated accessibility scan' targeting WCAG 2.2 AA. No Lighthouse/axe run was performed in this audit (requires a served build, out of scope for a repo-only pass). Presence of aria attributes is not proof of conformance."]
+    },
+    {
+      "id": "PIL-PWA",
+      "name": "Installable manifest, service worker, offline shell, branded offline fallback",
+      "source": ["README.md#pwa", "RELEASE_READINESS.md#PWA"],
+      "designed": true, "implemented": true, "working": "unknown (build-only)", "polished": "unknown", "release_ready": false,
+      "evidence": ["public/manifest.json, public/sw.js (modified, uncommitted), public/offline.html (untracked, new)"],
+      "unknowns": ["RELEASE_READINESS.md requires a 'mobile device test after deployment' over HTTPS. This audit only confirmed the build compiles; install/offline/update behavior on a real host is unverified."]
+    },
+    {
+      "id": "PIL-DESKTOP-STEAM",
+      "name": "Electron desktop shell for macOS/Windows/Linux + Steam release path",
+      "source": ["STEAM_RELEASE.md (untracked)", "package.json build config (uncommitted)"],
+      "designed": true, "implemented": true, "working": "claimed_by_docs_only", "polished": "unknown", "release_ready": false,
+      "evidence": ["electron/main.cjs (untracked)", "package.json desktop:* scripts + electron-builder config (uncommitted)", "STEAM_RELEASE.md itself claims 'packaged macOS universal build has been smoke-tested locally' -- this audit did NOT re-run npm run desktop:package (out of scope: alters build/, long-running, not requested) so that claim is unverified by this pass"],
+      "unknowns": [
+        "This entire pillar is uncommitted working-tree state. If the working tree were lost, none of it exists in git history.",
+        "STEAM_RELEASE.md's own checklist lists Steamworks account creation, code signing/notarization, depot config, and store page as unstartable from the repo alone -- correctly scoped as out-of-repo work by the doc itself."
+      ]
+    },
+    {
+      "id": "PIL-RELIABILITY-CI",
+      "name": "Production build success, automated test suite, error-recovery boundary, supply-chain audit, CI gate",
+      "source": ["RELEASE_READINESS.md#Reliability", "RELEASE_READINESS.md#Supply chain", ".github/workflows/quality.yml (untracked)"],
+      "designed": true, "implemented": true, "working": true, "polished": "n/a", "release_ready": "partial",
+      "evidence": [
+        "npm test: PASS (316/316)", "npm run build: PASS", "npm audit --audit-level=high: PASS (0 vulns)", "git diff --check: PASS",
+        "src/ui/components/AppErrorBoundary.tsx (untracked) wraps the app root in src/main.tsx -- addresses the 'unexpected render error offers recovery' criterion",
+        ".github/workflows/quality.yml (untracked) codifies exactly RELEASE_READINESS.md's release command gate plus 3 desktop-package jobs"
+      ],
+      "unknowns": ["The CI workflow that would make this gate self-enforcing has never run (it is untracked, never pushed). All 'PASS' results above are from this audit's local run only."]
+    },
+    {
+      "id": "PIL-CONTENT-COMPLETENESS",
+      "name": "Every advertised mission/upgrade/reward/region completable with disclosed unlock path",
+      "source": ["RELEASE_READINESS.md#Content"],
+      "designed": true, "implemented": true, "working": true, "polished": "unknown", "release_ready": false,
+      "evidence": ["src/content/contentValidation.test.ts (part of npm test, passing) cross-checks region/mission/tech/part id integrity per README's own description"],
+      "unknowns": ["Content-validation proves referential integrity (no dangling ids), not that a human can actually complete every mission with the starter build -- that is a playthrough claim RELEASE_READINESS.md separately requires and this audit did not perform."]
+    },
+    {
+      "id": "PIL-LEGAL-COMMERCIAL",
+      "name": "Commercial model, pricing, privacy/terms/age rating, refund/support contact, asset licensing sign-off",
+      "source": ["RELEASE_READINESS.md#Mandatory pre-publication work", "STEAM_RELEASE.md#Steamworks handoff checklist"],
+      "designed": true, "implemented": false, "working": false, "polished": false, "release_ready": false,
+      "evidence": ["public/assets/models/README.md asserts 'All geometry is original' for the Blender kit -- that is a provenance claim, not a recorded legal sign-off"],
+      "unknowns": ["Entirely unstarted per the docs' own admission. No pricing, no privacy policy, no age rating, no recorded licence sign-off for textures/audio/logo/marketing media. This is explicitly owner work outside the repository."]
+    }
+  ]
+}

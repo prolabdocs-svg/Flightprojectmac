@@ -37,6 +37,30 @@ describe('buyPart', () => {
   });
 });
 
+describe('selectFrame', () => {
+  it('refuses an unowned frame and does not mutate currentBuild', () => {
+    const before = useProfileStore.getState().profile.currentBuild;
+    const ok = useProfileStore.getState().selectFrame('frame_trailblazer');
+    expect(ok).toBe(false);
+    expect(useProfileStore.getState().profile.currentBuild).toEqual(before);
+  });
+
+  it('refuses an unknown frame id', () => {
+    useProfileStore.setState((s) => ({ profile: { ...s.profile, ownedFrameIds: [...s.profile.ownedFrameIds, 'not_a_real_frame'] } }));
+    const ok = useProfileStore.getState().selectFrame('not_a_real_frame');
+    expect(ok).toBe(false);
+  });
+
+  it('switches to an owned frame and repairs the loadout to its hardpoints', () => {
+    useProfileStore.setState((s) => ({ profile: { ...s.profile, ownedFrameIds: [...s.profile.ownedFrameIds, 'frame_trailblazer'] } }));
+    const ok = useProfileStore.getState().selectFrame('frame_trailblazer');
+    expect(ok).toBe(true);
+    const build = useProfileStore.getState().profile.currentBuild;
+    expect(build.frameId).toBe('frame_trailblazer');
+    expect(build.installed.engine).toBe('engine_small');
+  });
+});
+
 describe('unlockTech', () => {
   it('fails when prerequisites are not met', () => {
     const ok = useProfileStore.getState().unlockTech('aero_efficient_wing', 30);

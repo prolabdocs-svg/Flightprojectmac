@@ -3,6 +3,7 @@ import { useProfileStore } from '../../state/profileStore';
 import type { ControlPreset } from '../../input/mode2Store';
 import type { AssistMode } from '../../input/mode2Store';
 import { MenuNavigation } from '../components/MenuNavigation';
+import { GAME_VERSION } from '../../buildInfo';
 import './Screens.css';
 
 // Spec 82.20 Settings: controls, accessibility (assist), audio placeholders.
@@ -175,6 +176,9 @@ export function SettingsScreen() {
           Reiniciar progreso
         </button>
       </section>
+      <p className="build-info" aria-label={`Versión instalada ${GAME_VERSION}`}>
+        PROJECT FLIGHT · versión {GAME_VERSION}
+      </p>
       <MenuNavigation active="settings" goTo={goTo} />
     </div>
   );

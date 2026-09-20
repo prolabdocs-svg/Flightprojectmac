@@ -9,10 +9,9 @@
 
 import type { HomeBaseState, PlayerProfile } from '../core/types';
 import { defaultBuild } from '../content/assembly';
+import { GAME_VERSION } from '../buildInfo';
 
 export const SAVE_SCHEMA_VERSION = 3;
-const GAME_VERSION = '0.1.0';
-
 const DB_NAME = 'project-flight';
 const DB_VERSION = 1;
 const STORE_NAME = 'profile';

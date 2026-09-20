@@ -1,0 +1,38 @@
+{
+  "source": "RELEASE_READINESS.md (ship criteria table + release command gate) cross-referenced with PROJECT_FLIGHT_MASTER_VISUAL_IMPLEMENTATION_SPEC_v5.0.md section 33 (Final Definition of Done) and section 17.5 (Visual scorecard).",
+  "repo_gate": {
+    "description": "RELEASE_READINESS.md's own 'Release command gate' -- the only gate fully verifiable from this repository without a device or a deployed host.",
+    "commands": [
+      { "cmd": "npm test", "status": "PASS", "detail": "344/344 tests, 46 files (latest local full run)" },
+      { "cmd": "npm run build", "status": "PASS", "detail": "tsc -b && vite build (latest local full run)" },
+      { "cmd": "npm audit --audit-level=high", "status": "PASS", "detail": "0 vulnerabilities" },
+      { "cmd": "git diff --check", "status": "PASS", "detail": "exit 0" }
+    ],
+    "gate_verdict": "PASS (as of 2026-09-17, against the working tree including uncommitted changes -- see PROJECT_STATE.json for why uncommitted state matters here)",
+    "caveat": "npm run lint is not part of RELEASE_READINESS.md's release command gate but was run anyway: PASS with zero warnings/errors in the latest local full run."
+  },
+  "ship_criteria": [
+    { "area": "Core loop", "exit_condition": "New player completes tutorial->hangar->briefing->flight->results->retry/map without a blocked screen.", "required_evidence": "Manual smoke test, touch and keyboard.", "status": "UNKNOWN", "reason": "No recorded manual smoke test exists in the repo. See TASK_GRAPH.json VS-04." },
+    { "area": "Reliability", "exit_condition": "Production build succeeds; all automated tests pass; render error offers recovery.", "required_evidence": "npm test, npm run build, recovery boundary.", "status": "PASS", "reason": "npm test and npm run build both pass. src/ui/components/AppErrorBoundary.tsx (untracked) is wired into src/main.tsx and provides a recovery boundary -- present but uncommitted (VS-01)." },
+    { "area": "Supply chain", "exit_condition": "No known high/critical vulnerability in shipped or desktop dependency tree.", "required_evidence": "npm audit --audit-level=high.", "status": "PASS", "reason": "0 vulnerabilities found. Note: desktop dependency tree (electron/electron-builder) is itself uncommitted; audited because it is installed in node_modules, but its inclusion in a committed lockfile is pending VS-01." },
+    { "area": "Saves", "exit_condition": "Progress survives reload; older save migrates safely.", "required_evidence": "src/save/save.test.ts.", "status": "PASS_UNIT_LEVEL", "reason": "save.test.ts passes against fake-indexeddb. Not yet verified on a real browser reload cycle on a production host (PWA-01)." },
+    { "area": "PWA", "exit_condition": "Installable manifest, service worker, shell cache, branded offline fallback work over HTTPS.", "required_evidence": "Mobile device test after deployment.", "status": "UNKNOWN", "reason": "public/sw.js modified and public/offline.html added, both uncommitted and unverified over real HTTPS. See PWA-01." },
+    { "area": "Accessibility", "exit_condition": "Keyboard path, visible focus, text-size setting, reduced motion, color-blind alternatives; target WCAG 2.2 AA.", "required_evidence": "Manual audit plus automated accessibility scan.", "status": "PASS_AUTOMATED_ONLY", "reason": "Lighthouse accessibility scan against a served production build scored 1.00 after removing zoom suppression; scan report /tmp/project-flight-lighthouse-a11y-fixed.json. Manual HUD/virtual-stick and assistive-technology audit remains required (A11Y-02)." },
+    { "area": "Device coverage", "exit_condition": "iOS Safari and Android Chrome verified in landscape at low/mid/high tier devices.", "required_evidence": "Release test matrix.", "status": "NOT_STARTED", "reason": "No device testing performed; requires physical/cloud device access outside this audit's scope. See QA-01." },
+    { "area": "Content", "exit_condition": "Every advertised mission/upgrade/reward/region completable with starter build or disclosed unlock path.", "required_evidence": "Content-validation and campaign playthrough.", "status": "PASS_VALIDATION_ONLY", "reason": "src/content/contentValidation.test.ts passes (referential integrity across regions/missions/tech/parts). No human campaign playthrough evidence exists." }
+  ],
+  "spec_final_dod_section_33": {
+    "note": "20-item checklist from PROJECT_FLIGHT_MASTER_VISUAL_IMPLEMENTATION_SPEC_v5.0.md section 33, read in full. This audit did not check any box -- these require visual/device review this pass could not perform. Listed here so TASK_GRAPH/RISK_REGISTER can be traced back to a specific spec gate rather than an invented one.",
+    "items_status": "ALL_UNKNOWN_PENDING_VISUAL_QA",
+    "flagged_items_with_repo_evidence": [
+      { "item": "no existen placeholder visibles en shipping build", "repo_signal": "333 of 361 GLB assets are unreferenced by any runtime code path (see ASSET_PROVENANCE.json) -- not 'visible placeholders' in the sense the spec means (nothing broken renders on screen), but they are unused production art shipping inert in public/. Worth a deliberate read of this DoD line against that fact." },
+      { "item": "hero assets tienen LOD", "repo_signal": "spec section 15.6 (LOD) exists by TOC; no LOD system was found referenced from src/render during this audit's targeted greps. Flagged as unknown, not asserted absent -- a full LOD implementation search was out of scope for this pass." },
+      { "item": "ningún asset hero depende de IP no autorizada", "repo_signal": "public/assets/models/README.md asserts original geometry; LEGAL-03 tracks the formal sign-off this claim still needs." }
+    ]
+  },
+  "visual_scorecard_17_5": {
+    "note": "Spec section 17.5: score each dimension PASS/REVISE, not 1-10; any REVISE blocks final status. This audit has no visual-QA capability (no rendering/screenshot review performed), so every dimension is UNSCORED here, not defaulted to PASS.",
+    "dimensions": ["PF identity", "silhouette", "mechanical plausibility", "functional clarity", "DIY character", "material truth", "readability", "wear logic", "motion", "performance", "accessibility", "originality", "cohesion"],
+    "status": "UNSCORED -- requires human visual QA pass, see ASSET-03/QA-02"
+  }
+}
