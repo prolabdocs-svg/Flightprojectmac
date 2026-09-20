@@ -3,9 +3,11 @@
 import * as THREE from 'three';
 import { initPhysics, createWorld } from '../../sim/physics';
 import { AircraftSimulation, type SimCommand } from '../core/aircraftSimulation';
+import type { GroundQuery } from '../ground/landingGear';
 import { PHYSICS_DT } from '../core/constants';
 import type { AircraftDefinition } from '../aircraft/aircraftDefinition';
 import { attitude } from '../core/coordinates';
+import { compassBearingDeg } from '../../world/compass';
 import { NEUTRAL_COMMAND } from '../controls/flightControls';
 
 export interface RigSample {
@@ -16,6 +18,8 @@ export interface RigSample {
   betaDeg: number;
   pitchDeg: number;
   rollDeg: number;
+  /** Compass heading, 0 = +Z (north), clockwise. */
+  headingDeg: number;
   pDegS: number;
   qDegS: number;
   rDegS: number;
@@ -28,18 +32,22 @@ export interface RigSample {
   rpm: number;
   thrustN: number;
   fuelL: number;
+  wheels: number;
+  gearLoadN: number;
+  agl: number;
 }
 
-export async function createAirframeRig(def: AircraftDefinition, opts: { altM?: number; speedMs?: number; pitchDeg?: number; wind?: THREE.Vector3 } = {}) {
+export async function createAirframeRig(def: AircraftDefinition, opts: { altM?: number; speedMs?: number; pitchDeg?: number; wind?: THREE.Vector3; ground?: GroundQuery; onGround?: boolean } = {}) {
   await initPhysics();
   const world = createWorld();
-  const sim = new AircraftSimulation(world, def);
+  const sim = new AircraftSimulation(world, def, opts.ground);
   const phys = sim.physics;
   const pitch = ((opts.pitchDeg ?? 0) * Math.PI) / 180;
   // Nose +Z pitched up by rotating about -X (nose up = rotation about -X).
   const quat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(-1, 0, 0), pitch);
   const vel = new THREE.Vector3(0, Math.sin(pitch) * 0, 1).multiplyScalar(opts.speedMs ?? 22);
-  phys.place(new THREE.Vector3(0, opts.altM ?? 500, 0), quat, vel);
+  if (opts.onGround) sim.placeOnGround(0, 0, 0);
+  else phys.place(new THREE.Vector3(0, opts.altM ?? 500, 0), quat, vel);
   const wind = opts.wind ?? new THREE.Vector3();
   const log: RigSample[] = [];
   let t = 0;
@@ -59,6 +67,7 @@ export async function createAirframeRig(def: AircraftDefinition, opts: { altM?: 
       betaDeg: (phys.betaRad * 180) / Math.PI,
       pitchDeg: (att.pitchRad * 180) / Math.PI,
       rollDeg: (att.rollRad * 180) / Math.PI,
+      headingDeg: compassBearingDeg(fwd.x, fwd.z),
       pDegS: (phys.wBody.z * 180) / Math.PI,
       qDegS: (-phys.wBody.x * 180) / Math.PI,
       rDegS: (-phys.wBody.y * 180) / Math.PI,
@@ -71,6 +80,9 @@ export async function createAirframeRig(def: AircraftDefinition, opts: { altM?: 
       rpm: sim.propulsion?.engine.rpm ?? 0,
       thrustN: sim.propulsion?.thrustN ?? 0,
       fuelL: phys.fuelL,
+      wheels: sim.gear.summary.wheelsOnGround,
+      gearLoadN: sim.gear.summary.peakLoadN,
+      agl: phys.heightAglM,
     });
     t += PHYSICS_DT;
   };
@@ -94,4 +106,13 @@ export function holdAttitude(s: RigSample | undefined, pitchDeg: number, rollDeg
     roll: clamp((rollDeg - s.rollDeg) * 0.06 - s.pDegS * 0.02),
     yaw: clamp(s.betaDeg * 0.3),
   };
+}
+
+/** Signed heading error target - current in (-180, 180]; positive = turn right. */
+export const headingError = (target: number, current: number) => ((target - current + 540) % 360) - 180;
+
+/** Runway-keeping pilot: heading hold (rudder / nose wheel) plus a gentle pull back to the centreline (x = 0). */
+export function keepRunway(s: RigSample | undefined, headingDeg = 0) {
+  if (!s) return {};
+  return { yaw: Math.max(-1, Math.min(1, headingError(headingDeg, s.headingDeg) * 0.1 + s.x * 0.03 - s.rDegS * 0.03)) };
 }

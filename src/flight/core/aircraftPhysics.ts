@@ -68,6 +68,9 @@ export class AircraftPhysics {
   readonly upBody = new THREE.Vector3();
   readonly forceBody = new THREE.Vector3();
   readonly momentBody = new THREE.Vector3();
+  /** Loads already expressed in world axes (ground contact); folded in at integrate(). */
+  readonly forceWorld = new THREE.Vector3();
+  readonly momentWorld = new THREE.Vector3();
   heightAglM = 100;
   airspeedMs = 0;
   alphaRad = 0;
@@ -178,6 +181,8 @@ export class AircraftPhysics {
     this.betaRad = this.airspeedMs > 0.5 ? sideslip(this.airBody) : 0;
     this.forceBody.set(0, 0, 0);
     this.momentBody.set(0, 0, 0);
+    this.forceWorld.set(0, 0, 0);
+    this.momentWorld.set(0, 0, 0);
   }
 
   /** Step 2: all aerodynamic elements. Adds to forceBody/momentBody. */
@@ -200,7 +205,7 @@ export class AircraftPhysics {
     const wingHeight = Math.max(0, this.heightAglM + wingRelUp);
     const phi = groundInducedFactor(wingHeight, this.def.geometry.wingspanM);
     c.groundInducedFactor = phi;
-    c.groundLiftGain = groundLiftGain(phi);
+    c.groundLiftGain = groundLiftGain(wingHeight, this.def.geometry.wingspanM);
 
     let clArea = 0;
     let wingArea = 0;
@@ -249,6 +254,13 @@ export class AircraftPhysics {
     }
   }
 
+  /** Adds a world-axes force acting at world point `p` (moment about the CG is derived). */
+  addWorldForceAtPoint(f: THREE.Vector3, p: THREE.Vector3): void {
+    this.forceWorld.add(f);
+    this.tmpR.copy(p).sub(this.cgWorld);
+    this.momentWorld.add(this.tmpB.copy(this.tmpR).cross(f));
+  }
+
   /** Velocity of a body-fixed datum point through the ground frame, world axes (for wheels). */
   pointVelocityWorld(p: THREE.Vector3, out: THREE.Vector3): THREE.Vector3 {
     this.tmpR.copy(p).sub(this.cgWorld);
@@ -274,8 +286,8 @@ export class AircraftPhysics {
     this.tmpB.copy(w).cross(this.tmpA);
     this.momentBody.sub(this.tmpB);
 
-    this.frame.toWorld(this.forceBody, this.tmpF);
-    this.frame.toWorld(this.momentBody, this.tmpM);
+    this.frame.toWorld(this.forceBody, this.tmpF).add(this.forceWorld);
+    this.frame.toWorld(this.momentBody, this.tmpM).add(this.momentWorld);
     this.body.addForce(this.tmpF, true);
     this.body.addTorque(this.tmpM, true);
     this.world.step();
