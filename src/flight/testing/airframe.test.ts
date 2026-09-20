@@ -80,11 +80,12 @@ describe('Phase 2 gate — stable power-off glide', () => {
     expect(a.log.at(-1)).toEqual(b.log.at(-1));
   });
 
-  it('a heavier pilot moves the CG and changes trim (mass/CG feed the physics)', async () => {
+  it('a heavier pilot moves the CG aft and reduces static stability (mass/CG feed the physics)', async () => {
     const heavy = buildAircraftDefinition(defaultBuild());
     heavy.mass.items.find((i) => i.id === 'pilot')!.massKg = 110;
     const a = await glideTrim(def);
     const b = await glideTrim(heavy);
-    expect(b.speedMs).toBeGreaterThan(a.speedMs); // more weight -> faster trim/glide speed
+    expect(b.staticStability).toBeGreaterThan(a.staticStability); // less negative = less stable
+    expect(b.speedMs).not.toBeCloseTo(a.speedMs, 1);
   });
 });

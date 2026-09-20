@@ -23,9 +23,12 @@ export const CATALOGUE_CALIBRATION = {
 };
 
 /** Tailplane setting angle. CALIBRATED with testing/trim.ts: sets the hands-off power-off trim speed (~82 km/h). */
-export const HTAIL_INCIDENCE_DEG = -4.0;
+export const HTAIL_INCIDENCE_DEG = -3.5;
+/** Tailplane aspect ratio as seen by the flow (open tube frame: worse than the geometric span^2/area). */
+const TAIL_EFFECTIVE_AR = 3.5;
 const WING_SECTIONS = 4;
 const PILOT_MASS_KG = 70;
+const PILOT_Z = -0.55; // PLACEHOLDER seat station
 const GEAR_RATIO = 2.3;
 
 export function buildAircraftDefinition(build: AircraftBuild, cal = CATALOGUE_CALIBRATION): AircraftDefinition {
@@ -51,7 +54,7 @@ export function buildAircraftDefinition(build: AircraftBuild, cal = CATALOGUE_CA
     items.push({ id: part.id, massKg: part.physics.massKg, position: part.physics.localCenterOfMass, size: sizes[category] ?? [0.3, 0.3, 0.3] });
     if (category === 'fuelTank') tankPos = part.physics.localCenterOfMass;
   }
-  items.push({ id: 'pilot', massKg: PILOT_MASS_KG, position: [0, 0.05, -0.35], size: [0.5, 0.9, 0.5] });
+  items.push({ id: 'pilot', massKg: PILOT_MASS_KG, position: [0, 0.05, PILOT_Z], size: [0.5, 0.9, 0.5] });
 
   // ---- wing planform ----
   const span = wing.spanM;
@@ -62,11 +65,11 @@ export function buildAircraftDefinition(build: AircraftBuild, cal = CATALOGUE_CA
   const half = span / 2;
   const secSpan = half / WING_SECTIONS;
   const secArea = area / (2 * WING_SECTIONS);
-  const aTail = finiteWingSlope((elevator.spanM * elevator.spanM) / elevator.areaM2);
+  const aTail = finiteWingSlope(TAIL_EFFECTIVE_AR);
   const finAr = 2.2; // effective AR of the fin incl. fuselage end-plate effect
   const aFin = finiteWingSlope(finAr);
   const wingIncidence = 3.0;
-  const twist = [0, -0.5, -1.0, -1.5];
+  const twist = [0, -0.35, -0.7, -1.0];
   const rightRiggingExtra = 0.04; // small rigging asymmetry (deg) -> deterministic wing-drop side
 
   const elements: AeroElementSpec[] = [];
@@ -110,9 +113,9 @@ export function buildAircraftDefinition(build: AircraftBuild, cal = CATALOGUE_CA
       dihedralDeg: 0,
       outboard: side,
       clAlpha: aTail,
-      effectiveAr: (elevator.spanM * elevator.spanM) / elevator.areaM2,
+      effectiveAr: TAIL_EFFECTIVE_AR,
       oswald: 0.8,
-      downwashFactor: 0.7,
+      downwashFactor: 1.0,
       propwashImmersion: 0.3,
       control: { kind: 'elevator', chordFraction: 0.4, spanFraction: 1 },
       damageId: 'elevator',
@@ -200,7 +203,7 @@ export function buildAircraftDefinition(build: AircraftBuild, cal = CATALOGUE_CA
     geometry: { wingAreaM2: area, wingspanM: span, meanChordM: meanChord, wingAcPosition: [0, wing.localPosition[1], wing.localPosition[2]] },
     aero: {
       airfoils: {
-        wing: { clAlpha: aWing, alphaZeroRad: -4 * DEG, stallPosRad: wing.stallPositiveDeg * DEG + 4 * DEG, stallNegRad: -12 * DEG, sepWidthRad: 2.2 * DEG, cd0: wing.parasiticCd * 0.8, cmAc: -0.06 },
+        wing: { clAlpha: aWing, alphaZeroRad: -4 * DEG, stallPosRad: wing.stallPositiveDeg * DEG + 1.5 * DEG, stallNegRad: -12 * DEG, sepWidthRad: 1.4 * DEG, cd0: wing.parasiticCd * 0.8, cmAc: -0.06 },
         tail: { clAlpha: aTail, alphaZeroRad: 0, stallPosRad: 16 * DEG, stallNegRad: -16 * DEG, sepWidthRad: 2.5 * DEG, cd0: 0.015, cmAc: 0 },
         fin: { clAlpha: aFin, alphaZeroRad: 0, stallPosRad: 17 * DEG, stallNegRad: -17 * DEG, sepWidthRad: 2.5 * DEG, cd0: 0.015, cmAc: 0 },
       },

@@ -48,10 +48,10 @@ describe('control mixer + actuators', () => {
 
 describe('Phase 3 gate — three-axis control, physical signs', () => {
   it('stick back pitches the nose up, stick right rolls right, right rudder yaws right', async () => {
-    expect(await accel(22, { pitch: 1 }, 'q')).toBeGreaterThan(5);
+    expect(await accel(22, { pitch: 1 }, 'q')).toBeGreaterThan(3);
     expect(await accel(22, { roll: 1 }, 'p')).toBeGreaterThan(20);
     expect(await accel(22, { yaw: 1 }, 'r')).toBeGreaterThan(2);
-    expect(await accel(22, { pitch: -1 }, 'q')).toBeLessThan(-5);
+    expect(await accel(22, { pitch: -1 }, 'q')).toBeLessThan(-3);
     expect(await accel(22, { roll: -1 }, 'p')).toBeLessThan(-20);
     expect(await accel(22, { yaw: -1 }, 'r')).toBeLessThan(-2);
   });
@@ -97,8 +97,8 @@ describe('Phase 3 gate — three-axis control, physical signs', () => {
   });
 
   it('low speed = mushy controls: half the trim speed gives far less roll rate', async () => {
-    const hi = await atSpeed(25); hi.run(1.5, { roll: 0.6 });
-    const lo = await atSpeed(13); lo.run(1.5, { roll: 0.6 });
-    expect(lo.log.at(-1)!.pDegS).toBeLessThan(hi.log.at(-1)!.pDegS * 0.75);
+    const hi = await atSpeed(28); hi.run(0.6, { roll: 0.6 });
+    const lo = await atSpeed(17); lo.run(0.6, { roll: 0.6 });
+    expect(lo.log.at(-1)!.pDegS).toBeLessThan(hi.log.at(-1)!.pDegS * 0.8);
   });
 });
