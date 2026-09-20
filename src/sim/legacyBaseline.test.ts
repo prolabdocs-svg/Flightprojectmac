@@ -26,7 +26,7 @@ describe('legacy baseline (Phase 0)', () => {
       if (s.wheelsOnGround === 0 && s.altitudeM > 0.3) liftoff = s;
     }
     out.takeoff = { groundRollM: liftoff?.distanceM, liftoffKmh: (liftoff?.airspeedMs ?? 0) * 3.6, timeS: liftoff?.t };
-    out.stallSpeedKmh_1g = t.fc.spec ? t.log[0].stallSpeedMs * 3.6 : null;
+    out.stallSpeedKmh_1g = t.log[0].stallSpeedMs * 3.6;
 
     const a = await airborne(60);
     const climb = a.run(8, (s) => ({ throttle: 1, ...hold(s, 8) }));

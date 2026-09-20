@@ -10,7 +10,10 @@ import { getMission, isMissionAvailableToProfile } from '../../content/missions'
 import { evaluateMissionReadiness } from '../../content/missionReadiness';
 import { getRegion } from '../../content/regions';
 import { initPhysics, createWorld } from '../../sim/physics';
-import { FlightController, DEFAULT_RUNWAY_CONDITIONS, type FlightTelemetry, type ResolvedControls } from '../../sim/flightController';
+import { FlightController } from '../../sim/flightController';
+import { FlightModel } from '../../flight/flightModel';
+import { getFlightModelKind } from '../../flight/flag';
+import { DEFAULT_RUNWAY_CONDITIONS, type FlightSim, type FlightTelemetry, type ResolvedControls } from '../../flight/flightTypes';
 import { getAirfield, getFreeFlightAirfield, type RunwaySurface } from '../../world/airfields';
 
 /** Roughness (0-1, see landingValidator.ts) per runway surface. Airfields don't store this
@@ -36,11 +39,9 @@ import { buildHeightGrid, createHeightfieldCollider, FIELD_TERRAIN_SEGMENTS, FIE
 import { getHomeBaseBenefits } from '../../content/homeBase';
 import { getRegionObstacles } from '../../world/obstacles';
 
-const FIXED_DT = 1 / 60;
-
 export function FlightScreen() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const controllerRef = useRef<FlightController | null>(null);
+  const controllerRef = useRef<FlightSim | null>(null);
   const sceneRef = useRef<FlightScene | null>(null);
   const endTimerRef = useRef<number | null>(null);
   const paused = useGameStore((s) => s.paused);
@@ -62,7 +63,8 @@ export function FlightScreen() {
     let disposed = false;
     let frameId = 0;
     let release: (() => void) | undefined;
-    const clock = new FixedStepClock(FIXED_DT, 0.1, 8);
+    let fixedDt = 1 / 60;
+    let clock = new FixedStepClock(fixedDt, 0.1, 8);
     let lastNow = performance.now();
 
     async function boot() {
@@ -115,7 +117,13 @@ export function FlightScreen() {
       const runwayConditions = !runwayAirfield && region.id === 'the_field'
         ? { ...baseRunwayConditions, roughness: Math.max(0.04, baseRunwayConditions.roughness - getHomeBaseBenefits(profile.homeBase).runwayRoughnessReduction) }
         : baseRunwayConditions;
-      const controller = new FlightController(world, aircraft, spawn, mission?.spawnHeadingDeg ?? 0, terrainQuery, runwayConditions, getRegionObstacles(region.id, terrainQuery));
+      const obstacles = getRegionObstacles(region.id, terrainQuery);
+      const controller: FlightSim = getFlightModelKind() === 'new'
+        ? new FlightModel(world, aircraft, profile.currentBuild, spawn, mission?.spawnHeadingDeg ?? 0, terrainQuery, { runwayConditions, obstacles })
+        : new FlightController(world, aircraft, spawn, mission?.spawnHeadingDeg ?? 0, terrainQuery, runwayConditions, obstacles);
+      // The simulation owns its fixed step (legacy 60 Hz, new model 100 Hz); the clock must match it.
+      fixedDt = controller.dtS;
+      clock = new FixedStepClock(fixedDt, 0.1, Math.ceil(0.1 / fixedDt) + 2);
       controllerRef.current = controller;
 
       const paint = getPaint(profile.selectedPaintId);
@@ -287,7 +295,7 @@ export function FlightScreen() {
           windPosition.set(bodyPosition.x, bodyPosition.y, bodyPosition.z);
           const wind = getEnvironmentWind(region, elapsedFlightS, windPosition);
           telem = controller.step(controlsFor(), wind);
-          elapsedFlightS += FIXED_DT;
+          elapsedFlightS += fixedDt;
 
           const stepPosition = controller.body.translation();
           const stepRotation = controller.body.rotation();
@@ -344,7 +352,7 @@ export function FlightScreen() {
         (window as unknown as { __pf?: unknown }).__pf = {
           controller,
           simulate: (seconds: number, overrides: Partial<ResolvedControls> | ((t: FlightTelemetry | null) => Partial<ResolvedControls>) = {}) => {
-            const ticks = Math.round(seconds / FIXED_DT);
+            const ticks = Math.round(seconds / fixedDt);
             for (let i = 0; i < ticks; i++) {
               advanceSim(1, () => ({ ...getResolvedControls(), ...(typeof overrides === 'function' ? overrides(lastTelemetry) : overrides) }));
             }

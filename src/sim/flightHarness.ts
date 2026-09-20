@@ -5,7 +5,9 @@
 import * as THREE from 'three';
 import { initPhysics, createWorld } from './physics';
 import { buildHeightGrid, createHeightfieldCollider } from '../world/terrainHeightfield';
-import { FlightController, type FlightTelemetry, type ResolvedControls } from './flightController';
+import { FlightController } from './flightController';
+import { FlightModel } from '../flight/flightModel';
+import type { FlightSim, FlightTelemetry, ResolvedControls } from '../flight/flightTypes';
 import { resolveAircraft, defaultBuild } from '../content/assembly';
 import { getRegion } from '../content/regions';
 import { createTerrainQueryService } from '../world/terrainQuery';
@@ -27,14 +29,21 @@ export interface Sample extends FlightTelemetry {
 /** The Field's height grid is deterministic; building it (66k samples) once keeps harnesses cheap. */
 let fieldGrid: Float32Array | undefined;
 
-export async function createHarness(opts: { build?: AircraftBuild; regionId?: string; wind?: THREE.Vector3; spawn?: THREE.Vector3; headingDeg?: number; obstacles?: Obstacle[] } = {}) {
+export type HarnessModel = 'legacy' | 'new';
+
+export async function createHarness(opts: { build?: AircraftBuild; regionId?: string; wind?: THREE.Vector3; spawn?: THREE.Vector3; headingDeg?: number; obstacles?: Obstacle[]; model?: HarnessModel } = {}) {
   const RAPIER = await initPhysics();
   const world = createWorld();
   const region = getRegion(opts.regionId ?? 'the_field');
   const terrain = createTerrainQueryService(region);
   if (region.environment.terrain === 'meadow') createHeightfieldCollider(RAPIER, world, (fieldGrid ??= buildHeightGrid(terrain.getElevation)));
   const spawn = opts.spawn ?? new THREE.Vector3(0, terrain.getElevation(0, 0) + 1.2, 0);
-  const fc = new FlightController(world, resolveAircraft(opts.build ?? defaultBuild()), spawn, opts.headingDeg ?? 0, terrain, undefined, opts.obstacles);
+  const build = opts.build ?? defaultBuild();
+  const aircraft = resolveAircraft(build);
+  const fc: FlightSim & { aircraft: typeof aircraft } = opts.model === 'new'
+    ? new FlightModel(world, aircraft, build, spawn, opts.headingDeg ?? 0, terrain, { obstacles: opts.obstacles })
+    : new FlightController(world, aircraft, spawn, opts.headingDeg ?? 0, terrain, undefined, opts.obstacles);
+  const dt = fc.dtS ?? 1 / 60;
   const wind = opts.wind ?? new THREE.Vector3();
   let t = 0;
   const log: Sample[] = [];
@@ -54,12 +63,12 @@ export async function createHarness(opts: { build?: AircraftBuild; regionId?: st
 
   /** Runs `seconds` of sim with controls from `ctl` (may be a function of the latest sample). */
   const run = (seconds: number, ctl: Partial<ResolvedControls> | ((s: Sample | undefined) => Partial<ResolvedControls>)) => {
-    const n = Math.round(seconds * 60);
+    const n = Math.round(seconds / dt);
     for (let i = 0; i < n; i++) {
       const last = log[log.length - 1];
       const c = { ...NEUTRAL, ...(typeof ctl === 'function' ? ctl(last) : ctl) };
       const tel = fc.step(c, wind);
-      t += 1 / 60;
+      t += dt;
       const lv = fc.body.linvel();
       log.push({ ...tel, t, vsMs: lv.y, ...attitude() });
     }

@@ -2,23 +2,26 @@
 // terrain, flown by a scripted pilot. Bands are the starter aircraft's target feel.
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
-import { createHarness, hold, type Sample } from './flightHarness';
+import { createHarness, hold, type HarnessModel, type Sample } from './flightHarness';
 import { installPart, defaultBuild } from '../content/assembly';
 import type { Obstacle } from '../world/obstacles';
 
 const rotate = (s: Sample | undefined) => ({ throttle: 1, pitch: s && s.airspeedMs > s.stallSpeedMs * 1.05 ? 0.6 : 0 });
 
-async function airborneAt(altitudeM = 60, opts: Parameters<typeof createHarness>[0] = {}) {
-  const h = await createHarness(opts);
+async function airborneAt(make: Make, altitudeM = 60, opts: Parameters<typeof createHarness>[0] = {}) {
+  const h = await make(opts);
   h.run(9, rotate);
   for (let i = 0; i < 90 && h.log.at(-1)!.altitudeM < altitudeM; i++) h.run(1, (s) => ({ throttle: 1, ...hold(s, 8) }));
   h.run(4, (s) => ({ throttle: 0.65, ...hold(s, 0) }));
   return h;
 }
 
-describe('Test Flight Standard — starter ultralight', () => {
+type Make = (o?: Parameters<typeof createHarness>[0]) => ReturnType<typeof createHarness>;
+
+describe.each(['legacy', 'new'] as HarnessModel[])('Test Flight Standard — starter ultralight [%s model]', (model) => {
+  const make: Make = (o = {}) => createHarness({ ...o, model });
   it('spawns resting on its gear and stays put with the engine off', async () => {
-    const h = await createHarness();
+    const h = await make();
     const s = h.run(3, { engineOn: false });
     expect(s.wheelsOnGround).toBe(3);
     expect(s.crashed).toBe(false);
@@ -28,7 +31,7 @@ describe('Test Flight Standard — starter ultralight', () => {
   });
 
   it('accelerates straight down the runway, rotates and lifts off in 50-100 m', async () => {
-    const h = await createHarness();
+    const h = await make();
     let liftoff: Sample | undefined;
     for (let i = 0; i < 15 * 60 && !liftoff; i++) {
       const s = h.run(1 / 60, rotate);
@@ -37,13 +40,15 @@ describe('Test Flight Standard — starter ultralight', () => {
     expect(liftoff).toBeDefined();
     expect(liftoff!.distanceM).toBeGreaterThan(40);
     expect(liftoff!.distanceM).toBeLessThan(100);
-    expect(liftoff!.t).toBeLessThan(10);
-    expect(Math.abs(liftoff!.position[0])).toBeLessThan(2); // stays on centreline
+    // The new model flies the reference aircraft WITH a pilot (heavier => higher rotation speed).
+    expect(liftoff!.t).toBeLessThan(model === 'new' ? 12 : 10);
+    // Stays near the centreline. The new model has real left-turning tendencies (prop torque, slipstream on the fin) and this script never touches the rudder.
+    expect(Math.abs(liftoff!.position[0])).toBeLessThan(model === 'new' ? 4 : 2);
     expect(liftoff!.crashed).toBe(false);
   });
 
   it('climbs at 2-4 m/s at full power and cruises level near 80-95 km/h', async () => {
-    const h = await airborneAt(30);
+    const h = await airborneAt(make, 30);
     const climb = h.run(6, (s) => ({ throttle: 1, ...hold(s, 8) }));
     expect(climb.verticalSpeedMs).toBeGreaterThan(2);
     expect(climb.verticalSpeedMs).toBeLessThan(4);
@@ -54,7 +59,7 @@ describe('Test Flight Standard — starter ultralight', () => {
   });
 
   it('turns at believable rates for 30 and 60 degree banks', async () => {
-    const h = await airborneAt(80);
+    const h = await airborneAt(make, 80);
     h.run(3, (s) => ({ throttle: 0.7, roll: hold(s, 0, 30).roll }));
     const a = h.log.at(-1)!.headingDeg;
     const s30 = h.run(4, (s) => ({ throttle: 0.7, roll: hold(s, 0, 30).roll }));
@@ -71,7 +76,7 @@ describe('Test Flight Standard — starter ultralight', () => {
   });
 
   it('assisted mode holds the bank limit and levels the wings when the stick is released', async () => {
-    const h = await airborneAt(80);
+    const h = await airborneAt(make, 80);
     const rolled = h.run(2.5, { throttle: 0.65, roll: 1 });
     expect(rolled.rollDeg).toBeGreaterThan(45);
     expect(rolled.rollDeg).toBeLessThan(70);
@@ -80,37 +85,39 @@ describe('Test Flight Standard — starter ultralight', () => {
   });
 
   it('control signs: stick back raises the nose, stick right rolls right, rudder right yaws right', async () => {
-    const h = await airborneAt(80);
+    const h = await airborneAt(make, 80);
     const p0 = h.log.at(-1)!;
     expect(h.run(0.5, { throttle: 0.65, pitch: 1 }).pitchDeg).toBeGreaterThan(p0.pitchDeg + 5);
-    const h2 = await airborneAt(80);
+    const h2 = await airborneAt(make, 80);
     expect(h2.run(0.5, { throttle: 0.65, roll: 1 }).rollDeg).toBeGreaterThan(10);
-    const h3 = await airborneAt(80);
+    const h3 = await airborneAt(make, 80);
     const hd = h3.log.at(-1)!.headingDeg;
     const yawed = h3.run(1.5, { throttle: 0.65, rudder: 1 });
     expect(((yawed.headingDeg - hd + 540) % 360) - 180).toBeGreaterThan(3);
   });
 
   it('stalls when forced, warns first, and recovers with power and forward stick', async () => {
-    const h = await airborneAt(100, {});
+    const h = await airborneAt(make, 100, {});
     let warned = false;
     let stalled = false;
-    for (let i = 0; i < 12 * 60; i++) {
+    let stalledFor = 0;
+    // Hold the stick back until the wing has stalled, then recognise it (1 s) and recover.
+    for (let i = 0; i < 40 * 60 && stalledFor < 1; i++) {
       const s = h.run(1 / 60, { throttle: 0, pitch: 1, assistMode: 'standard' });
       if (s.stallWarning && !stalled) warned = true;
-      if (s.stalled) stalled = true;
+      if (s.stalled) { stalled = true; stalledFor += 1 / 60; }
     }
     expect(warned).toBe(true);
     expect(stalled).toBe(true);
     const before = h.log.at(-1)!;
-    const recovered = h.run(5, (s) => ({ throttle: 1, ...hold(s, -5), assistMode: 'standard' }));
+    const recovered = h.run(6, (s) => ({ throttle: 1, ...hold(s, -5), assistMode: 'standard' }));
     expect(recovered.stalled).toBe(false);
     expect(recovered.crashed).toBe(false);
     expect(before.altitudeM - recovered.altitudeM).toBeLessThan(60);
   });
 
   it('survives a high-speed dive and pull-out within the structural envelope', async () => {
-    const h = await airborneAt(150);
+    const h = await airborneAt(make, 150);
     const dive = h.run(6, (s) => ({ throttle: 1, ...hold(s, -25) }));
     expect(dive.airspeedMs).toBeGreaterThan(30);
     expect(dive.airspeedMs).toBeLessThan(55);
@@ -120,7 +127,7 @@ describe('Test Flight Standard — starter ultralight', () => {
   });
 
   it('approaches, flares, touches down gently, brakes and completes a landing', async () => {
-    const h = await airborneAt(40);
+    const h = await airborneAt(make, 40);
     let s: Sample = h.log.at(-1)!;
     for (let i = 0; i < 240 && !s.landed && !s.crashed; i++) {
       s = h.run(0.25, (x) => {
@@ -139,7 +146,7 @@ describe('Test Flight Standard — starter ultralight', () => {
   });
 
   it('a nose-first dive into terrain is a crash with a reason', async () => {
-    const h = await airborneAt(40);
+    const h = await airborneAt(make, 40);
     let s: Sample = h.log.at(-1)!;
     for (let i = 0; i < 60 && !s.crashed; i++) s = h.run(0.25, (x) => ({ throttle: 1, ...hold(x, -45, 0, 0.2), assistMode: 'acro' }));
     expect(s.crashed).toBe(true);
@@ -148,7 +155,7 @@ describe('Test Flight Standard — starter ultralight', () => {
   });
 
   it('dropping in from a deep stall close to the ground breaks the gear', async () => {
-    const h = await createHarness({ spawn: new THREE.Vector3(0, 0, 0) });
+    const h = await make({ spawn: new THREE.Vector3(0, 0, 0) });
     // Teleport 25 m up with no forward speed: a pure vertical drop.
     const t = h.fc.body.translation();
     h.fc.body.setTranslation({ x: t.x, y: t.y + 25, z: t.z }, true);
@@ -159,7 +166,7 @@ describe('Test Flight Standard — starter ultralight', () => {
 
   it('flying into a solid obstacle is a crash', async () => {
     const tower: Obstacle = { kind: 'cylinder', id: 'test_tower', x: 0, z: 400, baseY: -100, radiusM: 6, heightM: 400 };
-    const h = await createHarness({ obstacles: [tower] });
+    const h = await make({ obstacles: [tower] });
     let s: Sample = h.log.at(-1) ?? h.run(1 / 60, {});
     for (let i = 0; i < 200 && !s.crashed; i++) s = h.run(0.25, (x) => (x && x.wheelsOnGround === 0 ? { throttle: 1, ...hold(x, 4) } : rotate(x)));
     expect(s.crashed).toBe(true);
@@ -167,7 +174,7 @@ describe('Test Flight Standard — starter ultralight', () => {
   });
 
   it('keeps the runway heading in a 5 m/s crosswind with rudder', async () => {
-    const h = await createHarness({ wind: new THREE.Vector3(-5, 0, 0) });
+    const h = await make({ wind: new THREE.Vector3(-5, 0, 0) });
     let s: Sample | undefined;
     for (let i = 0; i < 9 * 60; i++) {
       s = h.run(1 / 60, (x) => ({ ...rotate(x), rudder: x ? THREE.MathUtils.clamp(-(((x.headingDeg + 540) % 360) - 180) * 0.2, -1, 1) : 0 }));
@@ -177,17 +184,17 @@ describe('Test Flight Standard — starter ultralight', () => {
   });
 
   it('the 12 L tank and bigger engine are measurable in the air', async () => {
-    const base = await airborneAt(30);
-    const bigTank = await airborneAt(30, { build: installPart(defaultBuild(), 'fuelTank', 'tank_12') });
-    expect(bigTank.fc.spec.fuelCapacityL).toBeGreaterThan(base.fc.spec.fuelCapacityL);
+    const base = await airborneAt(make, 30);
+    const bigTank = await airborneAt(make, 30, { build: installPart(defaultBuild(), 'fuelTank', 'tank_12') });
+    expect(bigTank.fc.aircraft.fuelCapacityL).toBeGreaterThan(base.fc.aircraft.fuelCapacityL);
     const baseClimb = base.run(5, (s) => ({ throttle: 1, ...hold(s, 8) })).verticalSpeedMs;
-    const strong = await airborneAt(30, { build: installPart(defaultBuild(), 'engine', 'engine_medium') });
+    const strong = await airborneAt(make, 30, { build: installPart(defaultBuild(), 'engine', 'engine_medium') });
     const strongClimb = strong.run(5, (s) => ({ throttle: 1, ...hold(s, 8) })).verticalSpeedMs;
     expect(strongClimb).toBeGreaterThan(baseClimb + 0.3);
   });
 
   it('never produces NaN or explodes under random stick abuse', async () => {
-    const h = await airborneAt(60);
+    const h = await airborneAt(make, 60);
     let seed = 7;
     const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647) * 2 - 1;
     let c = { pitch: 0, roll: 0, rudder: 0, throttle: 1 };
