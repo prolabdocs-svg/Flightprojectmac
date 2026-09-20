@@ -60,5 +60,5 @@ describe('legacy baseline (Phase 0)', () => {
       writeFileSync('docs/flight/baseline_legacy.json', JSON.stringify(out, null, 2) + '\n');
     }
     console.log(JSON.stringify(out, null, 2));
-  });
+  }, 30_000); // scripted flights on the exact Rapier heightfield; slow under parallel load
 });

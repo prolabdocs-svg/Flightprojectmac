@@ -186,7 +186,9 @@ describe('per-terrain-type geography (NATURAL_ELEVATION_PROFILES)', () => {
   });
 
   it('meadow has a smaller relief range than canyon and range', () => {
-    const meadowRange = rangeOf(sampleGrid(NATURAL_ELEVATION_PROFILES.meadow));
+    // The Field's authored geography (mountains, eastern hills) starts beyond its home plain,
+    // so compare relief over the playable home area only.
+    const meadowRange = rangeOf(sampleGrid(NATURAL_ELEVATION_PROFILES.meadow, 600));
     const canyonRange = rangeOf(sampleGrid(NATURAL_ELEVATION_PROFILES.canyon));
     const rangeRange = rangeOf(sampleGrid(NATURAL_ELEVATION_PROFILES.range));
     expect(meadowRange).toBeLessThan(canyonRange);
@@ -198,8 +200,9 @@ describe('per-terrain-type geography (NATURAL_ELEVATION_PROFILES)', () => {
     const canyonTerrain = createTerrainQueryService(getRegion('red_canyon'));
     const rangeTerrain = createTerrainQueryService(getRegion('the_range'));
     const points: Array<[number, number]> = [];
-    for (let x = -1200; x <= 1200; x += 80) {
-      for (let z = -1200; z <= 1200; z += 80) points.push([x, z]);
+    // Home area only: The Field's authored hills/mountains start beyond the hub plain.
+    for (let x = -600; x <= 600; x += 80) {
+      for (let z = -600; z <= 600; z += 80) points.push([x, z]);
     }
     const avg = (svc: ReturnType<typeof createTerrainQueryService>) =>
       points.reduce((sum, [x, z]) => sum + svc.getSlopeDeg(x, z), 0) / points.length;

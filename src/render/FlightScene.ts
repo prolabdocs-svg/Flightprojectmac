@@ -12,6 +12,7 @@ import { ChaseCamera, type ChaseCameraInput } from './ChaseCamera';
 import { getFreeFlightAirfield, type AirfieldDefinition, type RunwaySurface } from '../world/airfields';
 import { buildTerrainFollowingMesh, getRunwaySafeZone, isInsideZone, layoutRoadTiles } from './fieldAirfieldLayout';
 import { getRegionRoadNetwork } from './regionRoadNetworks';
+import { scatterFieldRocks } from '../world/fieldRocks';
 import { buildTreeClusterInstancedMesh, instanceGltf, type TreeClusterPlacement } from './vegetation';
 import { orientWorldProp } from './blenderAxisFix';
 
@@ -63,8 +64,11 @@ export class FlightScene {
     this.scene.background = skyColor;
     // Keep nearby terrain and navigation anchors readable; haze belongs on the distant
     // ridge layers, not across the first kilometre of a flight scene.
-    this.scene.fog = new THREE.Fog(fogColor, 700, 3200);
-    this.addAtmosphericSky(region);
+    // The Field's real mountains sit 3-6 km out, so it gets a longer view distance.
+    const wide = region.environment.terrain === 'meadow';
+    this.scene.fog = wide ? new THREE.Fog(fogColor, 1400, 9500) : new THREE.Fog(fogColor, 700, 3200);
+    if (wide) { this.camera.far = 14000; this.camera.updateProjectionMatrix(); }
+    this.addAtmosphericSky(region, wide ? 11000 : 5200);
 
     // Lighting: warm low-angle "workshop afternoon" key light + cool sky fill,
     // matching the DIY-garage/golden-hour mood (spec 10 tono, 83.1) rather than
@@ -135,6 +139,7 @@ export class FlightScene {
       this.buildScrapValleyLandmarks();
     } else if (region.environment.terrain === 'meadow') {
       this.buildTheFieldLandmarks(airfield);
+      void this.addFieldRocks();
     } else {
       this.buildTerrainLandmarks(region.environment.terrain);
     }
@@ -161,12 +166,12 @@ export class FlightScene {
    * a post-processing pass. It deliberately ignores fog and depth writes: terrain and
    * clouds remain the only world geometry the player can fly toward.
    */
-  private addAtmosphericSky(region: RegionDefinition): void {
+  private addAtmosphericSky(region: RegionDefinition, radiusM: number): void {
     const horizon = new THREE.Color(region.skyColor).lerp(new THREE.Color('#fff0cf'), region.environment.timeOfDay === 'sunset' ? 0.28 : 0.12);
     const zenith = new THREE.Color(region.skyColor).lerp(new THREE.Color('#2e6191'), region.environment.weather === 'overcast' ? 0.25 : 0.48);
     const storm = region.environment.weather === 'windy' || region.environment.weather === 'overcast';
     const sky = new THREE.Mesh(
-      new THREE.SphereGeometry(5200, 32, 16),
+      new THREE.SphereGeometry(radiusM, 32, 16),
       new THREE.ShaderMaterial({
         side: THREE.BackSide,
         depthWrite: false,
@@ -439,6 +444,28 @@ export class FlightScene {
     }
 
     if (airfield) this.buildFieldAirfieldCompound(airfield);
+  }
+
+  /** Quaternius boulders on steep/high ground (world/fieldRocks.ts), one InstancedMesh per
+   * model mesh. A load failure just leaves the terrain bare. */
+  private async addFieldRocks(): Promise<void> {
+    const models = ['rock_medium_1', 'rock_medium_2', 'rock_medium_3'];
+    const placements = scatterFieldRocks(this.environment.terrainQuery);
+    try {
+      for (const [k, name] of models.entries()) {
+        const template = await assetLibrary.loadUri(`/assets/regions/field/rocks/${name}.glb`);
+        // The source rocks are near-black; lift them to weathered grey so they read as boulders.
+        template.traverse((o) => {
+          if (o instanceof THREE.Mesh) {
+            const mat = (o.material as THREE.MeshStandardMaterial).clone();
+            mat.color.set('#a39d92');
+            mat.map = null;
+            o.material = mat;
+          }
+        });
+        this.scene.add(instanceGltf(template, placements.filter((_, i) => i % models.length === k)));
+      }
+    } catch { /* terrain reads fine without rocks */ }
   }
 
   /** Swaps the procedural tree blobs for the Quaternius trees (ASSET_MANIFEST field.tree.*),

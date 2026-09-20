@@ -1,7 +1,8 @@
 // Core flight simulation (spec sections 8, 9, 34). One dynamic Rapier rigid body per
 // aircraft; this layer applies aerodynamics, thrust, landing-gear and structural contact
-// forces every fixed 60 Hz tick. Terrain is the analytic TerrainQueryService surface
-// (no heightfield collider), so gear/hard-point contact is resolved here explicitly.
+// forces every fixed 60 Hz tick. Terrain is the analytic TerrainQueryService surface, so
+// gear/hard-point contact, crash detection and AGL are resolved here explicitly. The Rapier
+// heightfield is the same surface; only the tiny body collider (BODY_RADIUS_M) touches it.
 //
 // Handling model: control inputs command angular accelerations whose authority scales
 // with dynamic pressure; aerodynamic damping and weathervane stability (AoA / sideslip)
@@ -161,6 +162,10 @@ const ASSIST: Record<ResolvedControls['assistMode'], AssistTuning> = {
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 const smoothSign = (v: number, width: number) => Math.tanh(v / width);
 
+/** Body collider radius == the deep-penetration floor above terrain, so the Rapier heightfield
+ * and the analytic floor clamp agree on where the CG stops. Gear/hard points engage far above. */
+const BODY_RADIUS_M = 0.2;
+
 export class FlightController {
   world: RAPIER.World;
   body: RAPIER.RigidBody;
@@ -264,7 +269,7 @@ export class FlightController {
       .setCcdEnabled(false);
     this.body = world.createRigidBody(bodyDesc);
     // Mass properties are authored; the collider only exists for the deep safety floor.
-    this.collider = world.createCollider(RAPIER.ColliderDesc.ball(0.5).setDensity(0).setFriction(0.5), this.body);
+    this.collider = world.createCollider(RAPIER.ColliderDesc.ball(BODY_RADIUS_M).setDensity(0).setFriction(0.5), this.body);
     const [ip, iy, ir] = this.spec.inertia;
     this.body.setAdditionalMassProperties(this.spec.massKg, { x: 0, y: 0, z: 0 }, { x: ip, y: iy, z: ir }, { x: 0, y: 0, z: 0, w: 1 }, true);
 
@@ -489,7 +494,7 @@ export class FlightController {
 
     // Deep-penetration safety: never let the body center sink below the terrain surface.
     const t2 = this.body.translation();
-    const floor = this.terrainQuery.getElevation(t2.x, t2.z) + 0.2;
+    const floor = this.terrainQuery.getElevation(t2.x, t2.z) + BODY_RADIUS_M;
     if (t2.y < floor) {
       this.body.setTranslation({ x: t2.x, y: floor, z: t2.z }, true);
       const v2 = this.body.linvel();

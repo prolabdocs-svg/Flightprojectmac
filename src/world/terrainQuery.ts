@@ -1,5 +1,6 @@
 import type { RegionDefinition } from '../core/types';
 import { buildAirportOverrides, findAirportOverrideAt } from './airfieldTerrain';
+import { fieldElevation } from './fieldGeography';
 import { computeBiomeWeights, type BiomeWeights } from './biomeWeights';
 import { GROUND_SURFACES, type GroundSurfaceId } from './surfaces';
 import { buildWaterBodies, findWaterBodyAt } from './waterBodies';
@@ -64,6 +65,9 @@ const TERRAIN_SURFACE_AND_BIOME: Record<RegionDefinition['environment']['terrain
   range: { surfaceId: 'scrub', biomeId: 'highland_scrub' },
 };
 
+/** Width (metres) of the blend from a graded pad back into natural terrain. */
+const AIRFIELD_SHOULDER_M = 150;
+
 /** Half-width of the finite-difference step (metres) used to estimate slope. */
 const SLOPE_SAMPLE_STEP_M = 1;
 
@@ -92,7 +96,8 @@ function clamp01(v: number): number {
  */
 export const NATURAL_ELEVATION_PROFILES: Record<RegionDefinition['environment']['terrain'], (x: number, y: number) => number> = {
   // Gentle agricultural basin + low rolling hills: small amplitude, bounded radial dip.
-  meadow: (x, y) => Math.sin(x * 0.0035) * 7 + Math.cos(y * 0.004) * 6 + Math.sin(Math.hypot(x, y) * 0.0007) * 4,
+  // The Field: authored geography (mountains, pass, river valley, lake basin) — see fieldGeography.ts.
+  meadow: (x, y) => fieldElevation(x, -y),
   // Terraced quarry benches (repeating stepped plateaus) layered over rocky base hills, so
   // there is always at least one hard bank/step outside the graded pad.
   quarry: (x, y) => {
@@ -171,8 +176,17 @@ export function createTerrainQueryService(region: RegionDefinition): TerrainQuer
     const override = findAirportOverrideAt(overrides, x, z);
     if (override) return gradedElevationByAirfieldId.get(override.airfieldId)!;
     const water = findWaterBodyAt(waterBodies, x, z);
-    if (water) return water.surfaceElevationM;
-    return natural(x, z);
+    const ground = water ? water.surfaceElevationM : natural(x, z);
+    // Shoulder: ease from the graded pad into the natural terrain instead of a hard step.
+    for (const o of overrides) {
+      const d = Math.hypot(x - o.center[0], z - o.center[1]) - o.radiusM;
+      if (d < AIRFIELD_SHOULDER_M) {
+        const t = d / AIRFIELD_SHOULDER_M;
+        const graded = gradedElevationByAirfieldId.get(o.airfieldId)!;
+        return graded + (ground - graded) * (t * t * (3 - 2 * t));
+      }
+    }
+    return ground;
   };
 
   // Shared finite-difference gradient so slope and aspect reuse the same 4 extra elevation

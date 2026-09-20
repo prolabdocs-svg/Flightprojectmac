@@ -32,6 +32,7 @@ import { sinkRateToIntensity } from '../../audio/flightAudioMappings';
 import { getEnvironmentWind } from '../../sim/weather';
 import { FixedStepClock } from '../../core/fixedStepClock';
 import { createTerrainQueryService } from '../../world/terrainQuery';
+import { buildHeightGrid, createHeightfieldCollider, FIELD_TERRAIN_SEGMENTS, FIELD_TERRAIN_SIZE_M } from '../../world/terrainHeightfield';
 import { getHomeBaseBenefits } from '../../content/homeBase';
 import { getRegionObstacles } from '../../world/obstacles';
 
@@ -82,19 +83,20 @@ export function FlightScreen() {
       // FlightController's per-tick ground contact (src/sim/flightController.ts) all sample
       // it, so they can never drift apart.
       //
-      // A real RAPIER.ColliderDesc.heightfield(...) sampled from `terrainQuery` reliably
-      // crashed the Rapier wasm module ("memory access out of bounds") when tried, even with
-      // a conservative 65x65 sample grid — likely a sign convention or row/column-major
-      // mismatch in how @dimforge/rapier3d-compat@0.20 expects the heights buffer laid out.
-      // FlightController instead enforces ground contact against the undulating terrain
-      // manually every tick; this collider is kept only as a deep safety-net floor (well
-      // below the terrain's ~±80m relief) to catch the aircraft if anything ever pushes it
-      // out of the manual clamp's reach, not as the primary ground.
+      // Ownership: terrainQuery is the surface; the Rapier heightfield (The Field) is that
+      // same surface for rigid-body containment of the airframe's small body collider
+      // (FlightController.BODY_RADIUS_M). Gear, hard points, crash detection and AGL are
+      // analytic terrainQuery queries in FlightController, so nothing is double-counted:
+      // the body collider only touches terrain once the airframe is already wrecked.
+      // Every region keeps a deep flat floor as the last resort.
       const region = activeRegion;
       const terrainQuery = createTerrainQueryService(region);
       const SAFETY_FLOOR_Y = -500;
       const groundDesc = RAPIER.ColliderDesc.cuboid(3000, 0.5, 3000).setTranslation(0, SAFETY_FLOOR_Y - 0.5, 0).setFriction(0.04);
       world.createCollider(groundDesc);
+      if (region.environment.terrain === 'meadow') {
+        createHeightfieldCollider(RAPIER, world, buildHeightGrid(terrainQuery.getElevation), FIELD_TERRAIN_SIZE_M, FIELD_TERRAIN_SEGMENTS);
+      }
 
       const aircraft = resolveAircraft(profile.currentBuild);
       const freeFlightAirfield = mission ? undefined : getFreeFlightAirfield(region.id);

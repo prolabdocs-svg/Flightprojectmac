@@ -1,3 +1,4 @@
+import { FIELD_LAKE } from './fieldGeography';
 /**
  * WLD-03 hydrology (spec §19-24, §217, §240, §249). Deliberately minimal per spec §266
  * non-goals: no flow accumulation, no watershed graph, no polyline rivers — a water body
@@ -17,6 +18,8 @@ export interface WaterBody {
 }
 
 interface WaterBodySeed {
+  /** Fixed surface height; otherwise sampled from natural terrain at the centre. */
+  surfaceElevationM?: number;
   id: string;
   regionId: string;
   kind: WaterBodyKind;
@@ -36,6 +39,8 @@ interface WaterBodySeed {
 // it rather than the lake sitting on a ridge (spec §222 QA: no "water over ridge").
 const WATER_BODY_SEEDS: WaterBodySeed[] = [
   { id: 'backcountry_lake', regionId: 'backcountry', kind: 'lake', center: [300, 65], radiusM: 90 },
+  // The Field's western lake: the basin is carved in fieldGeography.ts so its edge meets this surface.
+  { id: 'field_lake', regionId: 'the_field', kind: 'lake', center: [FIELD_LAKE.x, FIELD_LAKE.z], radiusM: FIELD_LAKE.radiusM, surfaceElevationM: FIELD_LAKE.waterLevelM },
   { id: 'coast_run_bay', regionId: 'coast_run', kind: 'lake', center: [340, 1250], radiusM: 220 },
 ];
 
@@ -48,7 +53,7 @@ export function buildWaterBodies(
 ): WaterBody[] {
   return WATER_BODY_SEEDS.filter((s) => s.regionId === regionId).map((s) => ({
     ...s,
-    surfaceElevationM: naturalElevation(s.center[0], s.center[1]),
+    surfaceElevationM: s.surfaceElevationM ?? naturalElevation(s.center[0], s.center[1]),
   }));
 }
 

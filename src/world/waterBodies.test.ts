@@ -13,8 +13,8 @@ function airfieldGradedRadius(runwayLengthM: number): number {
 }
 
 describe('buildWaterBodies', () => {
-  it('only assigns water to the regions that have it (backcountry, coast_run)', () => {
-    expect(buildWaterBodies('the_field', () => 0)).toHaveLength(0);
+  it('only assigns water to the regions that have it (field, backcountry, coast_run)', () => {
+    expect(buildWaterBodies('the_field', () => 0)).toHaveLength(1);
     expect(buildWaterBodies('scrap_valley', () => 0)).toHaveLength(0);
     expect(buildWaterBodies('backcountry', () => 0)).toHaveLength(1);
     expect(buildWaterBodies('coast_run', () => 0)).toHaveLength(1);

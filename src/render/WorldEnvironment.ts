@@ -5,7 +5,13 @@ import { BIOME_COLORS } from '../world/biomeWeights';
 import { createSeededRandom } from '../core/seededRandom';
 import { getAmbientTrafficPose } from '../world/ambientTraffic';
 import { buildWaterBodies } from '../world/waterBodies';
+import { FIELD_TERRAIN_SEGMENTS, FIELD_TERRAIN_SIZE_M } from '../world/terrainHeightfield';
+import { FIELD_RIVER_POINTS, SEA_LEVEL_M } from '../world/fieldGeography';
+import { fieldGroundColor } from './fieldTerrainColor';
 import { getDistantLandmarkKind, getTerrainVisualProfile, type TerrainVisualProfile } from './worldVisualIdentity';
+
+/** Lake surfaces sit this far above the (flat) terrain under them so the two never z-fight at range. */
+const WATER_LIFT_M = 0.3;
 
 /** Presentation-only region kit.  Simulation reads the matching data profile through
  * sim/weather.ts, so visual density can be changed independently of flight behaviour. */
@@ -19,6 +25,8 @@ export class WorldEnvironment {
   private readonly waterShorelines: THREE.Mesh[] = [];
   private readonly region: RegionDefinition;
   readonly terrainQuery: TerrainQueryService;
+  /** The Field's rendered terrain heights (row-major, same grid as the Rapier heightfield). */
+  private fieldHeights?: Float32Array;
 
   constructor(region: RegionDefinition) {
     this.region = region;
@@ -36,11 +44,14 @@ export class WorldEnvironment {
   }
 
   private addTerrain() {
-    const size = 6000;
+    // The Field is a single 16 km heightfield (authored geography, see fieldGeography.ts);
+    // other regions keep the 6 km plane.
+    const isField = this.region.environment.terrain === 'meadow';
+    const size = isField ? FIELD_TERRAIN_SIZE_M : 6000;
     // 192x192 remains a single mobile-friendly draw call (one static plane, built once),
     // while giving the elevation/biome interpolation and near-player relief noticeably
     // finer triangles than the previous 160x160 grid.
-    const segments = 192;
+    const segments = isField ? FIELD_TERRAIN_SEGMENTS : 192;
     const geo = new THREE.PlaneGeometry(size, size, segments, segments);
     const pos = geo.attributes.position;
     // Elevation now comes from the shared TerrainQueryService (src/world/terrainQuery.ts) so
@@ -52,6 +63,10 @@ export class WorldEnvironment {
       const localY = pos.getY(i);
       const height = this.terrainQuery.getElevation(localX, -localY);
       pos.setZ(i, height);
+    }
+    if (isField) {
+      this.fieldHeights = new Float32Array(pos.count);
+      for (let i = 0; i < pos.count; i++) this.fieldHeights[i] = pos.getZ(i);
     }
     geo.computeVertexNormals();
     // Vertex colour blends real biome weights from TerrainQueryService (spec §250, DoD
@@ -68,8 +83,20 @@ export class WorldEnvironment {
       return c;
     };
     const color = new THREE.Color();
+    const n = segments + 1;
+    const cell = size / segments;
     for (let i = 0; i < pos.count; i++) {
       const x = pos.getX(i), z = -pos.getY(i);
+      if (isField) {
+        // Geography-driven colour (see fieldTerrainColor.ts); slope from the mesh's own
+        // neighbouring vertices so it matches what the player sees at 62 m cells.
+        const ix = i % n, iy = Math.floor(i / n);
+        const h = (dx: number, dy: number) => pos.getZ(Math.min(n - 1, Math.max(0, iy + dy)) * n + Math.min(n - 1, Math.max(0, ix + dx)));
+        const slopeDeg = (Math.atan(Math.hypot(h(1, 0) - h(-1, 0), h(0, 1) - h(0, -1)) / (2 * cell)) * 180) / Math.PI;
+        fieldGroundColor(x, z, pos.getZ(i), slopeDeg, color);
+        colors.set([color.r, color.g, color.b], i * 3);
+        continue;
+      }
       const weights = this.terrainQuery.getBiomeWeights(x, z);
       color.setRGB(0, 0, 0);
       for (const biomeId in weights) {
@@ -89,9 +116,13 @@ export class WorldEnvironment {
     // Smooth normals plus denser geometry preserve the shared physical relief without
     // exposing the terrain as a coarse faceted grid.
     const profile = getTerrainVisualProfile(this.region);
-    const detailRng = createSeededRandom('world-environment-ground-detail', this.region.id);
-    const detailTexture = this.buildGroundDetailTexture(profile, detailRng);
-    detailTexture.repeat.set(size / profile.parcelScaleM, size / profile.parcelScaleM);
+    // The Field's colour is geographic (vertex colours); the repeating parcel/blotch texture
+    // would read as noise across mountains and valleys, so it stays off on the 16 km terrain.
+    let detailTexture: THREE.CanvasTexture | null = null;
+    if (!isField) {
+      detailTexture = this.buildGroundDetailTexture(profile, createSeededRandom('world-environment-ground-detail', this.region.id));
+      detailTexture.repeat.set(size / profile.parcelScaleM, size / profile.parcelScaleM);
+    }
     const terrainMat = new THREE.MeshStandardMaterial({
       color: '#ffffff',
       map: detailTexture,
@@ -106,6 +137,8 @@ export class WorldEnvironment {
     this.root.add(terrain);
 
     // Low-cost water/earth horizon shell gives distant terrain a clear silhouette on mobile.
+    // The Field's real terrain reaches its own horizon, and a flat shell would float over its lowlands.
+    if (isField) return;
     const horizon = new THREE.Mesh(new THREE.RingGeometry(1050, 2900, 64), new THREE.MeshBasicMaterial({ color: this.region.environment.terrain === 'quarry' ? '#786d60' : '#708f58', side: THREE.DoubleSide, transparent: true, opacity: 0.55 }));
     horizon.rotation.x = -Math.PI / 2;
     horizon.position.y = -0.08;
@@ -210,11 +243,14 @@ export class WorldEnvironment {
         opacity: 0.78,
         depthWrite: false,
         side: THREE.DoubleSide,
+        polygonOffset: true,
+        polygonOffsetFactor: -2,
+        polygonOffsetUnits: -2,
       });
       const water = new THREE.Mesh(new THREE.CircleGeometry(body.radiusM, 48), material);
       water.name = `water:${body.id}`;
       water.rotation.x = -Math.PI / 2;
-      water.position.set(body.center[0], body.surfaceElevationM + 0.045, body.center[1]);
+      water.position.set(body.center[0], body.surfaceElevationM + WATER_LIFT_M, body.center[1]);
       water.receiveShadow = true;
       this.waterSurfaces.push(water);
       this.root.add(water);
@@ -235,9 +271,14 @@ export class WorldEnvironment {
       );
       shoreline.name = `shoreline:${body.id}`;
       shoreline.rotation.x = -Math.PI / 2;
-      shoreline.position.set(body.center[0], body.surfaceElevationM + 0.052, body.center[1]);
+      shoreline.position.set(body.center[0], body.surfaceElevationM + WATER_LIFT_M + 0.01, body.center[1]);
       this.waterShorelines.push(shoreline);
       this.root.add(shoreline);
+    }
+
+    if (this.region.environment.terrain === 'meadow') {
+      this.addFieldRiver();
+      this.addFieldSea();
     }
 
     // Coast Run is a coast rather than an inland circular lake. The playable airstrip
@@ -264,6 +305,77 @@ export class WorldEnvironment {
       beach.position.set(0, this.terrainQuery.getElevation(0, 680) + 0.08, 700);
       this.root.add(beach);
     }
+  }
+
+  /** Height of the rendered (triangulated) terrain mesh at x/z, so water sits on what the
+   * player sees rather than on the analytic surface between 62 m grid nodes. */
+  private meshHeight(x: number, z: number): number {
+    const g = this.fieldHeights!, n = FIELD_TERRAIN_SEGMENTS + 1, cell = FIELD_TERRAIN_SIZE_M / FIELD_TERRAIN_SEGMENTS;
+    const fx = Math.min(n - 1.001, Math.max(0, (x + FIELD_TERRAIN_SIZE_M / 2) / cell));
+    // Row iy sits at local y = S/2 - iy*cell and world z = -localY, so iy = (z + S/2)/cell.
+    const fy = Math.min(n - 1.001, Math.max(0, (FIELD_TERRAIN_SIZE_M / 2 + z) / cell));
+    const ix = Math.floor(fx), iy = Math.floor(fy), u = fx - ix, v = fy - iy;
+    const at = (a: number, b: number) => g[b * n + a];
+    return at(ix, iy) * (1 - u) * (1 - v) + at(ix + 1, iy) * u * (1 - v) + at(ix, iy + 1) * (1 - u) * v + at(ix + 1, iy + 1) * u * v;
+  }
+
+  /** One ribbon mesh along the carved river valley (FIELD_RIVER_POINTS), 28-42 m wide. Each
+   * cross-section is flat at the highest of its three terrain samples + a little, so the
+   * water sits inside the channel and the banks rise through it. Skipped inside the lake. */
+  private addFieldRiver() {
+    const pts: Array<[number, number]> = [];
+    const STEP_M = 45;
+    for (let i = 0; i < FIELD_RIVER_POINTS.length - 1; i++) {
+      const [ax, az] = FIELD_RIVER_POINTS[i], [bx, bz] = FIELD_RIVER_POINTS[i + 1];
+      const k = Math.max(1, Math.round(Math.hypot(bx - ax, bz - az) / STEP_M));
+      for (let j = 0; j < k; j++) pts.push([ax + ((bx - ax) * j) / k, az + ((bz - az) * j) / k]);
+    }
+    const last = FIELD_RIVER_POINTS[FIELD_RIVER_POINTS.length - 1];
+    pts.push([last[0], last[1]]);
+    const level = pts.map(([x, z], i) => {
+      const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)];
+      const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1, nx = -(b[1] - a[1]) / len, nz = (b[0] - a[0]) / len;
+      const hw = 16 + 6 * (0.5 + 0.5 * Math.sin(i * 0.37));
+      return Math.max(this.meshHeight(x, z), this.meshHeight(x + nx * hw, z + nz * hw), this.meshHeight(x - nx * hw, z - nz * hw)) + 0.3;
+    });
+    // Smooth along the flow so the surface has no sawtooth from the coarse mesh.
+    for (let pass = 0; pass < 4; pass++) for (let i = 1; i < level.length - 1; i++) level[i] = Math.max(level[i], (level[i - 1] + level[i] * 2 + level[i + 1]) / 4);
+    const positions: number[] = [];
+    const index: number[] = [];
+    pts.forEach(([x, z], i) => {
+      const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)];
+      const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1, nx = -(b[1] - a[1]) / len, nz = (b[0] - a[0]) / len;
+      const hw = 16 + 6 * (0.5 + 0.5 * Math.sin(i * 0.37));
+      positions.push(x + nx * hw, level[i], z + nz * hw, x - nx * hw, level[i], z - nz * hw);
+      const inLake = this.terrainQuery.getWaterDepth(x, z) > 0;
+      if (i > 0 && !inLake && this.terrainQuery.getWaterDepth(pts[i - 1][0], pts[i - 1][1]) === 0) {
+        const p = (i - 1) * 2, q = i * 2;
+        index.push(p, q, p + 1, p + 1, q, q + 1);
+      }
+    });
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geo.setIndex(index);
+    geo.computeVertexNormals();
+    const river = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
+      color: '#3f86a3', roughness: 0.3, metalness: 0.05, transparent: true, opacity: 0.9,
+      polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, side: THREE.DoubleSide,
+    }));
+    river.name = 'water:field-river';
+    this.root.add(river);
+  }
+
+  /** The map edge sinks below sea level; this plane is the sea out to (and beyond) the fogged
+   * horizon, so the world ends as a coast instead of a cut or a square. */
+  private addFieldSea() {
+    const sea = new THREE.Mesh(
+      new THREE.PlaneGeometry(60000, 60000, 1, 1),
+      new THREE.MeshStandardMaterial({ color: '#2f7391', roughness: 0.3, metalness: 0.05, transparent: true, opacity: 0.94 }),
+    );
+    sea.name = 'water:field-sea';
+    sea.rotation.x = -Math.PI / 2;
+    sea.position.y = SEA_LEVEL_M;
+    this.root.add(sea);
   }
 
   /** A single tall, high-contrast structure placed far from the runway so it stays
@@ -400,6 +512,8 @@ export class WorldEnvironment {
    * sense of scale ("how high am I really") the way San Andreas' background mountains
    * do, without adding any collidable geometry or per-frame cost. One InstancedMesh. */
   private addRidgeline() {
+    // The Field has real mountains; painted cones on top of them would be the tabletop look.
+    if (this.region.environment.terrain === 'meadow') return;
     const rng = createSeededRandom('world-environment-ridgeline', this.region.id);
     const profile = getTerrainVisualProfile(this.region);
     const jaggedness = profile.horizonJaggedness;

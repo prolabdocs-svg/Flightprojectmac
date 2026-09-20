@@ -4,6 +4,7 @@
 
 import * as THREE from 'three';
 import { initPhysics, createWorld } from './physics';
+import { buildHeightGrid, createHeightfieldCollider } from '../world/terrainHeightfield';
 import { FlightController, type FlightTelemetry, type ResolvedControls } from './flightController';
 import { resolveAircraft, defaultBuild } from '../content/assembly';
 import { getRegion } from '../content/regions';
@@ -23,11 +24,15 @@ export interface Sample extends FlightTelemetry {
   vsMs: number;
 }
 
+/** The Field's height grid is deterministic; building it (66k samples) once keeps harnesses cheap. */
+let fieldGrid: Float32Array | undefined;
+
 export async function createHarness(opts: { build?: AircraftBuild; regionId?: string; wind?: THREE.Vector3; spawn?: THREE.Vector3; headingDeg?: number; obstacles?: Obstacle[] } = {}) {
-  await initPhysics();
+  const RAPIER = await initPhysics();
   const world = createWorld();
   const region = getRegion(opts.regionId ?? 'the_field');
   const terrain = createTerrainQueryService(region);
+  if (region.environment.terrain === 'meadow') createHeightfieldCollider(RAPIER, world, (fieldGrid ??= buildHeightGrid(terrain.getElevation)));
   const spawn = opts.spawn ?? new THREE.Vector3(0, terrain.getElevation(0, 0) + 1.2, 0);
   const fc = new FlightController(world, resolveAircraft(opts.build ?? defaultBuild()), spawn, opts.headingDeg ?? 0, terrain, undefined, opts.obstacles);
   const wind = opts.wind ?? new THREE.Vector3();
