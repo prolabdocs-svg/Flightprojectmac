@@ -1,10 +1,13 @@
 // Phase 7 gate: wind and gusts act through the airflow, never by moving the aircraft.
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
 import { defaultBuild } from '../../content/assembly';
 import { buildAircraftDefinition } from '../aircraft/quicksilver';
 import { createAirframeRig, holdAttitude, keepRunway, headingError, type RigSample } from './rig';
 import { DEG } from '../core/constants';
+
+// Flight simulations are CPU heavy; the default 5 s can be exceeded when the whole suite runs in parallel.
+vi.setConfig({ testTimeout: 60_000 });
 
 const def = buildAircraftDefinition(defaultBuild());
 const KMH = 3.6;

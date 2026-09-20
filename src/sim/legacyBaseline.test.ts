@@ -1,9 +1,12 @@
 // Phase 0 baseline: measures the LEGACY FlightController with scripted flights so the new
 // model can be compared against numbers instead of feel. Writes docs/flight/baseline_legacy.json
 // only when WRITE_BASELINE=1. Deleted together with the legacy model.
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { createHarness, hold, type Sample } from './flightHarness';
+
+// Flight simulations are CPU heavy; the default 5 s can be exceeded when the whole suite runs in parallel.
+vi.setConfig({ testTimeout: 60_000 });
 
 const rotate = (s: Sample | undefined) => ({ throttle: 1, pitch: s && s.airspeedMs > s.stallSpeedMs * 1.05 ? 0.6 : 0 });
 

@@ -1,6 +1,6 @@
 // Phase 8 gate: assistance is a separate layer that only edits pilot commands; the physics is the
 // same in every mode.
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import * as THREE from 'three';
 import { defaultBuild } from '../../content/assembly';
@@ -8,6 +8,9 @@ import { buildAircraftDefinition } from '../aircraft/quicksilver';
 import { createAirframeRig, holdAttitude } from './rig';
 import { FlightAssistance, assistLevelFromMode, type AssistLevel } from '../controls/flightAssistance';
 import { DEG } from '../core/constants';
+
+// Flight simulations are CPU heavy; the default 5 s can be exceeded when the whole suite runs in parallel.
+vi.setConfig({ testTimeout: 60_000 });
 
 const def = buildAircraftDefinition(defaultBuild());
 

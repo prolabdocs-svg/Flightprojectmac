@@ -1,10 +1,13 @@
 // Test Flight Standard (convergence spec section 13): the real FlightController + Rapier +
 // terrain, flown by a scripted pilot. Bands are the starter aircraft's target feel.
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
 import { createHarness, hold, type HarnessModel, type Sample } from './flightHarness';
 import { installPart, defaultBuild } from '../content/assembly';
 import type { Obstacle } from '../world/obstacles';
+
+// Flight simulations are CPU heavy; the default 5 s can be exceeded when the whole suite runs in parallel.
+vi.setConfig({ testTimeout: 60_000 });
 
 const rotate = (s: Sample | undefined) => ({ throttle: 1, pitch: s && s.airspeedMs > s.stallSpeedMs * 1.05 ? 0.6 : 0 });
 

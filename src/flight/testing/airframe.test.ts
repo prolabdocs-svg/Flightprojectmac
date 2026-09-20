@@ -1,11 +1,14 @@
 // Phase 2 gate: the bare Quicksilver-class airframe glides stably without engine, with no
 // control input, and the response comes purely from forces and moments.
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
 import { defaultBuild } from '../../content/assembly';
 import { buildAircraftDefinition } from '../aircraft/quicksilver';
 import { createAirframeRig } from './rig';
 import { glideTrim } from './trim';
+
+// Flight simulations are CPU heavy; the default 5 s can be exceeded when the whole suite runs in parallel.
+vi.setConfig({ testTimeout: 60_000 });
 
 const def = buildAircraftDefinition(defaultBuild());
 

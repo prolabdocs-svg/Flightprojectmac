@@ -1,12 +1,15 @@
 // Phase 5 gate (airborne part): climb -> cruise -> power-off, plus the propeller effects on the
 // airframe (reaction torque, propwash on the tail, gyroscopics) and torque-free rigid-body motion.
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
 import { defaultBuild } from '../../content/assembly';
 import { buildAircraftDefinition } from '../aircraft/quicksilver';
 import { createAirframeRig, holdAttitude } from './rig';
 import { glideTrim } from './trim';
 import { DEG } from '../core/constants';
+
+// Flight simulations are CPU heavy; the default 5 s can be exceeded when the whole suite runs in parallel.
+vi.setConfig({ testTimeout: 60_000 });
 
 const def = buildAircraftDefinition(defaultBuild());
 

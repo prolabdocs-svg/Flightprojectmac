@@ -1,5 +1,5 @@
 // Phase 4 gate: stall and recovery emerge from angle of attack and the coefficient curves.
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
 import { defaultBuild } from '../../content/assembly';
 import { buildAircraftDefinition } from '../aircraft/quicksilver';
@@ -7,6 +7,9 @@ import { getAirfoilTable } from '../aero/airfoil';
 import { createAirframeRig, type RigSample } from './rig';
 import { glideTrim } from './trim';
 import { DEG } from '../core/constants';
+
+// Flight simulations are CPU heavy; the default 5 s can be exceeded when the whole suite runs in parallel.
+vi.setConfig({ testTimeout: 60_000 });
 
 const def = buildAircraftDefinition(defaultBuild());
 const clMaxTable = getAirfoilTable(def.aero.airfoils.wing).clMax;
