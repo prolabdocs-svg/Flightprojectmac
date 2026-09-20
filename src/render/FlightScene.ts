@@ -444,7 +444,7 @@ export class FlightScene {
   /** Swaps the procedural tree blobs for the Quaternius trees (ASSET_MANIFEST field.tree.*),
    * grouped per model into InstancedMeshes. Any load failure keeps the procedural fallback. */
   private async upgradeTreesToGltf(fallback: THREE.Object3D, placements: TreeClusterPlacement[]): Promise<void> {
-    const models = ['commontree_1', 'commontree_2', 'commontree_3', 'pine_1', 'pine_2', 'pine_3', 'twistedtree_1', 'twistedtree_2', 'deadtree_1'];
+    const models = ['commontree_1', 'commontree_2', 'commontree_3', 'pine_1', 'pine_2', 'pine_3', 'deadtree_1']; // twistedtree_* has autumn-red leaves: not for the green Field
     try {
       const groups = await Promise.all(models.map(async (name, k) => {
         const template = await assetLibrary.loadUri(`/assets/regions/field/vegetation/${name}.glb`);
