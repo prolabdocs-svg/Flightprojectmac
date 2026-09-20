@@ -1,0 +1,51 @@
+{
+  "model": "legacy FlightController @60Hz",
+  "takeoff": {
+    "groundRollM": 58.92613983154297,
+    "liftoffKmh": 59.32399267770536,
+    "timeS": 6.633333333333315
+  },
+  "stallSpeedKmh_1g": 49.36037844006922,
+  "climb": {
+    "vsMs": 2.6258530616760254,
+    "kmh": 79.29519507060367
+  },
+  "cruise": {
+    "kmh": 82.05668267811268,
+    "vsMs": 0.21173404157161713
+  },
+  "powerOffGlide": [
+    {
+      "holdPitchDeg": -2,
+      "kmh": 69.25158138061036,
+      "sinkMs": 2.317532777786255,
+      "ratio": 8.300443716648505
+    },
+    {
+      "holdPitchDeg": -4,
+      "kmh": 73.27440720105585,
+      "sinkMs": 2.568025588989258,
+      "ratio": 7.925934261544632
+    },
+    {
+      "holdPitchDeg": -6,
+      "kmh": 77.67443473685391,
+      "sinkMs": 2.893765449523926,
+      "ratio": 7.456109435164474
+    }
+  ],
+  "rollAuthority": [
+    {
+      "airspeedKmh": 73.12413283210451,
+      "rollDegIn0p6s": 33.13283247323185
+    },
+    {
+      "airspeedKmh": 84.04445071066228,
+      "rollDegIn0p6s": 41.95438862618321
+    },
+    {
+      "airspeedKmh": 107.99904278737367,
+      "rollDegIn0p6s": 44.56225442270006
+    }
+  ]
+}
