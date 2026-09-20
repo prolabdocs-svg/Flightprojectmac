@@ -38,7 +38,8 @@ export class StructuralContacts {
   /** Applies contact forces; returns the number of active contacts. */
   step(phys: AircraftPhysics): number {
     let count = 0;
-    const inReach = phys.heightAglM < 8;
+    const inReach = phys.heightAglM < 6;
+    const groundAtCg = phys.cgWorld.y - phys.heightAglM;
     const m = phys.mass.massKg;
     for (let i = 0; i < this.contacts.length; i++) {
       const c = this.contacts[i];
@@ -46,6 +47,9 @@ export class StructuralContacts {
       c.loadN = 0;
       if (!inReach) continue;
       phys.pointWorld(this.def.hardPoints[i].position, this.p);
+      // Cheap reject: far above the ground under the CG (with a slope allowance) cannot touch; skip the terrain query.
+      const reach = 0.5 + 0.2 * Math.hypot(this.p.x - phys.cgWorld.x, this.p.z - phys.cgWorld.z);
+      if (this.p.y - groundAtCg > reach) continue;
       const depth = this.ground.getElevation(this.p.x, this.p.z) - this.p.y;
       if (depth <= 0) continue;
       const e = 0.75;

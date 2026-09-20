@@ -20,6 +20,11 @@ export interface GroundQuery {
 export type WheelMode = 'air' | 'rolling' | 'braking' | 'skidding';
 
 export class WheelState {
+  /** Cached terrain normal/surface, refreshed when the contact point has moved (terrain queries are the costly part). */
+  readonly cachedNormal = new THREE.Vector3(0, 1, 0);
+  cachedSurface: GroundSurfaceDefinition | null = null;
+  cacheX = Infinity;
+  cacheZ = Infinity;
   contact = false;
   compressionM = 0;
   loadN = 0;
@@ -51,6 +56,7 @@ export interface GearSummary {
 }
 
 const BUMP_STOP_STIFFNESS = 8;
+const NORMAL_REFRESH_M = 0.5;
 
 export class LandingGear {
   readonly def: GearDefinition;
@@ -94,7 +100,7 @@ export class LandingGear {
     sum.maxSinkMs = 0;
     sum.peakLoadN = 0;
     sum.touchedDown = false;
-    const inReach = phys.heightAglM < 6;
+    const inReach = phys.heightAglM < 3;
     this.fwd.set(0, 0, 1).applyQuaternion(phys.frame.q);
     this.up.set(0, 1, 0).applyQuaternion(phys.frame.q);
     let anyContact = false;
@@ -117,7 +123,14 @@ export class LandingGear {
       st.point.copy(this.p);
       if (depth <= 0) continue;
 
-      this.terrainNormal(this.p.x, this.p.z, this.n);
+      // Normal + surface change slowly along the ground: resample every ~0.5 m of travel, not every tick.
+      if (!st.cachedSurface || Math.hypot(this.p.x - st.cacheX, this.p.z - st.cacheZ) > NORMAL_REFRESH_M) {
+        this.terrainNormal(this.p.x, this.p.z, st.cachedNormal, groundY);
+        st.cachedSurface = this.ground.getSurface(this.p.x, this.p.z);
+        st.cacheX = this.p.x;
+        st.cacheZ = this.p.z;
+      }
+      this.n.copy(st.cachedNormal);
       phys.pointVelocityWorld(this.p, this.pv);
       const vn = this.pv.dot(this.n);
       const compression = depth * this.n.y;
@@ -139,7 +152,7 @@ export class LandingGear {
       this.side.crossVectors(this.n, this.roll);
       const vRoll = this.pv.dot(this.roll);
       const vSide = this.pv.dot(this.side);
-      const surf = this.ground.getSurface(this.p.x, this.p.z);
+      const surf = st.cachedSurface;
       const mu = g.tyreMu * surf.brakingGripDry;
       const limit = mu * fn;
 
@@ -175,11 +188,11 @@ export class LandingGear {
   }
 
   /** Terrain normal from a small finite difference (only evaluated for touching points). */
-  terrainNormal(x: number, z: number, out: THREE.Vector3): THREE.Vector3 {
+  terrainNormal(x: number, z: number, out: THREE.Vector3, hHere: number): THREE.Vector3 {
     const e = 0.75;
-    const hx = this.ground.getElevation(x + e, z) - this.ground.getElevation(x - e, z);
-    const hz = this.ground.getElevation(x, z + e) - this.ground.getElevation(x, z - e);
-    return out.set(-hx / (2 * e), 1, -hz / (2 * e)).normalize();
+    const hx = this.ground.getElevation(x + e, z) - hHere;
+    const hz = this.ground.getElevation(x, z + e) - hHere;
+    return out.set(-hx / e, 1, -hz / e).normalize();
   }
 }
 

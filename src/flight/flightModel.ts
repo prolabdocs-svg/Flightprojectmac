@@ -81,6 +81,11 @@ export class FlightModel implements FlightSim {
   private stalled = false;
   private stallWarning = false;
   private windEffective = new THREE.Vector3();
+  /** Ground elevation under the CG from the previous tick's physics sample (one terrain query per tick). */
+  private groundY = 0;
+  private cachedDamage: DamageState | null = null;
+  private damagedIds: string[] = [];
+  private detachedIds: string[] = [];
   private readonly fwd = new THREE.Vector3();
   private readonly left = new THREE.Vector3();
   private readonly up = new THREE.Vector3();
@@ -114,6 +119,7 @@ export class FlightModel implements FlightSim {
     this.damage = createDamageState(aircraft.aeroSurfaces.map((s) => s.id));
     this.sim.effectiveness = (id) => getAeroEffectivenessMultiplier(this.damage, id);
     this.sim.placeOnGround(this.spawnXZ[0], this.spawnXZ[1], this.spawnHeadingDeg);
+    this.groundY = terrain.getElevation(spawnPos.x, spawnPos.z);
   }
 
   get body(): RAPIER.RigidBody {
@@ -160,9 +166,8 @@ export class FlightModel implements FlightSim {
 
     const gearGone = listDetachedPartIds(this.damage).includes(gearPartId());
     const engineOn = controls.engineOn && active && !this.landed;
-    const p = phys.body.translation();
-    const groundY = this.terrain.getElevation(p.x, p.z);
-    this.windField.sample(meanWind, this.tmp.set(p.x, p.y, p.z), this.elapsedS, p.y - groundY, this.windEffective);
+    const p = phys.pos;
+    this.windField.sample(meanWind, p, this.elapsedS, p.y - this.groundY, this.windEffective);
 
     sim.step(
       {
@@ -179,13 +184,13 @@ export class FlightModel implements FlightSim {
       this.windEffective,
     );
 
-    const attitudeNow = attitude(phys.frame, this.fwd, this.left, this.up);
+    attitude(phys.frame, this.fwd, this.left, this.up);
+    this.groundY = phys.cgWorld.y - phys.heightAglM;
     this.applyContactRules(gearGone);
     this.updateStallFlags(active);
     // Specific force along the aircraft's up axis (aero + thrust + ground) over weight.
     this.specific.copy(phys.forceBody).applyQuaternion(phys.frame.q).add(phys.forceWorld);
     this.gForce = this.specific.dot(this.up) / (phys.mass.massKg * GRAVITY);
-    void attitudeNow;
 
     if (this.crashed && (sim.gear.summary.wheelsOnGround > 0 || sim.structure.contacts.some((c) => c.active))) {
       this.body.setLinearDamping(1.5);
@@ -213,9 +218,12 @@ export class FlightModel implements FlightSim {
         if (this.crashed) break;
       }
     }
-    const structural = sim.structure.contacts.filter((c) => c.active);
+    const structural = sim.structure.contacts;
+    let structuralCount = 0;
+    for (const c of structural) if (c.active) structuralCount++;
     if (!this.crashed) {
       for (const c of structural) {
+        if (!c.active) continue;
         if (c.id === 'canopy') this.crash('flipped');
         else if ((c.id === 'wingtipL' || c.id === 'wingtipR') && (c.sinkMs > 2.5 || c.speedMs > 9)) this.crash('wingStrike');
         else if (c.id === 'nose' && (c.sinkMs > 2.5 || c.speedMs > 6)) this.crash('terrain');
@@ -224,8 +232,8 @@ export class FlightModel implements FlightSim {
         if (this.crashed) break;
       }
     }
-    const onGround = gear.wheelsOnGround > 0 || structural.length > 0;
-    if (gear.touchedDown && this.airborneS > 0.25 && !this.crashed) this.registerTouchdown(gear.maxSinkMs, structural.length > 0);
+    const onGround = gear.wheelsOnGround > 0 || structuralCount > 0;
+    if (gear.touchedDown && this.airborneS > 0.25 && !this.crashed) this.registerTouchdown(gear.maxSinkMs, structuralCount > 0);
     if (!this.crashed && onGround && this.terrain.getWaterDepth(phys.pos.x, phys.pos.z) > 0.3) this.crash('water');
     if (!this.crashed && onGround && this.up.y < 0.1) this.crash('flipped');
   }
@@ -278,7 +286,7 @@ export class FlightModel implements FlightSim {
     const speed = Math.hypot(lv.x, lv.y, lv.z);
     const groundSpeed = Math.hypot(lv.x, lv.z);
     const wheels = sim.gear.summary.wheelsOnGround;
-    const agl = Math.max(0, t.y - this.terrain.getElevation(t.x, t.z) - sim.gear.restHeightM);
+    const agl = Math.max(0, t.y - this.groundY - sim.gear.restHeightM);
     const onGround = wheels > 0 || agl < 0.15;
     const rpm = sim.propulsion?.engine.rpm ?? 0;
 
@@ -310,6 +318,7 @@ export class FlightModel implements FlightSim {
       }
     }
 
+    this.refreshDamageLists();
     const cap = sim.def.mass.fuelCapacityL;
     const eng = sim.propulsion?.engine;
     return {
@@ -327,8 +336,8 @@ export class FlightModel implements FlightSim {
       rpm,
       onGround,
       crashOutcome: this.damage.outcome,
-      damagedPartIds: listDamagedPartIds(this.damage),
-      detachedPartIds: listDetachedPartIds(this.damage),
+      damagedPartIds: this.damagedIds,
+      detachedPartIds: this.detachedIds,
       landingFailures: this.landingFailures,
       elapsedS: this.elapsedS,
       position: [t.x, t.y, t.z],
@@ -349,6 +358,14 @@ export class FlightModel implements FlightSim {
       lastTouchdownVsMs: this.lastTouchdownVsMs,
       crashReason: this.crashReason,
     };
+  }
+
+  /** Part-id lists only change when the damage state does; rebuild them then, not every tick. */
+  private refreshDamageLists(): void {
+    if (this.cachedDamage === this.damage) return;
+    this.cachedDamage = this.damage;
+    this.damagedIds = listDamagedPartIds(this.damage);
+    this.detachedIds = listDetachedPartIds(this.damage);
   }
 
   private completeLanding(groundSpeed: number): void {
