@@ -24,3 +24,9 @@ build/icon.iconset/
 *.njsproj
 *.sln
 *.sw?
+
+# Raw third-party downloads stay local; licenses + ledger are tracked (assets-source/_licenses)
+assets-source/*
+!assets-source/_licenses
+assets-work/*
+!assets-work/.gitkeep

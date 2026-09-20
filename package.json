@@ -21,7 +21,9 @@
     "desktop:package:mac": "npm run build && electron-builder --mac --universal --dir",
     "desktop:package:mac:arm64": "npm run build && electron-builder --mac --arm64 --dir",
     "desktop:package:win": "npm run build && electron-builder --win --x64 --dir",
-    "desktop:package:linux": "npm run build && electron-builder --linux --x64 --dir"
+    "desktop:package:linux": "npm run build && electron-builder --linux --x64 --dir",
+    "asset:validate": "node scripts/assets/validate.ts",
+    "asset:ledger": "node scripts/assets/ledger.ts"
   },
   "build": {
     "appId": "com.projectflight.game",
@@ -65,6 +67,7 @@
     "zustand": "^5.0.15"
   },
   "devDependencies": {
+    "@gltf-transform/cli": "^4.5.0",
     "@types/node": "^24.13.3",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",
@@ -74,7 +77,10 @@
     "electron": "^44.4.1",
     "electron-builder": "^26.15.3",
     "fake-indexeddb": "^6.2.5",
+    "gltf-validator": "^2.0.0-dev.3.10",
+    "gltfpack": "^1.2.0",
     "jsdom": "^30.0.1",
+    "meshoptimizer": "^1.2.0",
     "oxlint": "^1.81.0",
     "png-to-ico": "^3.0.1",
     "typescript": "~6.0.2",
