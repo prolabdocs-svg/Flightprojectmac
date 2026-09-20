@@ -6,13 +6,13 @@ import type { RegionDefinition } from '../core/types';
 import { WorldEnvironment } from './WorldEnvironment';
 import { createSeededRandom, type SeededRandom } from '../core/seededRandom';
 import { assetLibrary } from './assetLibrary';
-import { ACTIVE_REGION_ASSETS, FRAME_ASSET_IDS } from './assetManifest';
+import { ACTIVE_REGION_ASSETS, FRAME_ASSET_IDS, type WorldAssetPlacement } from './assetManifest';
 import { getSettlementPlacements } from '../world/settlementLayout';
 import { ChaseCamera, type ChaseCameraInput } from './ChaseCamera';
 import { getFreeFlightAirfield, type AirfieldDefinition, type RunwaySurface } from '../world/airfields';
 import { buildTerrainFollowingMesh, getRunwaySafeZone, isInsideZone, layoutRoadTiles } from './fieldAirfieldLayout';
 import { getRegionRoadNetwork } from './regionRoadNetworks';
-import { buildTreeClusterInstancedMesh, type TreeClusterPlacement } from './vegetation';
+import { buildTreeClusterInstancedMesh, instanceGltf, type TreeClusterPlacement } from './vegetation';
 import { orientWorldProp } from './blenderAxisFix';
 
 export class FlightScene {
@@ -193,12 +193,18 @@ export class FlightScene {
     }
     void this.hydrateAircraft(assetId ?? FRAME_ASSET_IDS.frame_zero, paint);
 
-    const placements = [...(ACTIVE_REGION_ASSETS[region.id] ?? []), ...getSettlementPlacements(region.id)];
+    const placements: WorldAssetPlacement[] = [...(ACTIVE_REGION_ASSETS[region.id] ?? []), ...getSettlementPlacements(region.id)];
     if (placements.length === 0) return;
-    await Promise.all(placements.map(async ({ id, position: [x, z], scale = 1, rotationY = 0 }) => {
+    await Promise.all(placements.map(async ({ id, uri, position: [x, z], scale = 1, rotationY = 0 }) => {
       try {
-        const prop = await assetLibrary.load('world', id);
-        const wrapper = orientWorldProp(prop, rotationY);
+        let wrapper: THREE.Group;
+        if (uri) {
+          wrapper = new THREE.Group();
+          wrapper.rotation.y = rotationY;
+          wrapper.add(await assetLibrary.loadUri(uri));
+        } else {
+          wrapper = orientWorldProp(await assetLibrary.load('world', id), rotationY);
+        }
         wrapper.position.set(x, this.environment.terrainQuery.getElevation(x, z), z);
         wrapper.scale.setScalar(scale);
         this.streamedProps.add(wrapper);
@@ -421,6 +427,7 @@ export class FlightScene {
     }
     const trees = buildTreeClusterInstancedMesh(treePlacements, this.worldRng, '#3f6b34');
     this.scene.add(trees);
+    void this.upgradeTreesToGltf(trees, treePlacements);
 
     // A sparse fence line and hay bales make the near field feel owned and scaled.
     const postMat = new THREE.MeshStandardMaterial({ color: '#695238', roughness: 1 });
@@ -432,6 +439,20 @@ export class FlightScene {
     }
 
     if (airfield) this.buildFieldAirfieldCompound(airfield);
+  }
+
+  /** Swaps the procedural tree blobs for the Quaternius trees (ASSET_MANIFEST field.tree.*),
+   * grouped per model into InstancedMeshes. Any load failure keeps the procedural fallback. */
+  private async upgradeTreesToGltf(fallback: THREE.Object3D, placements: TreeClusterPlacement[]): Promise<void> {
+    const models = ['commontree_1', 'commontree_2', 'commontree_3', 'pine_1', 'pine_2', 'pine_3', 'twistedtree_1', 'twistedtree_2', 'deadtree_1'];
+    try {
+      const groups = await Promise.all(models.map(async (name, k) => {
+        const template = await assetLibrary.loadUri(`/assets/regions/field/vegetation/${name}.glb`);
+        return instanceGltf(template, placements.filter((_, i) => i % models.length === k));
+      }));
+      this.scene.remove(fallback);
+      groups.forEach((g) => this.scene.add(g));
+    } catch { /* keep procedural trees */ }
   }
 
   /** First-minute-of-flight upgrade for field_home (spec: "aeródromo vivo"): an apron

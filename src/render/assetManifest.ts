@@ -30,6 +30,8 @@ export const FRAME_ASSET_IDS: Record<string, string> = {
 
 export interface WorldAssetPlacement {
   id: string;
+  /** Pipeline GLB (ASSET_MANIFEST.json runtime uri, already Y-up); when set, `id` is only a label. */
+  uri?: string;
   position: readonly [number, number];
   scale?: number;
   rotationY?: number;
@@ -46,6 +48,17 @@ export const ACTIVE_REGION_ASSETS: Record<string, readonly WorldAssetPlacement[]
     { id: 'field_village_cluster', position: [160, 350], rotationY: -0.3, collision: { kind: 'box', halfX: 45, halfZ: 30, heightM: 8 } },
     { id: 'field_road_segment', position: [145, 120], rotationY: 0.065 },
     { id: 'airfield_windsock', position: [13, 105] },
+    // Airfield ground-ops subset (3DAssets.dev, CC0) around the hangar apron; see ASSET_MANIFEST.json.
+    { id: 'field.airfield.control_tower', uri: '/assets/regions/field/airfields/control_tower.glb', position: [172, -62], scale: 0.5, rotationY: Math.PI / 2, collision: { kind: 'box', halfX: 7.2, halfZ: 5.9, heightM: 29.3 } },
+    { id: 'field.airfield.gse_store', uri: '/assets/regions/field/airfields/gse_store.glb', position: [92, -142], scale: 0.6, collision: { kind: 'box', halfX: 7.2, halfZ: 4.3, heightM: 5.5 } },
+    { id: 'field.airfield.crew_building', uri: '/assets/regions/field/airfields/crew_building.glb', position: [176, -122], scale: 0.6, rotationY: -Math.PI / 2, collision: { kind: 'box', halfX: 8.1, halfZ: 6, heightM: 10.2 } },
+    { id: 'field.airfield.fuel_bowser', uri: '/assets/regions/field/airfields/fuel_bowser.glb', position: [154, -98], rotationY: 0.4, collision: { kind: 'box', halfX: 1.2, halfZ: 4, heightM: 3.6 } },
+    { id: 'field.airfield.pushback_tug', uri: '/assets/regions/field/airfields/pushback_tug.glb', position: [119, -88], rotationY: 1.2 },
+    { id: 'field.airfield.apron_floodligh', uri: '/assets/regions/field/airfields/apron_floodligh.glb', position: [111, -128], collision: { kind: 'cylinder', radiusM: 0.6, heightM: 12.3 } },
+    { id: 'field.airfield.apron_floodligh', uri: '/assets/regions/field/airfields/apron_floodligh.glb', position: [149, -128], collision: { kind: 'cylinder', radiusM: 0.6, heightM: 12.3 } },
+    { id: 'field.airfield.safety_cone_row', uri: '/assets/regions/field/airfields/safety_cone_row.glb', position: [128, -88] },
+    { id: 'field.airfield.wheel_chock_and', uri: '/assets/regions/field/airfields/wheel_chock_and.glb', position: [126, -100] },
+    ...[0, 1, 2, 3, 4].map((i): WorldAssetPlacement => ({ id: 'field.airfield.perimeter_fence', uri: '/assets/regions/field/airfields/perimeter_fence.glb', position: [104 + i * 8.3, -152] })),
     // runway_modular_segment intentionally omitted here: the_field's runway is already
     // modeled procedurally by FlightScene (graded plane at the airfield position), and
     // this GLB at [0, 150] sat right off its northern end, reading as a duplicate strip.

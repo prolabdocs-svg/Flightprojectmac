@@ -19,8 +19,8 @@ describe('ACTIVE_REGION_ASSETS', () => {
 
   it('points every anchor at a shipped world asset id', () => {
     for (const [regionId, placements] of Object.entries(ACTIVE_REGION_ASSETS)) {
-      for (const { id } of placements) {
-        expect(existsSync(shippedAssetPath(assetUrl('world', id))), `${regionId} anchor "${id}" has no shipped GLB`).toBe(true);
+      for (const { id, uri } of placements) {
+        expect(existsSync(shippedAssetPath(uri ?? assetUrl('world', id))), `${regionId} anchor "${id}" has no shipped GLB`).toBe(true);
       }
     }
   });
@@ -39,15 +39,14 @@ describe('ACTIVE_REGION_ASSETS', () => {
   it('derives stable, relative URLs for every streamed world asset', () => {
     for (const placements of Object.values(ACTIVE_REGION_ASSETS)) {
       for (const placement of placements) {
-        expect(assetUrl('world', placement.id)).toMatch(/^\/assets\/models\/world\/.+\.glb$/);
+        expect(placement.uri ?? assetUrl('world', placement.id)).toMatch(/^\/assets\/(models\/world|regions)\/.+\.glb$/);
       }
     }
   });
 
   it('ships every referenced world model and the active airframe', () => {
-    const worldIds = new Set(Object.values(ACTIVE_REGION_ASSETS).flatMap((placements) => placements.map(({ id }) => id)));
-    for (const id of worldIds) {
-      const url = assetUrl('world', id);
+    const worldUrls = new Set(Object.values(ACTIVE_REGION_ASSETS).flatMap((placements) => placements.map(({ id, uri }) => uri ?? assetUrl('world', id))));
+    for (const url of worldUrls) {
       expect(existsSync(shippedAssetPath(url)), `missing shipped world asset: ${url}`).toBe(true);
     }
     for (const id of Object.values(FRAME_ASSET_IDS)) {

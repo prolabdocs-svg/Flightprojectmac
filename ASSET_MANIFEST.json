@@ -1,5 +1,1744 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-09-20T00:00:00Z",
-  "assets": []
+  "generatedAt": "2026-09-20T22:37:43.778Z",
+  "assets": [
+    {
+      "id": "field.tree.commontree_1",
+      "category": "vegetation.tree",
+      "source": {
+        "provider": "Quaternius",
+        "pack": "Stylized Nature MegaKit (Standard)",
+        "url": "https://quaternius.com/packs/stylizednaturemegakit.html",
+        "license": "Standard (see License_Standard.txt)",
+        "downloadDate": "2026-09-20",
+        "originalFile": "stylized-nature-megakit-11055123.zip",
+        "sha256": "298f6732b872e4cf7b30e6e7abf9641c7f6dc6b326df37ac089533ed7e3d58c9"
+      },
+      "runtime": {
+        "uri": "/assets/regions/field/vegetation/commontree_1.glb",
+        "preload": false,
+        "streamGroup": "region.field.vegetation",
+        "qualityMin": "low",
+        "castShadow": true,
+        "receiveShadow": true
+      },
+      "geometry": {
+        "lodRequired": true,
+        "lodTriangles": [
+          6265,
+          4709,
+          4171
+        ]
+      },
+      "collision": {
+        "type": "none",
+        "required": false
+      },
+      "textures": {
+        "maxDimension": 1024,
+        "compression": "none"
+      },
+      "tags": [
+        "field",
+        "nature",
+        "instanced"
+      ]
+    },
+    {
+      "id": "field.tree.commontree_2",
+      "category": "vegetation.tree",
+      "source": {
+        "provider": "Quaternius",
+        "pack": "Stylized Nature MegaKit (Standard)",
+        "url": "https://quaternius.com/packs/stylizednaturemegakit.html",
+        "license": "Standard (see License_Standard.txt)",
+        "downloadDate": "2026-09-20",
+        "originalFile": "stylized-nature-megakit-11055123.zip",
+        "sha256": "298f6732b872e4cf7b30e6e7abf9641c7f6dc6b326df37ac089533ed7e3d58c9"
+      },
+      "runtime": {
+        "uri": "/assets/regions/field/vegetation/commontree_2.glb",
+        "preload": false,
+        "streamGroup": "region.field.vegetation",
+        "qualityMin": "low",
+        "castShadow": true,
+        "receiveShadow": true
+      },
+      "geometry": {
+        "lodRequired": true,
+        "lodTriangles": [
+          5648,
+          4382,
+          4007
+        ]
+      },
+      "collision": {
+        "type": "none",
+        "required": false
+      },
+      "textures": {
+        "maxDimension": 1024,
+        "compression": "none"
+      },
+      "tags": [
+        "field",
+        "nature",
+        "instanced"
+      ]
+    },
+    {
+      "id": "field.tree.commontree_3",
+      "category": "vegetation.tree",
+      "source": {
+        "provider": "Quaternius",
+        "pack": "Stylized Nature MegaKit (Standard)",
+        "url": "https://quaternius.com/packs/stylizednaturemegakit.html",
+        "license": "Standard (see License_Standard.txt)",
+        "downloadDate": "2026-09-20",
+        "originalFile": "stylized-nature-megakit-11055123.zip",
+        "sha256": "298f6732b872e4cf7b30e6e7abf9641c7f6dc6b326df37ac089533ed7e3d58c9"
+      },
+      "runtime": {
+        "uri": "/assets/regions/field/vegetation/commontree_3.glb",
+        "preload": false,
+        "streamGroup": "region.field.vegetation",
+        "qualityMin": "low",
+        "castShadow": true,
+        "receiveShadow": true
+      },
+      "geometry": {
+        "lodRequired": true,
+        "lodTriangles": [
+          3505,
+          2258,
+          1754
+        ]
+      },
+      "collision": {
+        "type": "none",
+        "required": false
+      },
+      "textures": {
+        "maxDimension": 1024,
+        "compression": "none"
+      },
+      "tags": [
+        "field",
+        "nature",
+        "instanced"
+      ]
+    },
+    {
+      "id": "field.tree.pine_1",
+      "category": "vegetation.tree",
+      "source": {
+        "provider": "Quaternius",
+        "pack": "Stylized Nature MegaKit (Standard)",
+        "url": "https://quaternius.com/packs/stylizednaturemegakit.html",
+        "license": "Standard (see License_Standard.txt)",
+        "downloadDate": "2026-09-20",
+        "originalFile": "stylized-nature-megakit-11055123.zip",
+        "sha256": "298f6732b872e4cf7b30e6e7abf9641c7f6dc6b326df37ac089533ed7e3d58c9"
+      },
+      "runtime": {
+        "uri": "/assets/regions/field/vegetation/pine_1.glb",
+        "preload": false,
+        "streamGroup": "region.field.vegetation",
+        "qualityMin": "low",
+        "castShadow": true,
+        "receiveShadow": true
+      },
+      "geometry": {
+        "lodRequired": true,
+        "lodTriangles": [
+          3947,
+          3388,
+          3388
+        ]
+      },
+      "collision": {
+        "type": "none",
+        "required": false
+      },
+      "textures": {
+        "maxDimension": 1024,
+        "compression": "none"
+      },
+      "tags": [
+        "field",
+        "nature",
+        "instanced"
+      ]
+    },
+    {
+      "id": "field.tree.pine_2",
+      "category": "vegetation.tree",
+      "source": {
+        "provider": "Quaternius",
+        "pack": "Stylized Nature MegaKit (Standard)",
+        "url": "https://quaternius.com/packs/stylizednaturemegakit.html",
+        "license": "Standard (see License_Standard.txt)",
+        "downloadDate": "2026-09-20",
+        "originalFile": "stylized-nature-megakit-11055123.zip",
+        "sha256": "298f6732b872e4cf7b30e6e7abf9641c7f6dc6b326df37ac089533ed7e3d58c9"
+      },
+      "runtime": {
+        "uri": "/assets/regions/field/vegetation/pine_2.glb",
+        "preload": false,
+        "streamGroup": "region.field.vegetation",
+        "qualityMin": "low",
+        "castShadow": true,
+        "receiveShadow": true
+      },
+      "geometry": {
+        "lodRequired": true,
+        "lodTriangles": [
+          3648,
+          3137,
+          3137
+        ]
+      },
+      "collision": {
+        "type": "none",
+        "required": false
+      },
+      "textures": {
+        "maxDimension": 1024,
+        "compression": "none"
+      },
+      "tags": [
+        "field",
+        "nature",
+        "instanced"
+      ]
+    },
+    {
+      "id": "field.tree.pine_3",
+      "category": "vegetation.tree",
+      "source": {
+        "provider": "Quaternius",
+        "pack": "Stylized Nature MegaKit (Standard)",
+        "url": "https://quaternius.com/packs/stylizednaturemegakit.html",
+        "license": "Standard (see License_Standard.txt)",
+        "downloadDate": "2026-09-20",
+        "originalFile": "stylized-nature-megakit-11055123.zip",
+        "sha256": "298f6732b872e4cf7b30e6e7abf9641c7f6dc6b326df37ac089533ed7e3d58c9"
+      },
+      "runtime": {
+        "uri": "/assets/regions/field/vegetation/pine_3.glb",
+        "preload": false,
+        "streamGroup": "region.field.vegetation",
+        "qualityMin": "low",
+        "castShadow": true,
+        "receiveShadow": true
+      },
+      "geometry": {
+        "lodRequired": true,
+        "lodTriangles": [
+          4964,
+          4373,
+          4373
+        ]
+      },
+      "collision": {
+        "type": "none",
+        "required": false
+      },
+      "textures": {
+        "maxDimension": 1024,
+        "compression": "none"
+      },
+      "tags": [
+        "field",
+        "nature",
+        "instanced"
+      ]
+    },
+    {
+      "id": "field.tree.twistedtree_1",
+      "category": "vegetation.tree",
+      "source": {
+        "provider": "Quaternius",
+        "pack": "Stylized Nature MegaKit (Standard)",
+        "url": "https://quaternius.com/packs/stylizednaturemegakit.html",
+        "license": "Standard (see License_Standard.txt)",
+        "downloadDate": "2026-09-20",
+        "originalFile": "stylized-nature-megakit-11055123.zip",
+        "sha256": "298f6732b872e4cf7b30e6e7abf9641c7f6dc6b326df37ac089533ed7e3d58c9"
+      },
+      "runtime": {
+        "uri": "/assets/regions/field/vegetation/twistedtree_1.glb",
+        "preload": false,
+        "streamGroup": "region.field.vegetation",
+        "qualityMin": "low",
+        "castShadow": true,
+        "receiveShadow": true
+      },
+      "geometry": {
+        "lodRequired": true,
+        "lodTriangles": [
+          9564,
+          7549,
+          6891
+        ]
+      },
+      "collision": {
+        "type": "none",
+        "required": false
+      },
+      "textures": {
+        "maxDimension": 1024,
+        "compression": "none"
+      },
+      "tags": [
+        "field",
+        "nature",
+        "instanced"
+      ]
+    },
+    {
+      "id": "field.tree.twistedtree_2",
+      "category": "vegetation.tree",
+      "source": {
+        "provider": "Quaternius",
+        "pack": "Stylized Nature MegaKit (Standard)",
+        "url": "https://quaternius.com/packs/stylizednaturemegakit.html",
+        "license": "Standard (see License_Standard.txt)",
+        "downloadDate": "2026-09-20",
+        "originalFile": "stylized-nature-megakit-11055123.zip",
+        "sha256": "298f6732b872e4cf7b30e6e7abf9641c7f6dc6b326df37ac089533ed7e3d58c9"
+      },
+      "runtime": {
+        "uri": "/assets/regions/field/vegetation/twistedtree_2.glb",
+        "preload": false,
+        "streamGroup": "region.field.vegetation",
+        "qualityMin": "low",
+        "castShadow": true,
+        "receiveShadow": true
+      },
+      "geometry": {
+        "lodRequired": true,
+        "lodTriangles": [
+          9134,
+          7131,
+          6475
+        ]
+      },
+      "collision": {
+        "type": "none",
+        "required": false
+      },
+      "textures": {
+        "maxDimension": 1024,
+        "compression": "none"
+      },
+      "tags": [
+        "field",
+        "nature",
+        "instanced"
+      ]
+    },
+    {
+      "id": "field.tree.deadtree_1",
+      "category": "vegetation.tree",
+      "source": {
+        "provider": "Quaternius",
+        "pack": "Stylized Nature MegaKit (Standard)",
+        "url": "https://quaternius.com/packs/stylizednaturemegakit.html",
+        "license": "Standard (see License_Standard.txt)",
+        "downloadDate": "2026-09-20",
+        "originalFile": "stylized-nature-megakit-11055123.zip",
+        "sha256": "298f6732b872e4cf7b30e6e7abf9641c7f6dc6b326df37ac089533ed7e3d58c9"
+      },
+      "runtime": {
+        "uri": "/assets/regions/field/vegetation/deadtree_1.glb",
+        "preload": false,
+        "streamGroup": "region.field.vegetation",
+        "qualityMin": "low",
+        "castShadow": true,
+        "receiveShadow": true
+      },
+      "geometry": {
+        "lodRequired": true,
+        "lodTriangles": [
+          6169,
+          5565,
+          5565
+        ]
+      },
+      "collision": {
+        "type": "none",
+        "required": false
+      },
+      "textures": {
+        "maxDimension": 1024,
+        "compression": "none"
+      },
+      "tags": [
+        "field",
+        "nature",
+        "instanced"
+      ]
+    },
+    {
+      "id": "field.rock.rock_medium_1",
+      "category": "vegetation.rock",
+      "source": {
+        "provider": "Quaternius",
+        "pack": "Stylized Nature MegaKit (Standard)",
+        "url": "https://quaternius.com/packs/stylizednaturemegakit.html",
+        "license": "Standard (see License_Standard.txt)",
+        "downloadDate": "2026-09-20",
+        "originalFile": "stylized-nature-megakit-11055123.zip",
+        "sha256": "298f6732b872e4cf7b30e6e7abf9641c7f6dc6b326df37ac089533ed7e3d58c9"
+      },
+      "runtime": {
+        "uri": "/assets/regions/field/rocks/rock_medium_1.glb",
+        "preload": false,
+        "streamGroup": "region.field.vegetation",
+        "qualityMin": "low",
+        "castShadow": true,
+        "receiveShadow": true
+      },
+      "geometry": {
+        "lodRequired": false,
+        "lodTriangles": [
+          342
+        ]
+      },
+      "collision": {
+        "type": "none",
+        "required": false
+      },
+      "textures": {
+        "maxDimension": 512,
+        "compression": "none"
+      },
+      "tags": [
+        "field",
+        "nature",
+        "instanced"
+      ]
+    },
+    {
+      "id": "field.rock.rock_medium_2",
+      "category": "vegetation.rock",
+      "source": {
+        "provider": "Quaternius",
+        "pack": "Stylized Nature MegaKit (Standard)",
+        "url": "https://quaternius.com/packs/stylizednaturemegakit.html",
+        "license": "Standard (see License_Standard.txt)",
+        "downloadDate": "2026-09-20",
+        "originalFile": "stylized-nature-megakit-11055123.zip",
+        "sha256": "298f6732b872e4cf7b30e6e7abf9641c7f6dc6b326df37ac089533ed7e3d58c9"
+      },
+      "runtime": {
+        "uri": "/assets/regions/field/rocks/rock_medium_2.glb",
+        "preload": false,
+        "streamGroup": "region.field.vegetation",
+        "qualityMin": "low",
+        "castShadow": true,
+        "receiveShadow": true
+      },
+      "geometry": {
+        "lodRequired": false,
+        "lodTriangles": [
+          244
+        ]
+      },
+      "collision": {
+        "type": "none",
+        "required": false
+      },
+      "textures": {
+        "maxDimension": 512,
+        "compression": "none"
+      },
+      "tags": [
+        "field",
+        "nature",
+        "instanced"
+      ]
+    },
+    {
+      "id": "field.rock.rock_medium_3",
+      "category": "vegetation.rock",
+      "source": {
+        "provider": "Quaternius",
+        "pack": "Stylized Nature MegaKit (Standard)",
+        "url": "https://quaternius.com/packs/stylizednaturemegakit.html",
+        "license": "Standard (see License_Standard.txt)",
+        "downloadDate": "2026-09-20",
+        "originalFile": "stylized-nature-megakit-11055123.zip",
+        "sha256": "298f6732b872e4cf7b30e6e7abf9641c7f6dc6b326df37ac089533ed7e3d58c9"
+      },
+      "runtime": {
+        "uri": "/assets/regions/field/rocks/rock_medium_3.glb",
+        "preload": false,
+        "streamGroup": "region.field.vegetation",
+        "qualityMin": "low",
+        "castShadow": true,
+        "receiveShadow": true
+      },
+      "geometry": {
+        "lodRequired": false,
+        "lodTriangles": [
+          522
+        ]
+      },
+      "collision": {
+        "type": "none",
+        "required": false
+      },
+      "textures": {
+        "maxDimension": 512,
+        "compression": "none"
+      },
+      "tags": [
+        "field",
+        "nature",
+        "instanced"
+      ]
+    },
+    {
+      "id": "field.rock.pebble_round_1",
+      "category": "vegetation.rock",
+      "source": {
+        "provider": "Quaternius",
+        "pack": "Stylized Nature MegaKit (Standard)",
+        "url": "https://quaternius.com/packs/stylizednaturemegakit.html",
+        "license": "Standard (see License_Standard.txt)",
+        "downloadDate": "2026-09-20",
+        "originalFile": "stylized-nature-megakit-11055123.zip",
+        "sha256": "298f6732b872e4cf7b30e6e7abf9641c7f6dc6b326df37ac089533ed7e3d58c9"
+      },
+      "runtime": {
+        "uri": "/assets/regions/field/rocks/pebble_round_1.glb",
+        "preload": false,
+        "streamGroup": "region.field.vegetation",
+        "qualityMin": "low",
+        "castShadow": true,
+        "receiveShadow": true
+      },
+      "geometry": {
+        "lodRequired": false,
+        "lodTriangles": [
+          136
+        ]
+      },
+      "collision": {
+        "type": "none",
+        "required": false
+      },
+      "textures": {
+        "maxDimension": 512,
+        "compression": "none"
+      },
+      "tags": [
+        "field",
+        "nature",
+        "instanced"
+      ]
+    },
+    {
+      "id": "field.rock.pebble_square_1",
+      "category": "vegetation.rock",
+      "source": {
+        "provider": "Quaternius",
+        "pack": "Stylized Nature MegaKit (Standard)",
+        "url": "https://quaternius.com/packs/stylizednaturemegakit.html",
+        "license": "Standard (see License_Standard.txt)",
+        "downloadDate": "2026-09-20",
+        "originalFile": "stylized-nature-megakit-11055123.zip",
+        "sha256": "298f6732b872e4cf7b30e6e7abf9641c7f6dc6b326df37ac089533ed7e3d58c9"
+      },
+      "runtime": {
+        "uri": "/assets/regions/field/rocks/pebble_square_1.glb",
+        "preload": false,
+        "streamGroup": "region.field.vegetation",
+        "qualityMin": "low",
+        "castShadow": true,
+        "receiveShadow": true
+      },
+      "geometry": {
+        "lodRequired": false,
+        "lodTriangles": [
+          104
+        ]
+      },
+      "collision": {
+        "type": "none",
+        "required": false
+      },
+      "textures": {
+        "maxDimension": 512,
+        "compression": "none"
+      },
+      "tags": [
+        "field",
+        "nature",
+        "instanced"
+      ]
+    },
+    {
+      "id": "field.bush.bush_common",
+      "category": "vegetation.bush",
+      "source": {
+        "provider": "Quaternius",
+        "pack": "Stylized Nature MegaKit (Standard)",
+        "url": "https://quaternius.com/packs/stylizednaturemegakit.html",
+        "license": "Standard (see License_Standard.txt)",
+        "downloadDate": "2026-09-20",
+        "originalFile": "stylized-nature-megakit-11055123.zip",
+        "sha256": "298f6732b872e4cf7b30e6e7abf9641c7f6dc6b326df37ac089533ed7e3d58c9"
+      },
+      "runtime": {
+        "uri": "/assets/regions/field/vegetation/bush_common.glb",
+        "preload": false,
+        "streamGroup": "region.field.vegetation",
+        "qualityMin": "low",
+        "castShadow": true,
+        "receiveShadow": true
+      },
+      "geometry": {
+        "lodRequired": false,
+        "lodTriangles": [
+          900
+        ]
+      },
+      "collision": {
+        "type": "none",
+        "required": false
+      },
+      "textures": {
+        "maxDimension": 512,
+        "compression": "none"
+      },
+      "tags": [
+        "field",
+        "nature",
+        "instanced"
+      ]
+    },
+    {
+      "id": "field.bush.bush_common_flowers",
+      "category": "vegetation.bush",
+      "source": {
+        "provider": "Quaternius",
+        "pack": "Stylized Nature MegaKit (Standard)",
+        "url": "https://quaternius.com/packs/stylizednaturemegakit.html",
+        "license": "Standard (see License_Standard.txt)",
+        "downloadDate": "2026-09-20",
+        "originalFile": "stylized-nature-megakit-11055123.zip",
+        "sha256": "298f6732b872e4cf7b30e6e7abf9641c7f6dc6b326df37ac089533ed7e3d58c9"
+      },
+      "runtime": {
+        "uri": "/assets/regions/field/vegetation/bush_common_flowers.glb",
+        "preload": false,
+        "streamGroup": "region.field.vegetation",
+        "qualityMin": "low",
+        "castShadow": true,
+        "receiveShadow": true
+      },
+      "geometry": {
+        "lodRequired": false,
+        "lodTriangles": [
+          1368
+        ]
+      },
+      "collision": {
+        "type": "none",
+        "required": false
+      },
+      "textures": {
+        "maxDimension": 512,
+        "compression": "none"
+      },
+      "tags": [
+        "field",
+        "nature",
+        "instanced"
+      ]
+    },
+    {
+      "id": "field.bush.fern_1",
+      "category": "vegetation.bush",
+      "source": {
+        "provider": "Quaternius",
+        "pack": "Stylized Nature MegaKit (Standard)",
+        "url": "https://quaternius.com/packs/stylizednaturemegakit.html",
+        "license": "Standard (see License_Standard.txt)",
+        "downloadDate": "2026-09-20",
+        "originalFile": "stylized-nature-megakit-11055123.zip",
+        "sha256": "298f6732b872e4cf7b30e6e7abf9641c7f6dc6b326df37ac089533ed7e3d58c9"
+      },
+      "runtime": {
+        "uri": "/assets/regions/field/vegetation/fern_1.glb",
+        "preload": false,
+        "streamGroup": "region.field.vegetation",
+        "qualityMin": "low",
+        "castShadow": true,
+        "receiveShadow": true
+      },
+      "geometry": {
+        "lodRequired": false,
+        "lodTriangles": [
+          288
+        ]
+      },
+      "collision": {
+        "type": "none",
+        "required": false
+      },
+      "textures": {
+        "maxDimension": 512,
+        "compression": "none"
+      },
+      "tags": [
+        "field",
+        "nature",
+        "instanced"
+      ]
+    },
+    {
+      "id": "field.bush.plant_1",
+      "category": "vegetation.bush",
+      "source": {
+        "provider": "Quaternius",
+        "pack": "Stylized Nature MegaKit (Standard)",
+        "url": "https://quaternius.com/packs/stylizednaturemegakit.html",
+        "license": "Standard (see License_Standard.txt)",
+        "downloadDate": "2026-09-20",
+        "originalFile": "stylized-nature-megakit-11055123.zip",
+        "sha256": "298f6732b872e4cf7b30e6e7abf9641c7f6dc6b326df37ac089533ed7e3d58c9"
+      },
+      "runtime": {
+        "uri": "/assets/regions/field/vegetation/plant_1.glb",
+        "preload": false,
+        "streamGroup": "region.field.vegetation",
+        "qualityMin": "low",
+        "castShadow": true,
+        "receiveShadow": true
+      },
+      "geometry": {
+        "lodRequired": false,
+        "lodTriangles": [
+          120
+        ]
+      },
+      "collision": {
+        "type": "none",
+        "required": false
+      },
+      "textures": {
+        "maxDimension": 512,
+        "compression": "none"
+      },
+      "tags": [
+        "field",
+        "nature",
+        "instanced"
+      ]
+    },
+    {
+      "id": "field.bush.plant_7",
+      "category": "vegetation.bush",
+      "source": {
+        "provider": "Quaternius",
+        "pack": "Stylized Nature MegaKit (Standard)",
+        "url": "https://quaternius.com/packs/stylizednaturemegakit.html",
+        "license": "Standard (see License_Standard.txt)",
+        "downloadDate": "2026-09-20",
+        "originalFile": "stylized-nature-megakit-11055123.zip",
+        "sha256": "298f6732b872e4cf7b30e6e7abf9641c7f6dc6b326df37ac089533ed7e3d58c9"
+      },
+      "runtime": {
+        "uri": "/assets/regions/field/vegetation/plant_7.glb",
+        "preload": false,
+        "streamGroup": "region.field.vegetation",
+        "qualityMin": "low",
+        "castShadow": true,
+        "receiveShadow": true
+      },
+      "geometry": {
+        "lodRequired": false,
+        "lodTriangles": [
+          48
+        ]
+      },
+      "collision": {
+        "type": "none",
+        "required": false
+      },
+      "textures": {
+        "maxDimension": 512,
+        "compression": "none"
+      },
+      "tags": [
+        "field",
+        "nature",
+        "instanced"
+      ]
+    },
+    {
+      "id": "field.grass.grass_common_short",
+      "category": "vegetation.grass",
+      "source": {
+        "provider": "Quaternius",
+        "pack": "Stylized Nature MegaKit (Standard)",
+        "url": "https://quaternius.com/packs/stylizednaturemegakit.html",
+        "license": "Standard (see License_Standard.txt)",
+        "downloadDate": "2026-09-20",
+        "originalFile": "stylized-nature-megakit-11055123.zip",
+        "sha256": "298f6732b872e4cf7b30e6e7abf9641c7f6dc6b326df37ac089533ed7e3d58c9"
+      },
+      "runtime": {
+        "uri": "/assets/regions/field/vegetation/grass_common_short.glb",
+        "preload": false,
+        "streamGroup": "region.field.vegetation",
+        "qualityMin": "low",
+        "castShadow": true,
+        "receiveShadow": true
+      },
+      "geometry": {
+        "lodRequired": false,
+        "lodTriangles": [
+          155
+        ]
+      },
+      "collision": {
+        "type": "none",
+        "required": false
+      },
+      "textures": {
+        "maxDimension": 512,
+        "compression": "none"
+      },
+      "tags": [
+        "field",
+        "nature",
+        "instanced"
+      ]
+    },
+    {
+      "id": "field.grass.grass_common_tall",
+      "category": "vegetation.grass",
+      "source": {
+        "provider": "Quaternius",
+        "pack": "Stylized Nature MegaKit (Standard)",
+        "url": "https://quaternius.com/packs/stylizednaturemegakit.html",
+        "license": "Standard (see License_Standard.txt)",
+        "downloadDate": "2026-09-20",
+        "originalFile": "stylized-nature-megakit-11055123.zip",
+        "sha256": "298f6732b872e4cf7b30e6e7abf9641c7f6dc6b326df37ac089533ed7e3d58c9"
+      },
+      "runtime": {
+        "uri": "/assets/regions/field/vegetation/grass_common_tall.glb",
+        "preload": false,
+        "streamGroup": "region.field.vegetation",
+        "qualityMin": "low",
+        "castShadow": true,
+        "receiveShadow": true
+      },
+      "geometry": {
+        "lodRequired": false,
+        "lodTriangles": [
+          326
+        ]
+      },
+      "collision": {
+        "type": "none",
+        "required": false
+      },
+      "textures": {
+        "maxDimension": 512,
+        "compression": "none"
+      },
+      "tags": [
+        "field",
+        "nature",
+        "instanced"
+      ]
+    },
+    {
+      "id": "field.grass.grass_wispy_short",
+      "category": "vegetation.grass",
+      "source": {
+        "provider": "Quaternius",
+        "pack": "Stylized Nature MegaKit (Standard)",
+        "url": "https://quaternius.com/packs/stylizednaturemegakit.html",
+        "license": "Standard (see License_Standard.txt)",
+        "downloadDate": "2026-09-20",
+        "originalFile": "stylized-nature-megakit-11055123.zip",
+        "sha256": "298f6732b872e4cf7b30e6e7abf9641c7f6dc6b326df37ac089533ed7e3d58c9"
+      },
+      "runtime": {
+        "uri": "/assets/regions/field/vegetation/grass_wispy_short.glb",
+        "preload": false,
+        "streamGroup": "region.field.vegetation",
+        "qualityMin": "low",
+        "castShadow": true,
+        "receiveShadow": true
+      },
+      "geometry": {
+        "lodRequired": false,
+        "lodTriangles": [
+          494
+        ]
+      },
+      "collision": {
+        "type": "none",
+        "required": false
+      },
+      "textures": {
+        "maxDimension": 512,
+        "compression": "none"
+      },
+      "tags": [
+        "field",
+        "nature",
+        "instanced"
+      ]
+    },
+    {
+      "id": "field.flower.flower_3_group",
+      "category": "vegetation.flower",
+      "source": {
+        "provider": "Quaternius",
+        "pack": "Stylized Nature MegaKit (Standard)",
+        "url": "https://quaternius.com/packs/stylizednaturemegakit.html",
+        "license": "Standard (see License_Standard.txt)",
+        "downloadDate": "2026-09-20",
+        "originalFile": "stylized-nature-megakit-11055123.zip",
+        "sha256": "298f6732b872e4cf7b30e6e7abf9641c7f6dc6b326df37ac089533ed7e3d58c9"
+      },
+      "runtime": {
+        "uri": "/assets/regions/field/vegetation/flower_3_group.glb",
+        "preload": false,
+        "streamGroup": "region.field.vegetation",
+        "qualityMin": "low",
+        "castShadow": true,
+        "receiveShadow": true
+      },
+      "geometry": {
+        "lodRequired": false,
+        "lodTriangles": [
+          755
+        ]
+      },
+      "collision": {
+        "type": "none",
+        "required": false
+      },
+      "textures": {
+        "maxDimension": 512,
+        "compression": "none"
+      },
+      "tags": [
+        "field",
+        "nature",
+        "instanced"
+      ]
+    },
+    {
+      "id": "field.flower.flower_4_group",
+      "category": "vegetation.flower",
+      "source": {
+        "provider": "Quaternius",
+        "pack": "Stylized Nature MegaKit (Standard)",
+        "url": "https://quaternius.com/packs/stylizednaturemegakit.html",
+        "license": "Standard (see License_Standard.txt)",
+        "downloadDate": "2026-09-20",
+        "originalFile": "stylized-nature-megakit-11055123.zip",
+        "sha256": "298f6732b872e4cf7b30e6e7abf9641c7f6dc6b326df37ac089533ed7e3d58c9"
+      },
+      "runtime": {
+        "uri": "/assets/regions/field/vegetation/flower_4_group.glb",
+        "preload": false,
+        "streamGroup": "region.field.vegetation",
+        "qualityMin": "low",
+        "castShadow": true,
+        "receiveShadow": true
+      },
+      "geometry": {
+        "lodRequired": false,
+        "lodTriangles": [
+          1690
+        ]
+      },
+      "collision": {
+        "type": "none",
+        "required": false
+      },
+      "textures": {
+        "maxDimension": 512,
+        "compression": "none"
+      },
+      "tags": [
+        "field",
+        "nature",
+        "instanced"
+      ]
+    },
+    {
+      "id": "field.flower.clover_1",
+      "category": "vegetation.flower",
+      "source": {
+        "provider": "Quaternius",
+        "pack": "Stylized Nature MegaKit (Standard)",
+        "url": "https://quaternius.com/packs/stylizednaturemegakit.html",
+        "license": "Standard (see License_Standard.txt)",
+        "downloadDate": "2026-09-20",
+        "originalFile": "stylized-nature-megakit-11055123.zip",
+        "sha256": "298f6732b872e4cf7b30e6e7abf9641c7f6dc6b326df37ac089533ed7e3d58c9"
+      },
+      "runtime": {
+        "uri": "/assets/regions/field/vegetation/clover_1.glb",
+        "preload": false,
+        "streamGroup": "region.field.vegetation",
+        "qualityMin": "low",
+        "castShadow": true,
+        "receiveShadow": true
+      },
+      "geometry": {
+        "lodRequired": false,
+        "lodTriangles": [
+          379
+        ]
+      },
+      "collision": {
+        "type": "none",
+        "required": false
+      },
+      "textures": {
+        "maxDimension": 512,
+        "compression": "none"
+      },
+      "tags": [
+        "field",
+        "nature",
+        "instanced"
+      ]
+    },
+    {
+      "id": "field.airfield.airfield_suppor",
+      "category": "structure.airfield",
+      "source": {
+        "provider": "3DAssets.dev",
+        "pack": "Airport Terminal and Ground Operations",
+        "url": "https://3dassets.dev/assets/airport-terminal-and-ground-operations-airfield-suppor-ba4d912e",
+        "license": "CC0-1.0",
+        "downloadDate": "2026-09-20",
+        "originalFile": "airfield-suppor_26095.glb",
+        "sha256": "05d26a3dc5a4ec5cad715fadb24ae6c3bc553e5f376702319c290731e6c0a80e"
+      },
+      "runtime": {
+        "uri": "/assets/regions/field/airfields/airfield_suppor.glb",
+        "preload": false,
+        "streamGroup": "region.field.structure",
+        "qualityMin": "low",
+        "castShadow": true,
+        "receiveShadow": true
+      },
+      "geometry": {
+        "lodRequired": false,
+        "lodTriangles": [
+          28604
+        ]
+      },
+      "collision": {
+        "type": "none",
+        "required": false
+      },
+      "textures": {
+        "maxDimension": 512,
+        "compression": "none"
+      },
+      "tags": [
+        "field",
+        "airfield",
+        "ai-generated"
+      ]
+    },
+    {
+      "id": "field.airfield.apron_bus",
+      "category": "structure.airfield",
+      "source": {
+        "provider": "3DAssets.dev",
+        "pack": "Airport Terminal and Ground Operations",
+        "url": "https://3dassets.dev/assets/airport-terminal-and-ground-operations-apron-bus-81db436a",
+        "license": "CC0-1.0",
+        "downloadDate": "2026-09-20",
+        "originalFile": "apron-bus_26074.glb",
+        "sha256": "a5be10d1ebea09d5d45bc87390a77d3e7f8c51d7c5beb85ec0953ada7bab6d31"
+      },
+      "runtime": {
+        "uri": "/assets/regions/field/airfields/apron_bus.glb",
+        "preload": false,
+        "streamGroup": "region.field.structure",
+        "qualityMin": "low",
+        "castShadow": true,
+        "receiveShadow": true
+      },
+      "geometry": {
+        "lodRequired": false,
+        "lodTriangles": [
+          1556
+        ]
+      },
+      "collision": {
+        "type": "none",
+        "required": false
+      },
+      "textures": {
+        "maxDimension": 512,
+        "compression": "none"
+      },
+      "tags": [
+        "field",
+        "airfield",
+        "ai-generated"
+      ]
+    },
+    {
+      "id": "field.airfield.apron_floodligh",
+      "category": "structure.airfield",
+      "source": {
+        "provider": "3DAssets.dev",
+        "pack": "Airport Terminal and Ground Operations",
+        "url": "https://3dassets.dev/assets/airport-terminal-and-ground-operations-apron-floodligh-82f8d158",
+        "license": "CC0-1.0",
+        "downloadDate": "2026-09-20",
+        "originalFile": "apron-floodligh_26082.glb",
+        "sha256": "332e8a8150ed3222f4378f8050bb57472aeb7ab2adfa6fff2cba7b96ad7a6dfe"
+      },
+      "runtime": {
+        "uri": "/assets/regions/field/airfields/apron_floodligh.glb",
+        "preload": false,
+        "streamGroup": "region.field.structure",
+        "qualityMin": "low",
+        "castShadow": true,
+        "receiveShadow": true
+      },
+      "geometry": {
+        "lodRequired": false,
+        "lodTriangles": [
+          476
+        ]
+      },
+      "collision": {
+        "type": "none",
+        "required": false
+      },
+      "textures": {
+        "maxDimension": 512,
+        "compression": "none"
+      },
+      "tags": [
+        "field",
+        "airfield",
+        "ai-generated"
+      ]
+    },
+    {
+      "id": "field.airfield.control_tower",
+      "category": "structure.airfield",
+      "source": {
+        "provider": "3DAssets.dev",
+        "pack": "Airport Terminal and Ground Operations",
+        "url": "https://3dassets.dev/assets/airport-terminal-and-ground-operations-control-tower-a2c4e9cd",
+        "license": "CC0-1.0",
+        "downloadDate": "2026-09-20",
+        "originalFile": "control-tower_26087.glb",
+        "sha256": "0ec3b7f30509fe1320ca0b2c3e86b0f0e9609740571552d89d08c82a6cb1305e"
+      },
+      "runtime": {
+        "uri": "/assets/regions/field/airfields/control_tower.glb",
+        "preload": false,
+        "streamGroup": "region.field.structure",
+        "qualityMin": "low",
+        "castShadow": true,
+        "receiveShadow": true
+      },
+      "geometry": {
+        "lodRequired": false,
+        "lodTriangles": [
+          1440
+        ]
+      },
+      "collision": {
+        "type": "none",
+        "required": false
+      },
+      "textures": {
+        "maxDimension": 512,
+        "compression": "none"
+      },
+      "tags": [
+        "field",
+        "airfield",
+        "ai-generated"
+      ]
+    },
+    {
+      "id": "field.airfield.crew_building",
+      "category": "structure.airfield",
+      "source": {
+        "provider": "3DAssets.dev",
+        "pack": "Airport Terminal and Ground Operations",
+        "url": "https://3dassets.dev/assets/airport-terminal-and-ground-operations-crew-building-938fb9c9",
+        "license": "CC0-1.0",
+        "downloadDate": "2026-09-20",
+        "originalFile": "crew-building_26090.glb",
+        "sha256": "7f7b4d16e86c8ad2878cac0aec9b71f8be8b8ebaa5c9538bfd056c9c3786433e"
+      },
+      "runtime": {
+        "uri": "/assets/regions/field/airfields/crew_building.glb",
+        "preload": false,
+        "streamGroup": "region.field.structure",
+        "qualityMin": "low",
+        "castShadow": true,
+        "receiveShadow": true
+      },
+      "geometry": {
+        "lodRequired": false,
+        "lodTriangles": [
+          664
+        ]
+      },
+      "collision": {
+        "type": "none",
+        "required": false
+      },
+      "textures": {
+        "maxDimension": 512,
+        "compression": "none"
+      },
+      "tags": [
+        "field",
+        "airfield",
+        "ai-generated"
+      ]
+    },
+    {
+      "id": "field.airfield.fuel_bowser",
+      "category": "structure.airfield",
+      "source": {
+        "provider": "3DAssets.dev",
+        "pack": "Airport Terminal and Ground Operations",
+        "url": "https://3dassets.dev/assets/airport-terminal-and-ground-operations-fuel-bowser-f9e4337c",
+        "license": "CC0-1.0",
+        "downloadDate": "2026-09-20",
+        "originalFile": "fuel-bowser_26069.glb",
+        "sha256": "b44f0eeda9f6935f6f15a5a4d224f402053a4dc4c2c940420092bf42a1fb11f4"
+      },
+      "runtime": {
+        "uri": "/assets/regions/field/airfields/fuel_bowser.glb",
+        "preload": false,
+        "streamGroup": "region.field.structure",
+        "qualityMin": "low",
+        "castShadow": true,
+        "receiveShadow": true
+      },
+      "geometry": {
+        "lodRequired": false,
+        "lodTriangles": [
+          2208
+        ]
+      },
+      "collision": {
+        "type": "none",
+        "required": false
+      },
+      "textures": {
+        "maxDimension": 512,
+        "compression": "none"
+      },
+      "tags": [
+        "field",
+        "airfield",
+        "ai-generated"
+      ]
+    },
+    {
+      "id": "field.airfield.ground_power_un",
+      "category": "structure.airfield",
+      "source": {
+        "provider": "3DAssets.dev",
+        "pack": "Airport Terminal and Ground Operations",
+        "url": "https://3dassets.dev/assets/airport-terminal-and-ground-operations-ground-power-un-296561a2",
+        "license": "CC0-1.0",
+        "downloadDate": "2026-09-20",
+        "originalFile": "ground-power-un_26070.glb",
+        "sha256": "1ae8e48eec403309b262dd6bdd8b9233326b342ca9b0970f9b80f62e9e4c1239"
+      },
+      "runtime": {
+        "uri": "/assets/regions/field/airfields/ground_power_un.glb",
+        "preload": false,
+        "streamGroup": "region.field.structure",
+        "qualityMin": "low",
+        "castShadow": true,
+        "receiveShadow": true
+      },
+      "geometry": {
+        "lodRequired": false,
+        "lodTriangles": [
+          852
+        ]
+      },
+      "collision": {
+        "type": "none",
+        "required": false
+      },
+      "textures": {
+        "maxDimension": 512,
+        "compression": "none"
+      },
+      "tags": [
+        "field",
+        "airfield",
+        "ai-generated"
+      ]
+    },
+    {
+      "id": "field.airfield.gse_store",
+      "category": "structure.airfield",
+      "source": {
+        "provider": "3DAssets.dev",
+        "pack": "Airport Terminal and Ground Operations",
+        "url": "https://3dassets.dev/assets/airport-terminal-and-ground-operations-gse-store-448b06c6",
+        "license": "CC0-1.0",
+        "downloadDate": "2026-09-20",
+        "originalFile": "gse-store_26089.glb",
+        "sha256": "2d39a0b10eba91e4077655b54a9b9b91b40a0c9b744754c7e1ce2fd0d57e7c87"
+      },
+      "runtime": {
+        "uri": "/assets/regions/field/airfields/gse_store.glb",
+        "preload": false,
+        "streamGroup": "region.field.structure",
+        "qualityMin": "low",
+        "castShadow": true,
+        "receiveShadow": true
+      },
+      "geometry": {
+        "lodRequired": false,
+        "lodTriangles": [
+          636
+        ]
+      },
+      "collision": {
+        "type": "none",
+        "required": false
+      },
+      "textures": {
+        "maxDimension": 512,
+        "compression": "none"
+      },
+      "tags": [
+        "field",
+        "airfield",
+        "ai-generated"
+      ]
+    },
+    {
+      "id": "field.airfield.hangar_frontage",
+      "category": "structure.airfield",
+      "source": {
+        "provider": "3DAssets.dev",
+        "pack": "Airport Terminal and Ground Operations",
+        "url": "https://3dassets.dev/assets/airport-terminal-and-ground-operations-hangar-frontage-e5cd7337",
+        "license": "CC0-1.0",
+        "downloadDate": "2026-09-20",
+        "originalFile": "hangar-frontage_26088.glb",
+        "sha256": "ecc5225b3c0ecba5e38af76d095f439b08cb4189db9a9940758bf9d9eb7392d6"
+      },
+      "runtime": {
+        "uri": "/assets/regions/field/airfields/hangar_frontage.glb",
+        "preload": false,
+        "streamGroup": "region.field.structure",
+        "qualityMin": "low",
+        "castShadow": true,
+        "receiveShadow": true
+      },
+      "geometry": {
+        "lodRequired": false,
+        "lodTriangles": [
+          664
+        ]
+      },
+      "collision": {
+        "type": "none",
+        "required": false
+      },
+      "textures": {
+        "maxDimension": 512,
+        "compression": "none"
+      },
+      "tags": [
+        "field",
+        "airfield",
+        "ai-generated"
+      ]
+    },
+    {
+      "id": "field.airfield.jet_blast_fence",
+      "category": "structure.airfield",
+      "source": {
+        "provider": "3DAssets.dev",
+        "pack": "Airport Terminal and Ground Operations",
+        "url": "https://3dassets.dev/assets/airport-terminal-and-ground-operations-jet-blast-fence-538f3f78",
+        "license": "CC0-1.0",
+        "downloadDate": "2026-09-20",
+        "originalFile": "jet-blast-fence_26081.glb",
+        "sha256": "a6e0d9913b61b167d40cb1aa35878d8f8585d922dbd72f9f1d23887dbf47cf40"
+      },
+      "runtime": {
+        "uri": "/assets/regions/field/airfields/jet_blast_fence.glb",
+        "preload": false,
+        "streamGroup": "region.field.structure",
+        "qualityMin": "low",
+        "castShadow": true,
+        "receiveShadow": true
+      },
+      "geometry": {
+        "lodRequired": false,
+        "lodTriangles": [
+          676
+        ]
+      },
+      "collision": {
+        "type": "none",
+        "required": false
+      },
+      "textures": {
+        "maxDimension": 512,
+        "compression": "none"
+      },
+      "tags": [
+        "field",
+        "airfield",
+        "ai-generated"
+      ]
+    },
+    {
+      "id": "field.airfield.passenger_air_s",
+      "category": "structure.airfield",
+      "source": {
+        "provider": "3DAssets.dev",
+        "pack": "Airport Terminal and Ground Operations",
+        "url": "https://3dassets.dev/assets/airport-terminal-and-ground-operations-passenger-air-s-27d68bc0",
+        "license": "CC0-1.0",
+        "downloadDate": "2026-09-20",
+        "originalFile": "passenger-air-s_26071.glb",
+        "sha256": "81da98228733706709f09cb71169bac1ea18b8d8eca88d8aedc72984c692d6bc"
+      },
+      "runtime": {
+        "uri": "/assets/regions/field/airfields/passenger_air_s.glb",
+        "preload": false,
+        "streamGroup": "region.field.structure",
+        "qualityMin": "low",
+        "castShadow": true,
+        "receiveShadow": true
+      },
+      "geometry": {
+        "lodRequired": false,
+        "lodTriangles": [
+          1788
+        ]
+      },
+      "collision": {
+        "type": "none",
+        "required": false
+      },
+      "textures": {
+        "maxDimension": 512,
+        "compression": "none"
+      },
+      "tags": [
+        "field",
+        "airfield",
+        "ai-generated"
+      ]
+    },
+    {
+      "id": "field.airfield.perimeter_fence",
+      "category": "structure.airfield",
+      "source": {
+        "provider": "3DAssets.dev",
+        "pack": "Airport Terminal and Ground Operations",
+        "url": "https://3dassets.dev/assets/airport-terminal-and-ground-operations-perimeter-fence-f8a14e9f",
+        "license": "CC0-1.0",
+        "downloadDate": "2026-09-20",
+        "originalFile": "perimeter-fence_26091.glb",
+        "sha256": "680ac8f36b3198bb948572b5a35e4d7d6f4a592a822b268b7deaca28a7531b5c"
+      },
+      "runtime": {
+        "uri": "/assets/regions/field/airfields/perimeter_fence.glb",
+        "preload": false,
+        "streamGroup": "region.field.structure",
+        "qualityMin": "low",
+        "castShadow": true,
+        "receiveShadow": true
+      },
+      "geometry": {
+        "lodRequired": false,
+        "lodTriangles": [
+          656
+        ]
+      },
+      "collision": {
+        "type": "none",
+        "required": false
+      },
+      "textures": {
+        "maxDimension": 512,
+        "compression": "none"
+      },
+      "tags": [
+        "field",
+        "airfield",
+        "ai-generated"
+      ]
+    },
+    {
+      "id": "field.airfield.perimeter_gate",
+      "category": "structure.airfield",
+      "source": {
+        "provider": "3DAssets.dev",
+        "pack": "Airport Terminal and Ground Operations",
+        "url": "https://3dassets.dev/assets/airport-terminal-and-ground-operations-perimeter-gate-f9a80813",
+        "license": "CC0-1.0",
+        "downloadDate": "2026-09-20",
+        "originalFile": "perimeter-gate_26092.glb",
+        "sha256": "65b3e9d30ec6c21406bb8174e88330ce02859f3440275948bcf60dd047af973b"
+      },
+      "runtime": {
+        "uri": "/assets/regions/field/airfields/perimeter_gate.glb",
+        "preload": false,
+        "streamGroup": "region.field.structure",
+        "qualityMin": "low",
+        "castShadow": true,
+        "receiveShadow": true
+      },
+      "geometry": {
+        "lodRequired": false,
+        "lodTriangles": [
+          832
+        ]
+      },
+      "collision": {
+        "type": "none",
+        "required": false
+      },
+      "textures": {
+        "maxDimension": 512,
+        "compression": "none"
+      },
+      "tags": [
+        "field",
+        "airfield",
+        "ai-generated"
+      ]
+    },
+    {
+      "id": "field.airfield.pushback_tug",
+      "category": "structure.airfield",
+      "source": {
+        "provider": "3DAssets.dev",
+        "pack": "Airport Terminal and Ground Operations",
+        "url": "https://3dassets.dev/assets/airport-terminal-and-ground-operations-pushback-tug-92c14e4b",
+        "license": "CC0-1.0",
+        "downloadDate": "2026-09-20",
+        "originalFile": "pushback-tug_26063.glb",
+        "sha256": "484e91a298ac7a2dcd00f773956bde1955fd4820eb8599c3c271cf85d31f4921"
+      },
+      "runtime": {
+        "uri": "/assets/regions/field/airfields/pushback_tug.glb",
+        "preload": false,
+        "streamGroup": "region.field.structure",
+        "qualityMin": "low",
+        "castShadow": true,
+        "receiveShadow": true
+      },
+      "geometry": {
+        "lodRequired": false,
+        "lodTriangles": [
+          1128
+        ]
+      },
+      "collision": {
+        "type": "none",
+        "required": false
+      },
+      "textures": {
+        "maxDimension": 512,
+        "compression": "none"
+      },
+      "tags": [
+        "field",
+        "airfield",
+        "ai-generated"
+      ]
+    },
+    {
+      "id": "field.airfield.safety_cone_row",
+      "category": "structure.airfield",
+      "source": {
+        "provider": "3DAssets.dev",
+        "pack": "Airport Terminal and Ground Operations",
+        "url": "https://3dassets.dev/assets/airport-terminal-and-ground-operations-safety-cone-row-df54a805",
+        "license": "CC0-1.0",
+        "downloadDate": "2026-09-20",
+        "originalFile": "safety-cone-row_26085.glb",
+        "sha256": "a7e459d29c162f41d5828041fcff306aadf178d7ceb87d2d5c4b250042ac419b"
+      },
+      "runtime": {
+        "uri": "/assets/regions/field/airfields/safety_cone_row.glb",
+        "preload": false,
+        "streamGroup": "region.field.structure",
+        "qualityMin": "low",
+        "castShadow": true,
+        "receiveShadow": true
+      },
+      "geometry": {
+        "lodRequired": false,
+        "lodTriangles": [
+          808
+        ]
+      },
+      "collision": {
+        "type": "none",
+        "required": false
+      },
+      "textures": {
+        "maxDimension": 512,
+        "compression": "none"
+      },
+      "tags": [
+        "field",
+        "airfield",
+        "ai-generated"
+      ]
+    },
+    {
+      "id": "field.airfield.stand_guidance",
+      "category": "structure.airfield",
+      "source": {
+        "provider": "3DAssets.dev",
+        "pack": "Airport Terminal and Ground Operations",
+        "url": "https://3dassets.dev/assets/airport-terminal-and-ground-operations-stand-guidance--4a054cb5",
+        "license": "CC0-1.0",
+        "downloadDate": "2026-09-20",
+        "originalFile": "stand-guidance-_26086.glb",
+        "sha256": "c3b4ae5ffcd0411ed1a1a82f1798b5c325bd079330a5552cc7bb417155d3a88b"
+      },
+      "runtime": {
+        "uri": "/assets/regions/field/airfields/stand_guidance.glb",
+        "preload": false,
+        "streamGroup": "region.field.structure",
+        "qualityMin": "low",
+        "castShadow": true,
+        "receiveShadow": true
+      },
+      "geometry": {
+        "lodRequired": false,
+        "lodTriangles": [
+          236
+        ]
+      },
+      "collision": {
+        "type": "none",
+        "required": false
+      },
+      "textures": {
+        "maxDimension": 512,
+        "compression": "none"
+      },
+      "tags": [
+        "field",
+        "airfield",
+        "ai-generated"
+      ]
+    },
+    {
+      "id": "field.airfield.taxiway_sign",
+      "category": "structure.airfield",
+      "source": {
+        "provider": "3DAssets.dev",
+        "pack": "Airport Terminal and Ground Operations",
+        "url": "https://3dassets.dev/assets/airport-terminal-and-ground-operations-taxiway-sign-ca15aa0b",
+        "license": "CC0-1.0",
+        "downloadDate": "2026-09-20",
+        "originalFile": "taxiway-sign_26079.glb",
+        "sha256": "a9f9189764ec428cd870ceb977bbce3cd9f56178d2b6ee6100ebe32362dd5856"
+      },
+      "runtime": {
+        "uri": "/assets/regions/field/airfields/taxiway_sign.glb",
+        "preload": false,
+        "streamGroup": "region.field.structure",
+        "qualityMin": "low",
+        "castShadow": true,
+        "receiveShadow": true
+      },
+      "geometry": {
+        "lodRequired": false,
+        "lodTriangles": [
+          292
+        ]
+      },
+      "collision": {
+        "type": "none",
+        "required": false
+      },
+      "textures": {
+        "maxDimension": 512,
+        "compression": "none"
+      },
+      "tags": [
+        "field",
+        "airfield",
+        "ai-generated"
+      ]
+    },
+    {
+      "id": "field.airfield.wheel_chock_and",
+      "category": "structure.airfield",
+      "source": {
+        "provider": "3DAssets.dev",
+        "pack": "Airport Terminal and Ground Operations",
+        "url": "https://3dassets.dev/assets/airport-terminal-and-ground-operations-wheel-chock-and-616e7ea8",
+        "license": "CC0-1.0",
+        "downloadDate": "2026-09-20",
+        "originalFile": "wheel-chock-and_26083.glb",
+        "sha256": "632b50a4eeeac57ec155613413ced54888fb0f089606aa6bbbde7a4b384131f0"
+      },
+      "runtime": {
+        "uri": "/assets/regions/field/airfields/wheel_chock_and.glb",
+        "preload": false,
+        "streamGroup": "region.field.structure",
+        "qualityMin": "low",
+        "castShadow": true,
+        "receiveShadow": true
+      },
+      "geometry": {
+        "lodRequired": false,
+        "lodTriangles": [
+          412
+        ]
+      },
+      "collision": {
+        "type": "none",
+        "required": false
+      },
+      "textures": {
+        "maxDimension": 512,
+        "compression": "none"
+      },
+      "tags": [
+        "field",
+        "airfield",
+        "ai-generated"
+      ]
+    }
+  ]
 }

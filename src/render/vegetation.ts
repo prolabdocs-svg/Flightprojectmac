@@ -80,3 +80,25 @@ export function buildTreeClusterInstancedMesh(placements: TreeClusterPlacement[]
   mesh.instanceMatrix.needsUpdate = true;
   return mesh;
 }
+
+/** Instances a loaded pipeline GLB (Y-up) once per placement: one InstancedMesh per source
+ * mesh, so N trees of a type cost (#materials) draw calls instead of N scene-graph clones. */
+export function instanceGltf(template: THREE.Object3D, placements: TreeClusterPlacement[]): THREE.Group {
+  const out = new THREE.Group();
+  template.updateMatrixWorld(true);
+  const m = new THREE.Matrix4();
+  const q = new THREE.Quaternion();
+  template.traverse((o) => {
+    if (!(o instanceof THREE.Mesh)) return;
+    const mesh = new THREE.InstancedMesh(o.geometry, o.material, placements.length);
+    mesh.castShadow = true;
+    placements.forEach((p, i) => {
+      q.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, p.rotationY);
+      m.compose(new THREE.Vector3(p.x, p.groundY, p.z), q, new THREE.Vector3(p.scale, p.scale, p.scale)).multiply(o.matrixWorld);
+      mesh.setMatrixAt(i, m);
+    });
+    mesh.instanceMatrix.needsUpdate = true;
+    out.add(mesh);
+  });
+  return out;
+}
