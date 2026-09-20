@@ -9,6 +9,8 @@ import { resolveAircraft } from '../../content/assembly';
 import { getPart } from '../../content/parts';
 import { DEG } from '../core/constants';
 import { finiteWingSlope } from '../aero/airfoil';
+import { cpShape, ctShape } from '../propulsion/propeller';
+import { powerCurve } from '../propulsion/engine';
 import type { AeroElementSpec } from '../aero/aeroElement';
 import type { AircraftDefinition, MassItem, Provenance } from './aircraftDefinition';
 
@@ -17,9 +19,9 @@ export const QUICKSILVER_REFERENCE_ID = 'quicksilver_class_reference';
 /** Catalogue -> physics mapping knobs (CALIBRATED against the gameplay targets in Phase 9). */
 export const CATALOGUE_CALIBRATION = {
   /** Multiplier on catalogue engine kW. The "12 hp" catalogue engine is a gameplay abstraction. */
-  enginePowerScale: 1.6,
+  enginePowerScale: 2.4,
   /** Multiplier on catalogue frame/engine drag area x Cd (fixed-gear frames are draggier than the abstraction). */
-  bodyDragScale: 0.42,
+  bodyDragScale: 0.5,
 };
 
 /** Tailplane setting angle. CALIBRATED with testing/trim.ts: sets the hands-off power-off trim speed (~82 km/h). */
@@ -150,9 +152,16 @@ export function buildAircraftDefinition(build: AircraftBuild, cal = CATALOGUE_CA
   const rho0 = 1.225;
   const designJ = 0.43;
   const j0 = 0.65;
-  const x = designJ / j0;
-  const cp0 = eng ? (powerKw * 1000) / ((1 - 0.4 * x) * rho0 * propRps ** 3 * propDia ** 5) : 0;
-  const ct0 = eng ? (cp0 * eng.propEfficiency * (1 - 0.4 * x)) / (designJ * (1 - x * x)) : 0;
+  const xd = designJ / j0;
+  // Cp/Ct shapes vs x = J/J0 (see propulsion/propeller.ts): the prop absorbs rated power at rated rpm at the design J.
+  const cp0 = eng ? (powerKw * 1000) / (cpShape(xd) * rho0 * propRps ** 3 * propDia ** 5) : 0;
+  const ct0 = eng ? (cp0 * eng.propEfficiency * cpShape(xd)) / (designJ * ctShape(xd)) : 0;
+  // Idle throttle that balances prop + friction load at idle rpm (throttle 0 must idle, not stall or race).
+  const idleRps = (eng?.idleRpm ?? 0) / GEAR_RATIO / 60;
+  const idleX = eng ? eng.idleRpm / ratedRpm : 0;
+  const frictionFraction = 0.08;
+  const idlePowerNeed = eng ? cp0 * rho0 * idleRps ** 3 * propDia ** 5 + frictionFraction * powerKw * 1000 * (0.4 + 0.6 * idleX) * idleX : 0;
+  const idleThrottle = eng ? Math.min(0.35, idlePowerNeed / (powerKw * 1000 * powerCurve(idleX))) : 0;
   const ratedOmega = (ratedRpm * 2 * Math.PI) / 60;
   const ratedTorque = eng ? (powerKw * 1000) / ratedOmega : 0;
 
@@ -209,7 +218,7 @@ export function buildAircraftDefinition(build: AircraftBuild, cal = CATALOGUE_CA
       },
       elements,
       bluffBodies: [
-        { id: 'pod_frame_engine', position: [0, 0.1, 0.4], cdA: [1.1 * cal.bodyDragScale / 0.42, 0.9, (resolved.totalDragArea * 0.5) * cal.bodyDragScale] },
+        { id: 'pod_frame_engine', position: [0, 0.1, 0.4], cdA: [1.1, 0.9, (resolved.totalDragArea * 0.5) * cal.bodyDragScale] },
         { id: 'tail_boom', position: [0, 0.2, -2.5], cdA: [0.3, 0.1, 0.02] },
         { id: 'gear', position: [0, -0.9, 0.3], cdA: [0.25, 0.05, 0.05] },
       ],
@@ -228,7 +237,10 @@ export function buildAircraftDefinition(build: AircraftBuild, cal = CATALOGUE_CA
           idleRpm: eng.idleRpm,
           redlineRpm: eng.redlineRpm,
           inertiaKgM2: Math.max(0.01, (2 * eng.responseTime * ratedTorque) / ratedOmega),
-          frictionFraction: 0.08,
+          gearRatio: GEAR_RATIO,
+          idleThrottle,
+          starterTorqueNm: 12,
+          frictionFraction,
           altitudeLapse: 1,
           position: [0, 0, 2.54],
           thrustLineDeg: 0,
@@ -236,7 +248,7 @@ export function buildAircraftDefinition(build: AircraftBuild, cal = CATALOGUE_CA
         }
       : null,
     propeller: eng
-      ? { diameterM: propDia, pitchRatio: 0.8, ct0, cp0, rotation: 1, inertiaKgM2: 0.12, swirlGain: 0.12, pFactor: 0.12 }
+      ? { diameterM: propDia, j0, ct0, cp0, rotation: 1, inertiaKgM2: 0.12, swirlGain: 0.12, pFactor: 0.12, wakeFactor: 0.8 }
       : null,
     gear: {
       wheels: [

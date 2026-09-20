@@ -30,7 +30,13 @@ export interface EngineDefinition {
   inertiaKgM2: number;
   /** Friction/pumping torque at rated RPM as a fraction of rated torque. */
   frictionFraction: number;
-  /** Mixture/altitude: power lapse exponent vs density ratio (Gagg-Farrar style). */
+  /** Crank-to-propeller reduction ratio (crank rpm / prop rpm). */
+  gearRatio: number;
+  /** Fraction of full-throttle power at throttle 0 (idle setting that holds idleRpm against prop drag). */
+  idleThrottle: number;
+  /** Starter motor torque at the crank, N m. */
+  starterTorqueNm: number;
+  /** Power lapse with density (1 = Gagg-Farrar, 0 = none). */
   altitudeLapse: number;
   /** Shaft position in BODY axes (thrust application point) and thrust-line tilt (deg, nose-up +). */
   position: Vec3;
@@ -41,8 +47,8 @@ export interface EngineDefinition {
 
 export interface PropellerDefinition {
   diameterM: number;
-  /** Effective pitch / diameter (fixed pitch). Sets the advance ratio at zero thrust. */
-  pitchRatio: number;
+  /** Advance ratio J = V/(nD) at zero thrust (fixed pitch; sets how fast thrust lapses with airspeed). */
+  j0: number;
   /** Static thrust and power coefficients at J = 0 (Ct = T/(rho n^2 D^4), Cp = P/(rho n^3 D^5)). */
   ct0: number;
   cp0: number;
@@ -54,6 +60,8 @@ export interface PropellerDefinition {
   swirlGain: number;
   /** P-factor: lateral thrust-centre shift per unit disc angle, in propeller radii. */
   pFactor: number;
+  /** Fraction of the ideal far-wake speed felt at the tail (wake decay and contraction). */
+  wakeFactor: number;
 }
 
 export interface WheelDefinition {

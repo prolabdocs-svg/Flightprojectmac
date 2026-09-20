@@ -2,11 +2,11 @@
 // AircraftPhysics + a callback that supplies surface deflections. Used by unit/flight tests.
 import * as THREE from 'three';
 import { initPhysics, createWorld } from '../../sim/physics';
-import { AircraftPhysics } from '../core/aircraftPhysics';
+import { AircraftSimulation, type SimCommand } from '../core/aircraftSimulation';
 import { PHYSICS_DT } from '../core/constants';
 import type { AircraftDefinition } from '../aircraft/aircraftDefinition';
 import { attitude } from '../core/coordinates';
-import { FlightControls, NEUTRAL_COMMAND, type PilotCommand } from '../controls/flightControls';
+import { NEUTRAL_COMMAND } from '../controls/flightControls';
 
 export interface RigSample {
   t: number;
@@ -25,12 +25,16 @@ export interface RigSample {
   z: number;
   gLoad: number;
   wingCl: number;
+  rpm: number;
+  thrustN: number;
+  fuelL: number;
 }
 
 export async function createAirframeRig(def: AircraftDefinition, opts: { altM?: number; speedMs?: number; pitchDeg?: number; wind?: THREE.Vector3 } = {}) {
   await initPhysics();
   const world = createWorld();
-  const phys = new AircraftPhysics(world, def);
+  const sim = new AircraftSimulation(world, def);
+  const phys = sim.physics;
   const pitch = ((opts.pitchDeg ?? 0) * Math.PI) / 180;
   // Nose +Z pitched up by rotating about -X (nose up = rotation about -X).
   const quat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(-1, 0, 0), pitch);
@@ -43,11 +47,8 @@ export async function createAirframeRig(def: AircraftDefinition, opts: { altM?: 
   const left = new THREE.Vector3();
   const up = new THREE.Vector3();
 
-  const controls = new FlightControls(def.controls);
-  const step = (cmd: PilotCommand) => {
-    const surf = controls.step(cmd, PHYSICS_DT);
-    phys.readState(wind);
-    phys.computeAero(surf, null, () => 1);
+  const step = (cmd: SimCommand) => {
+    sim.step(cmd, wind);
     const g = phys.forceBody.y / (phys.mass.massKg * 9.80665);
     const att = attitude(phys.frame, fwd, left, up);
     log.push({
@@ -67,16 +68,30 @@ export async function createAirframeRig(def: AircraftDefinition, opts: { altM?: 
       z: phys.pos.z,
       gLoad: g,
       wingCl: phys.wingCl,
+      rpm: sim.propulsion?.engine.rpm ?? 0,
+      thrustN: sim.propulsion?.thrustN ?? 0,
+      fuelL: phys.fuelL,
     });
-    phys.integrate();
     t += PHYSICS_DT;
   };
 
-  /** Runs `seconds`; `surf` may be constant or a function of the latest sample. */
-  const run = (seconds: number, cmd: Partial<PilotCommand> | ((s: RigSample | undefined) => Partial<PilotCommand>) = {}) => {
+  /** Runs `seconds`; `cmd` may be constant or a function of the latest sample. */
+  const run = (seconds: number, cmd: Partial<SimCommand> | ((s: RigSample | undefined) => Partial<SimCommand>) = {}) => {
     const n = Math.round(seconds / PHYSICS_DT);
-    for (let i = 0; i < n; i++) step({ ...NEUTRAL_COMMAND, ...(typeof cmd === 'function' ? cmd(log[log.length - 1]) : cmd) });
+    for (let i = 0; i < n; i++) step({ ...NEUTRAL_COMMAND, engineOn: false, ...(typeof cmd === 'function' ? cmd(log[log.length - 1]) : cmd) });
     return log[log.length - 1];
   };
-  return { phys, world, run, log, controls };
+  const controls = sim.controls;
+  return { sim, phys, world, run, log, controls };
+}
+
+/** Simple attitude-hold pilot used by flight tests: pitch/roll targets in degrees (nose up +, right wing down +). */
+export function holdAttitude(s: RigSample | undefined, pitchDeg: number, rollDeg = 0) {
+  if (!s) return {};
+  const clamp = (v: number) => Math.max(-1, Math.min(1, v));
+  return {
+    pitch: clamp((pitchDeg - s.pitchDeg) * 0.08 - s.qDegS * 0.03),
+    roll: clamp((rollDeg - s.rollDeg) * 0.06 - s.pDegS * 0.02),
+    yaw: clamp(s.betaDeg * 0.3),
+  };
 }

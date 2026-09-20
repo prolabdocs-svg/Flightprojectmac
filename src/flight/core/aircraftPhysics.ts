@@ -51,6 +51,8 @@ export class AircraftPhysics {
   readonly atmosphere: AtmosphereSample = { temperatureK: 288.15, pressurePa: 101325, densityKgM3: 1.225 };
   mass!: MassProperties;
   fuelL: number;
+  /** Test hook: scales air density (0 = vacuum) to verify torque-free rigid-body motion. */
+  densityScale = 1;
   /** Counters for the numerical safety nets; must stay 0 in every automated flight test. */
   guardEvents = { angularRate: 0, speed: 0, nonFinite: 0 };
 
@@ -181,7 +183,7 @@ export class AircraftPhysics {
   /** Step 2: all aerodynamic elements. Adds to forceBody/momentBody. */
   computeAero(surf: SurfaceDeflections, slip: Slipstream | null, effectiveness: (damageId: string) => number): void {
     const c = this.ctx;
-    c.rho = this.atmosphere.densityKgM3;
+    c.rho = this.atmosphere.densityKgM3 * this.densityScale;
     c.vx = this.velBody.x; c.vy = this.velBody.y; c.vz = this.velBody.z;
     c.wx = this.wBody.x; c.wy = this.wBody.y; c.wz = this.wBody.z;
     c.windX = this.windBody.x; c.windY = this.windBody.y; c.windZ = this.windBody.z;
