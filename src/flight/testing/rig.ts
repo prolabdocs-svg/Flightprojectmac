@@ -2,10 +2,11 @@
 // AircraftPhysics + a callback that supplies surface deflections. Used by unit/flight tests.
 import * as THREE from 'three';
 import { initPhysics, createWorld } from '../../sim/physics';
-import { AircraftPhysics, type SurfaceDeflections } from '../core/aircraftPhysics';
+import { AircraftPhysics } from '../core/aircraftPhysics';
 import { PHYSICS_DT } from '../core/constants';
 import type { AircraftDefinition } from '../aircraft/aircraftDefinition';
 import { attitude } from '../core/coordinates';
+import { FlightControls, NEUTRAL_COMMAND, type PilotCommand } from '../controls/flightControls';
 
 export interface RigSample {
   t: number;
@@ -26,8 +27,6 @@ export interface RigSample {
   wingCl: number;
 }
 
-export const ZERO_SURFACES: SurfaceDeflections = { elevator: 0, aileronLeft: 0, aileronRight: 0, rudder: 0 };
-
 export async function createAirframeRig(def: AircraftDefinition, opts: { altM?: number; speedMs?: number; pitchDeg?: number; wind?: THREE.Vector3 } = {}) {
   await initPhysics();
   const world = createWorld();
@@ -44,7 +43,9 @@ export async function createAirframeRig(def: AircraftDefinition, opts: { altM?: 
   const left = new THREE.Vector3();
   const up = new THREE.Vector3();
 
-  const step = (surf: SurfaceDeflections) => {
+  const controls = new FlightControls(def.controls);
+  const step = (cmd: PilotCommand) => {
+    const surf = controls.step(cmd, PHYSICS_DT);
     phys.readState(wind);
     phys.computeAero(surf, null, () => 1);
     const g = phys.forceBody.y / (phys.mass.massKg * 9.80665);
@@ -72,10 +73,10 @@ export async function createAirframeRig(def: AircraftDefinition, opts: { altM?: 
   };
 
   /** Runs `seconds`; `surf` may be constant or a function of the latest sample. */
-  const run = (seconds: number, surf: SurfaceDeflections | ((s: RigSample | undefined) => SurfaceDeflections) = ZERO_SURFACES) => {
+  const run = (seconds: number, cmd: Partial<PilotCommand> | ((s: RigSample | undefined) => Partial<PilotCommand>) = {}) => {
     const n = Math.round(seconds / PHYSICS_DT);
-    for (let i = 0; i < n; i++) step(typeof surf === 'function' ? surf(log[log.length - 1]) : surf);
+    for (let i = 0; i < n; i++) step({ ...NEUTRAL_COMMAND, ...(typeof cmd === 'function' ? cmd(log[log.length - 1]) : cmd) });
     return log[log.length - 1];
   };
-  return { phys, world, run, log };
+  return { phys, world, run, log, controls };
 }
