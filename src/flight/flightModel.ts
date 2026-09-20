@@ -87,6 +87,15 @@ export class FlightModel implements FlightSim {
   private readonly tmp = new THREE.Vector3();
   private readonly specific = new THREE.Vector3();
   private readonly hp = new THREE.Vector3();
+  get gLoad(): number {
+    return this.gForce;
+  }
+
+  /** Wind actually applied to the airflow last tick (mean + gust + shear + turbulence), world axes. */
+  get appliedWind(): THREE.Vector3 {
+    return this.windEffective;
+  }
+
   /** Wall-clock cost of the last physics step, for the debug overlay / profiling. */
   lastStepMs = 0;
 

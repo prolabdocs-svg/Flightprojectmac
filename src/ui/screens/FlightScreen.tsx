@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { useGameStore } from '../../state/gameStore';
@@ -12,7 +12,10 @@ import { getRegion } from '../../content/regions';
 import { initPhysics, createWorld } from '../../sim/physics';
 import { FlightController } from '../../sim/flightController';
 import { FlightModel } from '../../flight/flightModel';
-import { getFlightModelKind } from '../../flight/flag';
+import { getFlightModelKind, isFlightDebugEnabled } from '../../flight/flag';
+import { FlightRecorder } from '../../flight/telemetry/flightRecorder';
+import { FlightGizmos } from '../../render/FlightGizmos';
+import { FlightDebugOverlay } from '../components/FlightDebugOverlay';
 import { DEFAULT_RUNWAY_CONDITIONS, type FlightSim, type FlightTelemetry, type ResolvedControls } from '../../flight/flightTypes';
 import { getAirfield, getFreeFlightAirfield, type RunwaySurface } from '../../world/airfields';
 
@@ -43,6 +46,12 @@ export function FlightScreen() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const controllerRef = useRef<FlightSim | null>(null);
   const sceneRef = useRef<FlightScene | null>(null);
+  const recorderRef = useRef(new FlightRecorder());
+  const gizmosRef = useRef<FlightGizmos | null>(null);
+  const [debugOn, setDebugOn] = useState(isFlightDebugEnabled);
+  const debugRef = useRef(debugOn);
+  const [gizmosOn, setGizmosOn] = useState(true);
+  const gizmosOnRef = useRef(true);
   const endTimerRef = useRef<number | null>(null);
   const paused = useGameStore((s) => s.paused);
   const setPaused = useGameStore((s) => s.setPaused);
@@ -58,6 +67,14 @@ export function FlightScreen() {
 
   const mission = selectedMissionId ? getMission(selectedMissionId) ?? null : null;
   const activeRegion = mission ? getRegion(mission.regionId) : getRegion(selectedFreeFlightRegionId);
+
+  const getModel = useCallback(() => (controllerRef.current instanceof FlightModel ? controllerRef.current : null), []);
+
+  useEffect(() => {
+    debugRef.current = debugOn;
+    gizmosOnRef.current = gizmosOn;
+    gizmosRef.current?.setVisible(debugOn && gizmosOn);
+  }, [debugOn, gizmosOn]);
 
   useEffect(() => {
     let disposed = false;
@@ -133,6 +150,11 @@ export function FlightScreen() {
       }, profile.currentBuild.frameId);
       scene.setTargetMarker(mission?.targetPoint, mission?.targetRadiusM ?? 20);
       sceneRef.current = scene;
+      if (controller instanceof FlightModel) {
+        const gizmos = new FlightGizmos(scene.scene);
+        gizmos.setVisible(debugRef.current && gizmosOnRef.current);
+        gizmosRef.current = gizmos;
+      }
 
       // React dev mode may tear this effect down while the asynchronous physics
       // bootstrap is resolving. Install ownership cleanup before scheduling any
@@ -148,6 +170,8 @@ export function FlightScreen() {
         window.removeEventListener('blur', onInputBlur);
         if (controllerRef.current === controller) controllerRef.current = null;
         if (sceneRef.current === scene) sceneRef.current = null;
+        gizmosRef.current?.dispose();
+        gizmosRef.current = null;
         scene.dispose();
         world.free();
         audioService.stopFlight();
@@ -191,6 +215,11 @@ export function FlightScreen() {
         // Native range controls are the screen-reader/keyboard alternative to the touch
         // gimbals. Do not hijack their arrow keys for the global flight shortcuts.
         if (event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement || event.target instanceof HTMLTextAreaElement) return;
+        if (event.key === 'F3') {
+          event.preventDefault();
+          if (!event.repeat) setDebugOn((v) => !v);
+          return;
+        }
         if (event.repeat && ['e', 'f', 'escape'].includes(event.key.toLowerCase())) return;
         const key = event.key.toLowerCase();
         if (['arrowleft', 'arrowright', 'arrowup', 'arrowdown', ' ', 'a', 'd', 'w', 's', 'e', 'f', 'escape'].includes(key)) {
@@ -294,7 +323,9 @@ export function FlightScreen() {
           const bodyPosition = controller.body.translation();
           windPosition.set(bodyPosition.x, bodyPosition.y, bodyPosition.z);
           const wind = getEnvironmentWind(region, elapsedFlightS, windPosition);
-          telem = controller.step(controlsFor(), wind);
+          const stepControls = controlsFor();
+          telem = controller.step(stepControls, wind);
+          if (debugRef.current && controller instanceof FlightModel) recorderRef.current.tick(controller, stepControls, fixedDt);
           elapsedFlightS += fixedDt;
 
           const stepPosition = controller.body.translation();
@@ -351,6 +382,7 @@ export function FlightScreen() {
         // automated browser (background tabs throttle requestAnimationFrame).
         (window as unknown as { __pf?: unknown }).__pf = {
           controller,
+          recorder: recorderRef.current,
           simulate: (seconds: number, overrides: Partial<ResolvedControls> | ((t: FlightTelemetry | null) => Partial<ResolvedControls>) = {}) => {
             const ticks = Math.round(seconds / fixedDt);
             for (let i = 0; i < ticks; i++) {
@@ -403,6 +435,7 @@ export function FlightScreen() {
           engineOn: lastTelemetry?.engineOn ?? false,
           paused: useGameStore.getState().paused,
         });
+        if (controller instanceof FlightModel) gizmosRef.current?.update(controller);
         scene.render();
 
         frameId = requestAnimationFrame(loop);
@@ -430,6 +463,9 @@ export function FlightScreen() {
       <canvas ref={canvasRef} className="flight-canvas" />
       {ready && telemetry && (
         <FlightHud telemetry={telemetry} mission={mission} freeFlightRegionName={mission ? undefined : activeRegion.name} freeFlightAirfieldName={mission ? undefined : getFreeFlightAirfield(activeRegion.id)?.name} onPause={() => setPaused(true)} paused={paused} />
+      )}
+      {ready && debugOn && getFlightModelKind() === 'new' && (
+        <FlightDebugOverlay getModel={getModel} recorder={recorderRef.current} showGizmos={gizmosOn} onToggleGizmos={() => setGizmosOn((v) => !v)} />
       )}
       {!ready && <div className="loading-overlay">Cargando taller y pista…</div>}
     </div>

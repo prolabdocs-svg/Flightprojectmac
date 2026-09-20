@@ -66,6 +66,8 @@ export class AircraftPhysics {
   readonly windBody = new THREE.Vector3();
   readonly airBody = new THREE.Vector3(); // velocity relative to the air, at the CG, body axes
   readonly upBody = new THREE.Vector3();
+  /** Aerodynamic-only force/moment of the last computeAero() (body axes), for lift/drag telemetry. */
+  readonly aeroForce = new THREE.Vector3();
   readonly forceBody = new THREE.Vector3();
   readonly momentBody = new THREE.Vector3();
   /** Loads already expressed in world axes (ground contact); folded in at integrate(). */
@@ -243,6 +245,7 @@ export class AircraftPhysics {
       this.momentBody.x += r.mx; this.momentBody.y += r.my; this.momentBody.z += r.mz;
       drag += r.dragN;
     }
+    this.aeroForce.copy(this.forceBody);
     this.stallMarginRad = this.wingAlphaClMax - maxWingAlpha;
     this.liftBodyN = lift;
     this.dragBodyN = drag;
