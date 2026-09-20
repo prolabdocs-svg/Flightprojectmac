@@ -1,0 +1,81 @@
+// Headless rig for the bare airframe (no gear/engine yet in early phases): Rapier world +
+// AircraftPhysics + a callback that supplies surface deflections. Used by unit/flight tests.
+import * as THREE from 'three';
+import { initPhysics, createWorld } from '../../sim/physics';
+import { AircraftPhysics, type SurfaceDeflections } from '../core/aircraftPhysics';
+import { PHYSICS_DT } from '../core/constants';
+import type { AircraftDefinition } from '../aircraft/aircraftDefinition';
+import { attitude } from '../core/coordinates';
+
+export interface RigSample {
+  t: number;
+  speedMs: number;
+  airspeedMs: number;
+  alphaDeg: number;
+  betaDeg: number;
+  pitchDeg: number;
+  rollDeg: number;
+  pDegS: number;
+  qDegS: number;
+  rDegS: number;
+  vsMs: number;
+  altM: number;
+  x: number;
+  z: number;
+  gLoad: number;
+  wingCl: number;
+}
+
+export const ZERO_SURFACES: SurfaceDeflections = { elevator: 0, aileronLeft: 0, aileronRight: 0, rudder: 0 };
+
+export async function createAirframeRig(def: AircraftDefinition, opts: { altM?: number; speedMs?: number; pitchDeg?: number; wind?: THREE.Vector3 } = {}) {
+  await initPhysics();
+  const world = createWorld();
+  const phys = new AircraftPhysics(world, def);
+  const pitch = ((opts.pitchDeg ?? 0) * Math.PI) / 180;
+  // Nose +Z pitched up by rotating about -X (nose up = rotation about -X).
+  const quat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(-1, 0, 0), pitch);
+  const vel = new THREE.Vector3(0, Math.sin(pitch) * 0, 1).multiplyScalar(opts.speedMs ?? 22);
+  phys.place(new THREE.Vector3(0, opts.altM ?? 500, 0), quat, vel);
+  const wind = opts.wind ?? new THREE.Vector3();
+  const log: RigSample[] = [];
+  let t = 0;
+  const fwd = new THREE.Vector3();
+  const left = new THREE.Vector3();
+  const up = new THREE.Vector3();
+
+  const step = (surf: SurfaceDeflections) => {
+    phys.readState(wind);
+    phys.computeAero(surf, null, () => 1);
+    const g = phys.forceBody.y / (phys.mass.massKg * 9.80665);
+    const att = attitude(phys.frame, fwd, left, up);
+    log.push({
+      t,
+      speedMs: phys.velWorld.length(),
+      airspeedMs: phys.airspeedMs,
+      alphaDeg: (phys.alphaRad * 180) / Math.PI,
+      betaDeg: (phys.betaRad * 180) / Math.PI,
+      pitchDeg: (att.pitchRad * 180) / Math.PI,
+      rollDeg: (att.rollRad * 180) / Math.PI,
+      pDegS: (phys.wBody.z * 180) / Math.PI,
+      qDegS: (-phys.wBody.x * 180) / Math.PI,
+      rDegS: (-phys.wBody.y * 180) / Math.PI,
+      vsMs: phys.velWorld.y,
+      altM: phys.cgWorld.y,
+      x: phys.pos.x,
+      z: phys.pos.z,
+      gLoad: g,
+      wingCl: phys.wingCl,
+    });
+    phys.integrate();
+    t += PHYSICS_DT;
+  };
+
+  /** Runs `seconds`; `surf` may be constant or a function of the latest sample. */
+  const run = (seconds: number, surf: SurfaceDeflections | ((s: RigSample | undefined) => SurfaceDeflections) = ZERO_SURFACES) => {
+    const n = Math.round(seconds / PHYSICS_DT);
+    for (let i = 0; i < n; i++) step(typeof surf === 'function' ? surf(log[log.length - 1]) : surf);
+    return log[log.length - 1];
+  };
+  return { phys, world, run, log };
+}
