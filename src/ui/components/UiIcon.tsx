@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 
-type IconName = 'map' | 'wrench' | 'tree' | 'paint' | 'settings' | 'flight' | 'back' | 'cash' | 'research' | 'salvage' | 'chevron';
+type IconName = 'map' | 'wrench' | 'tree' | 'paint' | 'settings' | 'flight' | 'back' | 'cash' | 'research' | 'salvage' | 'chevron' | 'lock' | 'check' | 'target' | 'retry' | 'pause' | 'home';
 
 const paths: Record<IconName, ReactNode> = {
   map: <><path d="m3 6 6-3 6 3 6-3v15l-6 3-6-3-6 3V6Z"/><path d="M9 3v15M15 6v15"/></>,
@@ -14,6 +14,12 @@ const paths: Record<IconName, ReactNode> = {
   research: <><path d="M9 3h6M10 3v6l-5.5 9A2 2 0 0 0 6.2 21h11.6a2 2 0 0 0 1.7-3l-5.5-9V3"/><path d="M8 15h8"/></>,
   salvage: <><path d="M4 7h16M6 7l1 14h10l1-14M9 7V4h6v3"/><path d="m9 12 6 5M15 12l-6 5"/></>,
   chevron: <path d="m9 18 6-6-6-6"/>,
+  lock: <><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></>,
+  check: <path d="m4 12 5 5L20 6"/>,
+  target: <><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></>,
+  retry: <><path d="M4 12a8 8 0 1 0 2.5-5.8"/><path d="M4 4v5h5"/></>,
+  pause: <path d="M8 5v14M16 5v14"/>,
+  home: <path d="m3 11 9-8 9 8M5 10v10h14V10"/>,
 };
 
 export function UiIcon({ name, size = 20, label }: { name: IconName; size?: number; label?: string }) {

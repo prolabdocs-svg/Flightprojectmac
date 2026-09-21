@@ -4,6 +4,8 @@ import { resolveAircraft } from '../../content/assembly';
 import { getNextAvailableMission } from '../../content/missions';
 import { BrandMark } from '../components/BrandMark';
 import { MenuNavigation } from '../components/MenuNavigation';
+import { ResourceBar } from '../components/ScreenHeader';
+import { PAINT_PRESETS } from '../../content/paint';
 import { UiIcon } from '../components/UiIcon';
 import { HangarAircraft } from '../components/HangarAircraft';
 import { MAX_HOME_BASE_LEVEL, getHomeBaseBenefits } from '../../content/homeBase';
@@ -39,54 +41,54 @@ export function HangarScreen() {
     goTo('briefing');
   };
 
+  const paint = PAINT_PRESETS.find((x) => x.id === profile.selectedPaintId);
+  const facilities = [
+    { key: 'runway' as const, label: 'Pista', level: profile.homeBase.runwayLevel, cost: runwayCost, benefit: `Superficie más lisa: −${Math.round(homeBaseBenefits.runwayRoughnessReduction * 100)}% rugosidad` },
+    { key: 'hangar' as const, label: 'Hangar', level: profile.homeBase.hangarLevel, cost: hangarCost, benefit: `Taller: −${Math.round(homeBaseBenefits.repairDiscount * 100)}% en reparaciones` },
+  ];
+
   return (
     <div className="screen hangar-screen">
       <header className="hangar-header">
         <BrandMark />
-        <div className="resource-cluster" aria-label="Recursos">
-          <div className="resource-pill"><UiIcon name="cash" size={15}/>${profile.cash.toFixed(0)}</div>
-          <div className="resource-pill"><UiIcon name="research" size={15}/>{profile.researchPoints} RP</div>
-          <div className="resource-pill"><UiIcon name="salvage" size={15}/>{profile.salvage}</div>
-        </div>
+        <ResourceBar />
       </header>
 
-      <main className="hangar-layout">
-        <section className="hangar-hero">
-          <div className="hangar-grid" aria-hidden="true" />
-          <div className="aircraft-silhouette" aria-hidden="true"><HangarAircraft /></div>
-          <div className="hangar-eyebrow">AERONAVE ACTIVA · {pilotRank.name.toUpperCase()} · REP {profile.reputation.toFixed(1)}{nextPilotRank ? ` · SIGUIENTE: ${nextPilotRank.name} (${nextPilotRank.minimumReputation})` : ' · RANGO MÁXIMO'}</div>
-          <h1>{aircraft.frame.name}</h1>
-          <p className="hangar-stats">{aircraft.totalMassKg.toFixed(0)} kg <i/> {aircraft.engine?.name ?? 'SIN MOTOR'} <i/> {aircraft.fuelCapacityL} L</p>
-          <button className="fly-cta" onClick={flyFirstAvailable}><UiIcon name="flight" size={21}/> VOLAR AHORA <UiIcon name="chevron" size={18}/></button>
-          <span className="hangar-caption">LISTO PARA PISTA · CONDICIÓN OPERATIVA</span>
-        </section>
+      <main className="screen-body">
+        <div className="hangar-layout">
+          <section className="hangar-hero">
+            <div className="hangar-grid" aria-hidden="true" />
+            <div className="aircraft-silhouette" aria-hidden="true"><HangarAircraft fabric={paint?.fabricColor} tube={paint?.tubeColor} /></div>
+            <span className="hangar-eyebrow">AERONAVE ACTIVA · {pilotRank.name.toUpperCase()} · REP {profile.reputation.toFixed(1)}{nextPilotRank ? ` · SIGUIENTE: ${nextPilotRank.name} (${nextPilotRank.minimumReputation})` : ' · RANGO MÁXIMO'}</span>
+            <h1>{aircraft.frame.name}</h1>
+            <div className="chip-row">
+              <span className="chip">{aircraft.totalMassKg.toFixed(0)} kg</span>
+              <span className="chip">{aircraft.engine?.name ?? 'SIN MOTOR'}</span>
+              <span className="chip">{aircraft.fuelCapacityL} L</span>
+            </div>
+            <button className="fly-cta" onClick={flyFirstAvailable}><UiIcon name="flight" size={22} /> Volar ahora <UiIcon name="chevron" size={18} /></button>
+            <span className="hangar-caption">LISTO PARA PISTA · CONDICIÓN OPERATIVA</span>
+          </section>
 
-        <section className="home-base-panel">
-          <div className="panel-kicker">INSTALACIONES</div>
-          <h2 className="home-base-title">Base Aérea</h2>
-        <div className="home-base-row">
-          <span className="home-base-label">Pista nivel {profile.homeBase.runwayLevel}</span>
-          <button
-            className="home-base-upgrade-btn"
-            onClick={() => upgradeHomeBase('runway', runwayCost)}
-            disabled={profile.cash < runwayCost || profile.homeBase.runwayLevel >= MAX_HOME_BASE_LEVEL}
-          >
-            {profile.homeBase.runwayLevel >= MAX_HOME_BASE_LEVEL ? 'MÁXIMO' : `Mejorar ($${runwayCost})`}
-          </button>
-          <small className="home-base-benefit">Pista más suave: −{Math.round(homeBaseBenefits.runwayRoughnessReduction * 100)}% rugosidad</small>
+          <section className="panel home-base-panel">
+            <div><span className="panel-kicker">INSTALACIONES</span><h3>Base aérea</h3></div>
+            {facilities.map((f) => {
+              const maxed = f.level >= MAX_HOME_BASE_LEVEL;
+              return (
+                <div key={f.key} className="upgrade-row">
+                  <div>
+                    <b>{f.label} · nivel {f.level}</b>
+                    <div className="pips" aria-hidden="true">{Array.from({ length: MAX_HOME_BASE_LEVEL }, (_, i) => <i key={i} className={i < f.level ? 'on' : ''} />)}</div>
+                  </div>
+                  <button className="secondary-btn" onClick={() => upgradeHomeBase(f.key, f.cost)} disabled={profile.cash < f.cost || maxed}>
+                    {maxed ? 'Máximo' : `Mejorar $${f.cost}`}
+                  </button>
+                  <small>{f.benefit}</small>
+                </div>
+              );
+            })}
+          </section>
         </div>
-        <div className="home-base-row">
-          <span className="home-base-label">Hangar nivel {profile.homeBase.hangarLevel}</span>
-          <button
-            className="home-base-upgrade-btn"
-            onClick={() => upgradeHomeBase('hangar', hangarCost)}
-            disabled={profile.cash < hangarCost || profile.homeBase.hangarLevel >= MAX_HOME_BASE_LEVEL}
-          >
-            {profile.homeBase.hangarLevel >= MAX_HOME_BASE_LEVEL ? 'MÁXIMO' : `Mejorar ($${hangarCost})`}
-          </button>
-          <small className="home-base-benefit">Taller: −{Math.round(homeBaseBenefits.repairDiscount * 100)}% reparaciones</small>
-        </div>
-        </section>
       </main>
 
       <MenuNavigation goTo={goTo} />

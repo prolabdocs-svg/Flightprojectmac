@@ -1,10 +1,10 @@
 /** A lightweight hero render for menu surfaces. The flight scene owns the 3D aircraft;
  * this SVG keeps the hub polished while that scene is intentionally not mounted. */
-export function HangarAircraft() {
+export function HangarAircraft({ fabric, tube }: { fabric?: string; tube?: string } = {}) {
   return <svg className="hangar-aircraft" viewBox="0 0 620 300" aria-hidden="true">
-    <defs><linearGradient id="fabric" x1="0" x2="0" y1="0" y2="1"><stop stopColor="#e9d28e"/><stop offset="1" stopColor="#a87935"/></linearGradient><linearGradient id="metal" x1="0" x2="1"><stop stopColor="#d5d9d5"/><stop offset=".55" stopColor="#78837f"/><stop offset="1" stopColor="#e7e5d8"/></linearGradient><filter id="shadow"><feGaussianBlur stdDeviation="8"/></filter></defs>
+    <defs><linearGradient id="fabric" x1="0" x2="0" y1="0" y2="1"><stop stopColor={fabric ?? "#e9d28e"}/><stop offset="1" stopColor={fabric ?? "#a87935"} stopOpacity={fabric ? 0.72 : 1}/></linearGradient><linearGradient id="metal" x1="0" x2="1"><stop stopColor="#d5d9d5"/><stop offset=".55" stopColor="#78837f"/><stop offset="1" stopColor="#e7e5d8"/></linearGradient><filter id="shadow"><feGaussianBlur stdDeviation="8"/></filter></defs>
     <ellipse cx="310" cy="253" rx="218" ry="18" fill="#020506" opacity=".42" filter="url(#shadow)"/>
-    <g stroke="#303a39" strokeWidth="7" strokeLinecap="round" strokeLinejoin="round">
+    <g stroke={tube ?? "#303a39"} strokeWidth="7" strokeLinecap="round" strokeLinejoin="round">
       <path d="M282 155 170 230M282 155 235 227M350 154 425 228M350 154 370 230"/>
       <path d="M264 140 312 222M358 141 312 222M270 166 345 166" strokeWidth="5" opacity=".8"/>
     </g>

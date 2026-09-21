@@ -106,15 +106,17 @@ export function OnboardingScreen() {
     <div className="screen onboarding-screen">
       <div className="onboarding-progress">
         {Array.from({ length: STEP_COUNT }).map((_, i) => (
-          <span key={i} className={`onboarding-dot ${i === step ? 'active' : ''}`} />
+          <span key={i} className={`onboarding-dot ${i === step ? 'active' : i < step ? 'done' : ''}`} />
         ))}
         <button className="skip-btn" onClick={finish}>
           Saltar tutorial
         </button>
       </div>
 
+      <main className="screen-body">
       {step === 0 && (
-        <>
+        <div className="onboarding-step">
+          <span className="kicker">PASO 1 · CONTROLES</span>
           <h2>Bienvenido al taller</h2>
           <p>
             Construyes tu propia aeronave y la vuelas con un transmisor RC virtual en <strong>Mode 2</strong>. En móvil,
@@ -137,11 +139,11 @@ export function OnboardingScreen() {
             <p><kbd>W</kbd>/<kbd>S</kbd> potencia · <kbd>↑</kbd>/<kbd>↓</kbd> cabeceo · <kbd>←</kbd>/<kbd>→</kbd> alabeo · <kbd>A</kbd>/<kbd>D</kbd> timón</p>
             <p><kbd>E</kbd> motor · <kbd>F</kbd> flaps · <kbd>Espacio</kbd> freno · <kbd>Esc</kbd> pausa. Con mando: sticks para volar, <kbd>RT</kbd> potencia y <kbd>Menu</kbd> pausa.</p>
           </div>
-        </>
+        </div>
       )}
 
       {step === 1 && (
-        <>
+        <div className="onboarding-step">
           <h2>Pruébalo</h2>
           <p className="onboarding-tip">
             Arrastra los sticks abajo para sentir cómo responden antes de tu primer vuelo. El throttle se queda donde lo
@@ -151,11 +153,11 @@ export function OnboardingScreen() {
             <PracticePad side="left" />
             <PracticePad side="right" />
           </div>
-        </>
+        </div>
       )}
 
       {step === 2 && (
-        <>
+        <div className="onboarding-step">
           <h2>Tamaño de los sticks</h2>
           <p className="onboarding-tip">Ajusta el tamaño de los sticks táctiles a lo que te resulte más cómodo. Puedes cambiarlo luego en Ajustes.</p>
           <div className="stick-size-row">
@@ -170,19 +172,21 @@ export function OnboardingScreen() {
             />
             <span>{Math.round(stickSize * 100)}%</span>
           </div>
-        </>
+        </div>
       )}
 
       {step === 3 && (
-        <>
+        <div className="onboarding-step">
           <h2>Listo para volar</h2>
           <p>
             Tu primer vuelo es en un campo tranquilo, sin viento y sin castigo por practicar. Puedes repetir este
             tutorial cuando quieras desde Ajustes. Durante el vuelo, pausa cuando quieras para reiniciar, ir al mapa o
             volver al taller.
           </p>
-        </>
+        </div>
       )}
+
+      </main>
 
       <div className="onboarding-nav">
         {step > 0 && (

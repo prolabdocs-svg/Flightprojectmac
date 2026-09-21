@@ -5,6 +5,8 @@ import { FRAME_ZERO, FRAMES, PARTS, getFrame } from '../../content/parts';
 import { installPart, resolveAircraft } from '../../content/assembly';
 import { TECH_NODES } from '../../content/techtree';
 import type { PartCategory } from '../../core/types';
+import { ScreenHeader } from '../components/ScreenHeader';
+import { UiIcon } from '../components/UiIcon';
 import { MenuNavigation } from '../components/MenuNavigation';
 import './Screens.css';
 
@@ -12,6 +14,10 @@ import './Screens.css';
 // estimate. Not used by the actual flight sim (see flight/flightModel.ts).
 const REFERENCE_SPEED_MS = 15;
 const G = 9.81;
+const CATEGORY_LABELS: Partial<Record<PartCategory, string>> = {
+  frame: 'Fuselaje', wingSet: 'Alas', tailAssembly: 'Cola', engine: 'Motor',
+  propeller: 'Hélice', fuelTank: 'Tanque', landingGear: 'Tren', wheels: 'Ruedas',
+};
 
 // Spec 82.6 Builder: hardpoint-based part swapping with mass/CoM + stat comparison.
 // Free-form CAD is out of scope for V1 per spec 11.3.
@@ -65,91 +71,94 @@ export function BuilderScreen() {
     }
   };
 
+  const tw = Math.min(thrustToWeight, 1);
+  const twClass = thrustToWeight >= 0.5 ? 'tile-good' : thrustToWeight >= 0.3 ? 'tile-warn' : 'tile-bad';
+  const tags = (locked: boolean, selected: boolean, selectedLabel: string) => (
+    <>
+      {selected && <span className="chip chip-accent">{selectedLabel}</span>}
+      {locked && <span className="chip chip-lock"><UiIcon name="lock" size={11} />Bloqueado</span>}
+    </>
+  );
+
   return (
     <div className="screen builder-screen">
-      <header className="screen-header">
-        <button className="back-btn" onClick={() => goTo('hangar')}>
-          ← Taller
-        </button>
-        <h2>Editor de montaje</h2>
-      </header>
+      <ScreenHeader title="Taller" kicker="EDITOR DE MONTAJE" goTo={goTo} />
 
-      <div className="engineering-overlay">
-        <span>Masa total: {aircraft.totalMassKg.toFixed(0)} kg</span>
-        <span>
-          CoM: ({aircraft.centerOfMass[0].toFixed(2)}, {aircraft.centerOfMass[1].toFixed(2)}, {aircraft.centerOfMass[2].toFixed(2)})
-        </span>
-        <span>Drag area: {aircraft.totalDragArea.toFixed(2)} m²</span>
-        <span>Drag estimado ({REFERENCE_SPEED_MS} m/s): {dragEstimateN.toFixed(0)} N</span>
-        <span>Empuje estimado: {thrustN.toFixed(0)} N</span>
-        <span>Empuje/Peso: {thrustToWeight.toFixed(2)}</span>
-        <span>Combustible: {aircraft.fuelCapacityL} L</span>
-      </div>
+      <main className="screen-body">
+        <div className="builder-layout">
+          <aside className="panel builder-side">
+            <span className="panel-kicker">TELEMETRÍA DE INGENIERÍA</span>
+            <div className="tile-row">
+              <div className="tile"><b>{aircraft.totalMassKg.toFixed(0)}<small>kg</small></b><span>Masa total</span></div>
+              <div className={`tile ${twClass}`}><b>{thrustToWeight.toFixed(2)}</b><span>Empuje / peso</span></div>
+            </div>
+            <div className="meter" aria-hidden="true"><i style={{ width: `${tw * 100}%` }} /></div>
+            <div className="stat-line">
+              <div>Empuje estimado<b>{thrustN.toFixed(0)} N</b></div>
+              <div>Drag ({REFERENCE_SPEED_MS} m/s)<b>{dragEstimateN.toFixed(0)} N</b></div>
+              <div>Área de drag<b>{aircraft.totalDragArea.toFixed(2)} m²</b></div>
+              <div>Combustible<b>{aircraft.fuelCapacityL} L</b></div>
+              <div>CoM<b>{aircraft.centerOfMass.map((v) => v.toFixed(2)).join(' · ')}</b></div>
+            </div>
+          </aside>
 
-      <div className="part-options">
-        {FRAMES.map((f) => {
-          const owned = profile.ownedFrameIds.includes(f.id);
-          const isSelected = frame.id === f.id;
-          const locked = isPartLocked(f.requiresTechId);
-          const techNode = f.requiresTechId ? TECH_NODES.find((n) => n.id === f.requiresTechId) : undefined;
-          return (
-            <button
-              key={f.id}
-              className={`part-card ${isSelected ? 'installed' : ''} ${locked ? 'locked' : ''}`}
-              disabled={locked}
-              onClick={() => handleSelectFrame(f.id, f.priceCash ?? 0, f.requiresTechId)}
-            >
-              <div className="part-card-name">{f.name}</div>
-              <div className="part-card-desc">{f.description}</div>
-              <div className="part-card-meta">
-                Tier {f.tier} · {owned ? 'En inventario' : `$${f.priceCash ?? 0}`}
-              </div>
-              {locked && <div className="part-card-meta">Requiere tech: {techNode?.name ?? f.requiresTechId}</div>}
-              {isSelected && <div className="part-card-badge">SELECCIONADO</div>}
-              {locked && <div className="part-card-badge part-card-badge-locked">BLOQUEADO</div>}
-            </button>
-          );
-        })}
-      </div>
+          <div className="builder-main">
+            <h3 className="section-title">Fuselaje</h3>
+            <div className="card-grid">
+              {FRAMES.map((f) => {
+                const owned = profile.ownedFrameIds.includes(f.id);
+                const isSelected = frame.id === f.id;
+                const locked = isPartLocked(f.requiresTechId);
+                const techNode = f.requiresTechId ? TECH_NODES.find((n) => n.id === f.requiresTechId) : undefined;
+                return (
+                  <button
+                    key={f.id}
+                    className={`card ${isSelected ? 'is-selected' : ''} ${locked ? 'is-locked' : ''}`}
+                    disabled={locked}
+                    onClick={() => handleSelectFrame(f.id, f.priceCash ?? 0, f.requiresTechId)}
+                  >
+                    <div className="card-head"><span className="card-name">{f.name}</span><span className="chip-row">{tags(locked, isSelected, 'Seleccionado')}</span></div>
+                    <p className="card-desc">{f.description}</p>
+                    {locked && <p className="card-desc">Requiere: {techNode?.name ?? f.requiresTechId}</p>}
+                    <div className="card-foot"><span className="chip">Tier {f.tier}</span><span className="card-price">{owned ? 'En inventario' : `$${f.priceCash ?? 0}`}</span></div>
+                  </button>
+                );
+              })}
+            </div>
 
-      <div className="category-tabs">
-        {frame.hardpoints.map((h) => (
-          <button key={h.id} className={h.category === category ? 'active' : ''} onClick={() => setCategory(h.category)}>
-            {h.category}
-          </button>
-        ))}
-      </div>
-
-      <div className="part-options">
-        {options.map((p) => {
-          const owned = profile.ownedParts.includes(p.id);
-          const isInstalled = installedId === p.id;
-          const locked = isPartLocked(p.requiresTechId);
-          const techNode = p.requiresTechId ? TECH_NODES.find((n) => n.id === p.requiresTechId) : undefined;
-          return (
-            <button
-              key={p.id}
-              className={`part-card ${isInstalled ? 'installed' : ''} ${locked ? 'locked' : ''}`}
-              disabled={locked}
-              onClick={() => handleSelect(p.id, p.priceCash, p.requiresTechId)}
-            >
-              <div className="part-card-name">{p.name}</div>
-              <div className="part-card-desc">{p.description}</div>
-              <div className="part-card-meta">
-                {p.physics.massKg} kg · Tier {p.tier} · {owned ? 'En inventario' : `$${p.priceCash}`}
-              </div>
-              {locked && <div className="part-card-meta">Requiere tech: {techNode?.name ?? p.requiresTechId}</div>}
-              {isInstalled && <div className="part-card-badge">INSTALADO</div>}
-              {locked && <div className="part-card-badge part-card-badge-locked">BLOQUEADO</div>}
-            </button>
-          );
-        })}
-      </div>
-
-      <p className="builder-note">
-        Nota: el editor de montaje solo permite piezas compatibles con el hardpoint del frame actual (sin CAD libre),
-        siguiendo la sección 11.3 del documento de diseño.
-      </p>
+            <h3 className="section-title">Componentes</h3>
+            <div className="segmented" role="tablist">
+              {frame.hardpoints.map((h) => (
+                <button key={h.id} role="tab" aria-selected={h.category === category} className={h.category === category ? 'active' : ''} onClick={() => setCategory(h.category)}>
+                  {CATEGORY_LABELS[h.category] ?? h.category}
+                </button>
+              ))}
+            </div>
+            <div className="card-grid">
+              {options.map((p) => {
+                const owned = profile.ownedParts.includes(p.id);
+                const isInstalled = installedId === p.id;
+                const locked = isPartLocked(p.requiresTechId);
+                const techNode = p.requiresTechId ? TECH_NODES.find((n) => n.id === p.requiresTechId) : undefined;
+                return (
+                  <button
+                    key={p.id}
+                    className={`card ${isInstalled ? 'is-selected' : ''} ${locked ? 'is-locked' : ''}`}
+                    disabled={locked}
+                    onClick={() => handleSelect(p.id, p.priceCash, p.requiresTechId)}
+                  >
+                    <div className="card-head"><span className="card-name">{p.name}</span><span className="chip-row">{tags(locked, isInstalled, 'Instalado')}</span></div>
+                    <p className="card-desc">{p.description}</p>
+                    {locked && <p className="card-desc">Requiere: {techNode?.name ?? p.requiresTechId}</p>}
+                    <div className="card-foot"><span className="chip">{p.physics.massKg} kg · Tier {p.tier}</span><span className="card-price">{owned ? 'En inventario' : `$${p.priceCash}`}</span></div>
+                  </button>
+                );
+              })}
+            </div>
+            <p className="builder-note">Solo se muestran piezas compatibles con los hardpoints del fuselaje actual (sin CAD libre, sección 11.3 del documento de diseño).</p>
+          </div>
+        </div>
+      </main>
       <MenuNavigation active="builder" goTo={goTo} />
     </div>
   );

@@ -2,6 +2,7 @@ import { useGameStore } from '../../state/gameStore';
 import { useProfileStore } from '../../state/profileStore';
 import type { ControlPreset } from '../../input/mode2Store';
 import type { AssistMode } from '../../input/mode2Store';
+import { ScreenHeader } from '../components/ScreenHeader';
 import { MenuNavigation } from '../components/MenuNavigation';
 import { GAME_VERSION } from '../../buildInfo';
 import './Screens.css';
@@ -19,166 +20,85 @@ export function SettingsScreen() {
   const assistModes: AssistMode[] = ['assisted', 'standard', 'acro'];
   const textSizes: Array<'small' | 'normal' | 'large'> = ['small', 'normal', 'large'];
 
+  const set = updateSettings;
+  const st = profile.settings;
+  const seg = <T extends string>(label: string, options: T[], value: T, onPick: (v: T) => void, names?: Partial<Record<T, string>>) => (
+    <div className="setting">
+      <span className="setting-label">{label}</span>
+      <div className="segmented">
+        {options.map((o) => <button key={o} className={value === o ? 'active' : ''} onClick={() => onPick(o)}>{names?.[o] ?? o}</button>)}
+      </div>
+    </div>
+  );
+  const toggle = (label: string, hint: string, on: boolean, onPick: (v: boolean) => void) => (
+    <div className="setting-row">
+      <div><span className="setting-label">{label}</span><small>{hint}</small></div>
+      <button className="switch" role="switch" aria-checked={on} aria-label={label} onClick={() => onPick(!on)} />
+    </div>
+  );
+  const slider = (id: string, label: string, value: number, min: number, max: number, onPick: (v: number) => void) => (
+    <div className="setting">
+      <label htmlFor={id}>{label} <span className="setting-value">{Math.round(value * 100)}%</span></label>
+      <input id={id} type="range" min={min} max={max} step={0.05} value={value} onChange={(e) => onPick(Number(e.target.value))} />
+    </div>
+  );
+
   return (
     <div className="screen settings-screen">
-      <header className="screen-header">
-        <button className="back-btn" onClick={() => goTo('hangar')}>
-          ← Taller
-        </button>
-        <h2>Ajustes</h2>
-      </header>
+      <ScreenHeader title="Ajustes" kicker="CONTROLES · AUDIO · ACCESIBILIDAD" goTo={goTo} right={<span />} />
 
-      <section>
-        <h3>Preset de control</h3>
-        <div className="option-row">
-          {presets.map((p) => (
-            <button key={p} className={profile.settings.controlPreset === p ? 'active' : ''} onClick={() => updateSettings({ controlPreset: p })}>
-              {p}
+      <main className="screen-body">
+        <div className="settings-grid">
+          <section className="panel">
+            <h3>Controles</h3>
+            {seg('Preset de control', presets, st.controlPreset, (v) => set({ controlPreset: v }))}
+            {seg('Modo de asistencia', assistModes, st.assistMode, (v) => set({ assistMode: v }))}
+            {toggle('Invertir pitch', 'Desactivado = Mode 2 RC estándar', st.invertPitch, (v) => set({ invertPitch: v }))}
+            {slider('stick-size', 'Tamaño de sticks', st.stickSize, 0.75, 1.5, (v) => set({ stickSize: v }))}
+            {seg('Layout de mano', ['right', 'left'] as const, st.handedness, (v) => set({ handedness: v }), { right: 'Diestro', left: 'Zurdo' })}
+            <p className="settings-hint">No altera los ejes Mode 2, solo la disposición visual de botones secundarios.</p>
+          </section>
+
+          <section className="panel">
+            <h3>Audio</h3>
+            {slider('music-volume', 'Música', st.musicVolume, 0, 1, (v) => set({ musicVolume: v }))}
+            {slider('sfx-volume', 'Efectos', st.sfxVolume, 0, 1, (v) => set({ sfxVolume: v }))}
+          </section>
+
+          <section className="panel">
+            <h3>Accesibilidad</h3>
+            {toggle('HUD daltónico', 'Paleta azul / naranja', st.colorblindMode, (v) => set({ colorblindMode: v }))}
+            {toggle('Reducir movimiento', 'Menos animaciones y transiciones', st.reduceMotion, (v) => set({ reduceMotion: v }))}
+            {seg('Tamaño de texto', textSizes, st.textSize, (v) => set({ textSize: v }))}
+          </section>
+
+          <section className="panel">
+            <h3>Datos</h3>
+            <button
+              className="secondary-btn"
+              onClick={() => {
+                localStorage.removeItem('project-flight/onboarded');
+                set({ hasSeenOnboarding: false });
+                goTo('onboarding');
+              }}
+            >
+              Repetir tutorial
             </button>
-          ))}
-        </div>
-      </section>
-
-      <section>
-        <h3>Modo de asistencia</h3>
-        <div className="option-row">
-          {assistModes.map((m) => (
-            <button key={m} className={profile.settings.assistMode === m ? 'active' : ''} onClick={() => updateSettings({ assistMode: m })}>
-              {m}
+            <button
+              className="danger-btn"
+              onClick={() => {
+                if (confirm('¿Borrar todo el progreso guardado?')) {
+                  resetProfile();
+                  goTo('hangar');
+                }
+              }}
+            >
+              Reiniciar progreso
             </button>
-          ))}
+          </section>
         </div>
-      </section>
-
-      <section>
-        <h3>Invertir pitch</h3>
-        <button className={profile.settings.invertPitch ? 'active' : ''} onClick={() => updateSettings({ invertPitch: !profile.settings.invertPitch })}>
-          {profile.settings.invertPitch ? 'Activado' : 'Desactivado (Mode 2 RC estándar)'}
-        </button>
-      </section>
-
-      <section>
-        <h3>Audio</h3>
-        <div className="option-row option-row-slider">
-          <label htmlFor="music-volume">Música {Math.round(profile.settings.musicVolume * 100)}%</label>
-          <input
-            id="music-volume"
-            type="range"
-            min={0}
-            max={1}
-            step={0.05}
-            value={profile.settings.musicVolume}
-            onChange={(e) => updateSettings({ musicVolume: Number(e.target.value) })}
-          />
-        </div>
-        <div className="option-row option-row-slider">
-          <label htmlFor="sfx-volume">Efectos {Math.round(profile.settings.sfxVolume * 100)}%</label>
-          <input
-            id="sfx-volume"
-            type="range"
-            min={0}
-            max={1}
-            step={0.05}
-            value={profile.settings.sfxVolume}
-            onChange={(e) => updateSettings({ sfxVolume: Number(e.target.value) })}
-          />
-        </div>
-      </section>
-
-      <section>
-        <h3>Tamaño de sticks</h3>
-        <div className="option-row option-row-slider">
-          <label htmlFor="stick-size">{Math.round(profile.settings.stickSize * 100)}%</label>
-          <input
-            id="stick-size"
-            type="range"
-            min={0.75}
-            max={1.5}
-            step={0.05}
-            value={profile.settings.stickSize}
-            onChange={(e) => updateSettings({ stickSize: Number(e.target.value) })}
-          />
-        </div>
-      </section>
-
-      <section>
-        <h3>Layout de mano</h3>
-        <div className="option-row">
-          <button
-            className={profile.settings.handedness === 'right' ? 'active' : ''}
-            onClick={() => updateSettings({ handedness: 'right' })}
-          >
-            Diestro
-          </button>
-          <button
-            className={profile.settings.handedness === 'left' ? 'active' : ''}
-            onClick={() => updateSettings({ handedness: 'left' })}
-          >
-            Zurdo
-          </button>
-        </div>
-        <p className="settings-hint">No altera los ejes Mode 2, solo la disposición visual de botones secundarios.</p>
-      </section>
-
-      <section>
-        <h3>Accesibilidad</h3>
-        <div className="option-row">
-          <button
-            className={profile.settings.colorblindMode ? 'active' : ''}
-            onClick={() => updateSettings({ colorblindMode: !profile.settings.colorblindMode })}
-          >
-            HUD daltónico {profile.settings.colorblindMode ? 'activado' : 'desactivado'}
-          </button>
-        </div>
-        <div className="option-row">
-          <button
-            className={profile.settings.reduceMotion ? 'active' : ''}
-            onClick={() => updateSettings({ reduceMotion: !profile.settings.reduceMotion })}
-          >
-            Reducir movimiento {profile.settings.reduceMotion ? 'activado' : 'desactivado'}
-          </button>
-        </div>
-        <h3>Tamaño de texto</h3>
-        <div className="option-row">
-          {textSizes.map((t) => (
-            <button key={t} className={profile.settings.textSize === t ? 'active' : ''} onClick={() => updateSettings({ textSize: t })}>
-              {t}
-            </button>
-          ))}
-        </div>
-      </section>
-
-      <section>
-        <h3>Tutorial</h3>
-        <button
-          className="secondary-btn"
-          onClick={() => {
-            localStorage.removeItem('project-flight/onboarded');
-            updateSettings({ hasSeenOnboarding: false });
-            goTo('onboarding');
-          }}
-        >
-          Repetir tutorial
-        </button>
-      </section>
-
-      <section>
-        <h3>Datos</h3>
-        <button
-          className="danger-btn"
-          onClick={() => {
-            if (confirm('¿Borrar todo el progreso guardado?')) {
-              resetProfile();
-              goTo('hangar');
-            }
-          }}
-        >
-          Reiniciar progreso
-        </button>
-      </section>
-      <p className="build-info" aria-label={`Versión instalada ${GAME_VERSION}`}>
-        PROJECT FLIGHT · versión {GAME_VERSION}
-      </p>
+        <p className="build-info" aria-label={`Versión instalada ${GAME_VERSION}`}>PROJECT FLIGHT · versión {GAME_VERSION}</p>
+      </main>
       <MenuNavigation active="settings" goTo={goTo} />
     </div>
   );
