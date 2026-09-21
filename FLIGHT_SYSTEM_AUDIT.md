@@ -124,3 +124,18 @@ Estos son los números "de sensación" objetivo que el modelo nuevo debe alcanza
 ## 8. Plan por dependencias (gates del spec §43)
 
 P1 núcleo (ejes, atmósfera, elemento aero, telemetría) → P2 fuselaje Quicksilver-class (masa/CG/inercia/alas/cola) → P3 controles → P4 stall → P5 propulsión → P6 tren/suelo → P7 viento → P8 asistencia → P9 calibración → P10 integración (cámara/audio/VFX/daño) → retirada del legacy tras validar.
+
+## 9. Post-migration (legacy retired)
+
+Anti-pattern search (spec section 42) over `src/` after removing `sim/flightController.ts`, `sim/flightModel.ts`, `sim/aero.ts`, `sim/engine.ts`:
+
+| Hit | Classification |
+|---|---|
+| `AircraftPhysics.place()` `setTranslation/setRotation/setLinvel/setAngvel` | kept: spawn/reset only |
+| `AircraftPhysics.integrate()` `addForce/addTorque`, `resetForces/Torques` | kept: the physical integration path |
+| `AircraftPhysics.guard()` 25 rad/s, 120 m/s, NaN | kept as numerical safety net; counters asserted 0 in all flight tests (legacy 8 rad/s / 90 m/s hacks H9 removed) |
+| `FlightScreen` `lerp/slerp` of pose | kept: render interpolation between ticks, never fed back |
+| `ChaseCamera` lerp/lookAt | kept: camera only |
+| H1–H8, H10–H18 (angular-acceleration handling, q clamp, turn assist, auto-level in physics, AoA protection, scripted wing drop, CG-lumped aero, deep-floor teleport, magic constants, linear RPM, dead `aero.ts`, analytic estimator) | removed / replaced (assistance is a separate layer; estimator uses the flown model) |
+
+Details, calibration log and acceptance numbers: `docs/flight/FLIGHT_PHYSICS.md`.
