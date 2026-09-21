@@ -16,6 +16,8 @@ import { buildFieldLayout } from '../world/fieldPlacement';
 import { FieldWorld } from './fieldWorld';
 import { buildTreeClusterInstancedMesh, type TreeClusterPlacement } from './vegetation';
 import { orientWorldProp } from './blenderAxisFix';
+import { AircraftRig } from './aircraftRig';
+import type { SurfaceDeflections } from '../flight/core/aircraftPhysics';
 
 export class FlightScene {
   scene = new THREE.Scene();
@@ -36,6 +38,8 @@ export class FlightScene {
   private wingMesh: THREE.Mesh | null = null;
   private tailMeshes: THREE.Mesh[] = [];
   private propellerMeshes: THREE.Mesh[] = [];
+  /** Hinged control surfaces + propeller of the A0 hero asset; null for other airframes. */
+  private rig: AircraftRig | null = null;
   // Deterministic PRNG for procedural landmark placement (trees, scrap piles), seeded
   // from the region id so the same region always generates the same layout across
   // sessions (see src/core/seededRandom.ts).
@@ -238,12 +242,18 @@ export class FlightScene {
       // without baking a duplicate or touching its named child meshes.
       aircraft.rotation.x = 0;
       aircraft.scale.setScalar(6);
+      // The A0 ships its own finished livery and hinged surfaces; every other airframe keeps the
+      // name-based paint tint. A missing A0 pivot throws here, before the proxy is replaced.
+      const isA0 = id === FRAME_ASSET_IDS.frame_zero;
+      const rig = isA0 ? AircraftRig.attach(aircraft) : null;
       aircraft.traverse((object) => {
         const mesh = object as THREE.Mesh;
         if (mesh.isMesh) {
-          mesh.castShadow = true;
-          mesh.receiveShadow = true;
-          const color = mesh.name.includes('wing') || mesh.name.includes('aileron') || mesh.name.includes('stabilizer') || mesh.name === 'elevator' || mesh.name === 'rudder'
+          mesh.castShadow = mesh.name !== 'propeller_disc'; // the translucent blur disc must not cast a solid shadow
+          // The A0's thin tubes and skins are finer than the 14 cm sun-shadow texels: self-shadowing only
+          // produces acne on them, so it casts onto the ground but does not receive.
+          mesh.receiveShadow = !isA0;
+          const color = isA0 ? undefined : mesh.name.includes('wing') || mesh.name.includes('aileron') || mesh.name.includes('stabilizer') || mesh.name === 'elevator' || mesh.name === 'rudder'
             ? paint?.fabricColor : mesh.name.includes('longeron') || mesh.name.includes('strut') || mesh.name.includes('brace') || mesh.name.includes('cross')
               ? paint?.tubeColor : undefined;
           if (color) {
@@ -258,9 +268,10 @@ export class FlightScene {
       this.wingMesh = null;
       this.tailMeshes = [];
       this.propellerMeshes = [];
+      this.rig = rig;
       aircraft.traverse((object) => {
         const mesh = object as THREE.Mesh;
-        if (!mesh.isMesh) return;
+        if (!mesh.isMesh || isA0) return;
         if (mesh.name === 'main_wing' || mesh.name === 'wing_panel_L') this.wingMesh = mesh;
         if (mesh.name === 'horizontal_tail' || mesh.name === 'vertical_tail' || mesh.name === 'horizontal_stabilizer' || mesh.name === 'vertical_stabilizer') this.tailMeshes.push(mesh);
         if (mesh.name.includes('propeller') || mesh.name.includes('prop_blade')) this.propellerMeshes.push(mesh);
@@ -833,6 +844,11 @@ export class FlightScene {
     this.aircraftGroup.quaternion.copy(quaternion);
     for (const propeller of this.propellerMeshes) propeller.rotation.z += dtS * (42 + cam.speedMs * 9);
     this.chase.update(position, quaternion, dtS, cam);
+  }
+
+  /** Drives the A0's hinged surfaces and propeller from the flight model's control target and engine rpm. */
+  animateAircraft(target: SurfaceDeflections, rpm: number, dtS: number) {
+    this.rig?.update(target, rpm, dtS);
   }
 
   /** Short decaying camera-shake burst for impacts. */

@@ -379,6 +379,7 @@ export function FlightScreen() {
         // automated browser (background tabs throttle requestAnimationFrame).
         (window as unknown as { __pf?: unknown }).__pf = {
           controller,
+          scene,
           recorder: recorderRef.current,
           simulate: (seconds: number, overrides: Partial<ResolvedControls> | ((t: FlightTelemetry | null) => Partial<ResolvedControls>) = {}) => {
             const ticks = Math.round(seconds / fixedDt);
@@ -419,6 +420,7 @@ export function FlightScreen() {
           gForce: lastTelemetry?.gForce ?? 1,
           stalled: lastTelemetry?.stalled ?? false,
         });
+        scene.animateAircraft(controller.sim.controls.target, lastTelemetry?.rpm ?? 0, frameDt);
         scene.updateEnvironment(elapsedFlightS, getEnvironmentWind(region, elapsedFlightS, currentPosition));
         audioService.updateFlight({
           rpm: lastTelemetry?.rpm ?? 0,
