@@ -33,8 +33,8 @@ export const SEA_LEVEL_M = -24;
 /** Lake: bed dips `floorDepthM` below the surface at the centre, edge meets the surface. */
 export const FIELD_LAKE = { x: 2500, z: 1900, radiusM: 720, floorDepthM: 34, waterLevelM: -12 } as const;
 /** Half-extent of the terrain mesh; the edge sinks into the sea from EDGE_START_M outward. */
-const EDGE_START_M = 6600;
-const EDGE_END_M = 7900;
+export const EDGE_START_M = 6600;
+export const EDGE_END_M = 7900;
 
 export const PASS_X = -1500;
 export const RIDGE_PEAK_M = 680;

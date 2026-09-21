@@ -32,7 +32,7 @@ export const roadLiftM = (def: RoadDef): number => 0.22 + def.priority * 0.03;
 export const BRIDGE_RAMP_M = 36;
 export const BRIDGE_CLEARANCE_M = 2.2;
 
-function catmullRom(pts: ReadonlyArray<Vec2>, stepM: number): Array<[number, number]> {
+export function catmullRom(pts: ReadonlyArray<Vec2>, stepM: number): Array<[number, number]> {
   const out: Array<[number, number]> = [];
   const at = (i: number) => pts[Math.min(pts.length - 1, Math.max(0, i))];
   for (let i = 0; i < pts.length - 1; i++) {
