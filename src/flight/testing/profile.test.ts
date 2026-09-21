@@ -45,7 +45,7 @@ describe('performance budget', () => {
   });
 
   it('FlightModel (rules + telemetry object per tick): cheap, low GC', async () => {
-    const h = await createHarness({ model: 'new' });
+    const h = await createHarness();
     const fc = h.fc as FlightModel;
     const controls = { throttle: 0.6, rudder: 0, pitch: 0, roll: 0, engineOn: true, brake: false, flapsDown: false, chuteDeployed: false, assistMode: 'assisted' as const };
     const wind = new THREE.Vector3();
@@ -64,7 +64,7 @@ describe('performance budget', () => {
 
 describe('ground phase cost (gear + structural contacts + real terrain queries)', () => {
   it('taxi/takeoff roll on the field terrain stays cheap', async () => {
-    const h = await createHarness({ model: 'new' });
+    const h = await createHarness();
     const fc = h.fc as FlightModel;
     const controls = { throttle: 0.35, rudder: 0, pitch: 0, roll: 0, engineOn: true, brake: true, flapsDown: false, chuteDeployed: false, assistMode: 'assisted' as const };
     const wind = new THREE.Vector3();

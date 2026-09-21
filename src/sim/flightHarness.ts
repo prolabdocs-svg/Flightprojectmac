@@ -1,13 +1,12 @@
-// Headless flight-test harness: the real FlightController + Rapier + terrain, no renderer.
+// Headless flight-test harness: the real FlightModel + Rapier + terrain, no renderer.
 // Used by the Test Flight Standard (flightTest.test.ts) to measure flight feel with numbers
 // instead of by eye (takeoff roll, climb, turn rate, stall, landing).
 
 import * as THREE from 'three';
 import { initPhysics, createWorld } from './physics';
 import { buildHeightGrid, createHeightfieldCollider } from '../world/terrainHeightfield';
-import { FlightController } from './flightController';
 import { FlightModel } from '../flight/flightModel';
-import type { FlightSim, FlightTelemetry, ResolvedControls } from '../flight/flightTypes';
+import type { FlightTelemetry, ResolvedControls } from '../flight/flightTypes';
 import { resolveAircraft, defaultBuild } from '../content/assembly';
 import { getRegion } from '../content/regions';
 import { createTerrainQueryService } from '../world/terrainQuery';
@@ -29,9 +28,7 @@ export interface Sample extends FlightTelemetry {
 /** The Field's height grid is deterministic; building it (66k samples) once keeps harnesses cheap. */
 let fieldGrid: Float32Array | undefined;
 
-export type HarnessModel = 'legacy' | 'new';
-
-export async function createHarness(opts: { build?: AircraftBuild; regionId?: string; wind?: THREE.Vector3; spawn?: THREE.Vector3; headingDeg?: number; obstacles?: Obstacle[]; model?: HarnessModel } = {}) {
+export async function createHarness(opts: { build?: AircraftBuild; regionId?: string; wind?: THREE.Vector3; spawn?: THREE.Vector3; headingDeg?: number; obstacles?: Obstacle[] } = {}) {
   const RAPIER = await initPhysics();
   const world = createWorld();
   const region = getRegion(opts.regionId ?? 'the_field');
@@ -40,10 +37,8 @@ export async function createHarness(opts: { build?: AircraftBuild; regionId?: st
   const spawn = opts.spawn ?? new THREE.Vector3(0, terrain.getElevation(0, 0) + 1.2, 0);
   const build = opts.build ?? defaultBuild();
   const aircraft = resolveAircraft(build);
-  const fc: FlightSim & { aircraft: typeof aircraft } = opts.model === 'new'
-    ? new FlightModel(world, aircraft, build, spawn, opts.headingDeg ?? 0, terrain, { obstacles: opts.obstacles })
-    : new FlightController(world, aircraft, spawn, opts.headingDeg ?? 0, terrain, undefined, opts.obstacles);
-  const dt = fc.dtS ?? 1 / 60;
+  const fc = new FlightModel(world, aircraft, build, spawn, opts.headingDeg ?? 0, terrain, { obstacles: opts.obstacles });
+  const dt = fc.dtS;
   const wind = opts.wind ?? new THREE.Vector3();
   let t = 0;
   const log: Sample[] = [];

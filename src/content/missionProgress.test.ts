@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { MissionDefinition } from '../core/types';
-import type { FlightTelemetry } from '../sim/flightController';
+import type { FlightTelemetry } from '../flight/flightTypes';
 import { getMissionProgress, isMissionCompleted } from './missionProgress';
 
 const mission: MissionDefinition = {

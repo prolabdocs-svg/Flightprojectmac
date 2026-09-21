@@ -10,13 +10,12 @@ import { getMission, isMissionAvailableToProfile } from '../../content/missions'
 import { evaluateMissionReadiness } from '../../content/missionReadiness';
 import { getRegion } from '../../content/regions';
 import { initPhysics, createWorld } from '../../sim/physics';
-import { FlightController } from '../../sim/flightController';
 import { FlightModel } from '../../flight/flightModel';
-import { getFlightModelKind, isFlightDebugEnabled } from '../../flight/flag';
+import { isFlightDebugEnabled } from '../../flight/flag';
 import { FlightRecorder } from '../../flight/telemetry/flightRecorder';
 import { FlightGizmos } from '../../render/FlightGizmos';
 import { FlightDebugOverlay } from '../components/FlightDebugOverlay';
-import { DEFAULT_RUNWAY_CONDITIONS, type FlightSim, type FlightTelemetry, type ResolvedControls } from '../../flight/flightTypes';
+import { DEFAULT_RUNWAY_CONDITIONS, type FlightTelemetry, type ResolvedControls } from '../../flight/flightTypes';
 import { getAirfield, getFreeFlightAirfield, type RunwaySurface } from '../../world/airfields';
 
 /** Roughness (0-1, see landingValidator.ts) per runway surface. Airfields don't store this
@@ -44,7 +43,7 @@ import { getRegionObstacles } from '../../world/obstacles';
 
 export function FlightScreen() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const controllerRef = useRef<FlightSim | null>(null);
+  const controllerRef = useRef<FlightModel | null>(null);
   const sceneRef = useRef<FlightScene | null>(null);
   const recorderRef = useRef(new FlightRecorder());
   const gizmosRef = useRef<FlightGizmos | null>(null);
@@ -68,7 +67,7 @@ export function FlightScreen() {
   const mission = selectedMissionId ? getMission(selectedMissionId) ?? null : null;
   const activeRegion = mission ? getRegion(mission.regionId) : getRegion(selectedFreeFlightRegionId);
 
-  const getModel = useCallback(() => (controllerRef.current instanceof FlightModel ? controllerRef.current : null), []);
+  const getModel = useCallback(() => controllerRef.current, []);
 
   useEffect(() => {
     debugRef.current = debugOn;
@@ -99,13 +98,13 @@ export function FlightScreen() {
       const world = createWorld();
       // TerrainQueryService (src/world/terrainQuery.ts) is the single authority for ground
       // elevation: WorldEnvironment's visual mesh, this spawn-height calculation, and
-      // FlightController's per-tick ground contact (src/sim/flightController.ts) all sample
+      // the flight model's per-tick ground contact (src/flight/ground/) all sample
       // it, so they can never drift apart.
       //
       // Ownership: terrainQuery is the surface; the Rapier heightfield (The Field) is that
       // same surface for rigid-body containment of the airframe's small body collider
-      // (FlightController.BODY_RADIUS_M). Gear, hard points, crash detection and AGL are
-      // analytic terrainQuery queries in FlightController, so nothing is double-counted:
+      // (AircraftPhysics' 0.3 m ball). Gear, hard points, crash detection and AGL are
+      // analytic terrainQuery queries in the flight model, so nothing is double-counted:
       // the body collider only touches terrain once the airframe is already wrecked.
       // Every region keeps a deep flat floor as the last resort.
       const region = activeRegion;
@@ -135,10 +134,8 @@ export function FlightScreen() {
         ? { ...baseRunwayConditions, roughness: Math.max(0.04, baseRunwayConditions.roughness - getHomeBaseBenefits(profile.homeBase).runwayRoughnessReduction) }
         : baseRunwayConditions;
       const obstacles = getRegionObstacles(region.id, terrainQuery);
-      const controller: FlightSim = getFlightModelKind() === 'new'
-        ? new FlightModel(world, aircraft, profile.currentBuild, spawn, mission?.spawnHeadingDeg ?? 0, terrainQuery, { runwayConditions, obstacles })
-        : new FlightController(world, aircraft, spawn, mission?.spawnHeadingDeg ?? 0, terrainQuery, runwayConditions, obstacles);
-      // The simulation owns its fixed step (legacy 60 Hz, new model 100 Hz); the clock must match it.
+      const controller = new FlightModel(world, aircraft, profile.currentBuild, spawn, mission?.spawnHeadingDeg ?? 0, terrainQuery, { runwayConditions, obstacles });
+      // The simulation owns its fixed step (PHYSICS_HZ); the clock must match it.
       fixedDt = controller.dtS;
       clock = new FixedStepClock(fixedDt, 0.1, Math.ceil(0.1 / fixedDt) + 2);
       controllerRef.current = controller;
@@ -150,7 +147,7 @@ export function FlightScreen() {
       }, profile.currentBuild.frameId);
       scene.setTargetMarker(mission?.targetPoint, mission?.targetRadiusM ?? 20);
       sceneRef.current = scene;
-      if (controller instanceof FlightModel) {
+      {
         const gizmos = new FlightGizmos(scene.scene);
         gizmos.setVisible(debugRef.current && gizmosOnRef.current);
         gizmosRef.current = gizmos;
@@ -297,7 +294,7 @@ export function FlightScreen() {
       const windPosition = previousPosition.clone();
 
       // Damage-system feedback (task item 4): fire once per edge, not every frame, on the
-      // damage/crash-outcome transitions FlightController now reports in telemetry.
+      // damage/crash-outcome transitions FlightModel reports in telemetry.
       let lastCrashOutcome: FlightTelemetry['crashOutcome'] = 'none';
       let lastDamagedCount = 0;
       let lastDetachedCount = 0;
@@ -325,7 +322,7 @@ export function FlightScreen() {
           const wind = getEnvironmentWind(region, elapsedFlightS, windPosition);
           const stepControls = controlsFor();
           telem = controller.step(stepControls, wind);
-          if (debugRef.current && controller instanceof FlightModel) recorderRef.current.tick(controller, stepControls, fixedDt);
+          if (debugRef.current) recorderRef.current.tick(controller, stepControls, fixedDt);
           elapsedFlightS += fixedDt;
 
           const stepPosition = controller.body.translation();
@@ -435,7 +432,7 @@ export function FlightScreen() {
           engineOn: lastTelemetry?.engineOn ?? false,
           paused: useGameStore.getState().paused,
         });
-        if (controller instanceof FlightModel) gizmosRef.current?.update(controller);
+        gizmosRef.current?.update(controller);
         scene.render();
 
         frameId = requestAnimationFrame(loop);
@@ -464,7 +461,7 @@ export function FlightScreen() {
       {ready && telemetry && (
         <FlightHud telemetry={telemetry} mission={mission} freeFlightRegionName={mission ? undefined : activeRegion.name} freeFlightAirfieldName={mission ? undefined : getFreeFlightAirfield(activeRegion.id)?.name} onPause={() => setPaused(true)} paused={paused} />
       )}
-      {ready && debugOn && getFlightModelKind() === 'new' && (
+      {ready && debugOn && (
         <FlightDebugOverlay getModel={getModel} recorder={recorderRef.current} showGizmos={gizmosOn} onToggleGizmos={() => setGizmosOn((v) => !v)} />
       )}
       {!ready && <div className="loading-overlay">Cargando taller y pista…</div>}

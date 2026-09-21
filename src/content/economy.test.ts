@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { computeFlightResult, computeOperatingCosts, isMissionCompleted } from './economy';
-import type { FlightTelemetry } from '../sim/flightController';
+import type { FlightTelemetry } from '../flight/flightTypes';
 import type { AircraftBuild, MissionDefinition } from '../core/types';
 import { resolveAircraft } from './assembly';
 

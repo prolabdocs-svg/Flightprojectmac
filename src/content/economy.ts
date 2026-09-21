@@ -4,7 +4,7 @@
 // A bad flight never wipes out all progress: the penalty is capped.
 
 import type { AircraftBuild, FlightResult, HomeBaseState, MissionDefinition, PartCategory } from '../core/types';
-import type { FlightTelemetry } from '../sim/flightController';
+import type { FlightTelemetry } from '../flight/flightTypes';
 import type { ResolvedAircraft } from './assembly';
 import { getPart } from './parts';
 import { roleForSurfaceId, gearPartId, type PartRole } from '../sim/damageSystem';

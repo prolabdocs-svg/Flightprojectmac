@@ -2,7 +2,7 @@
 // terrain, flown by a scripted pilot. Bands are the starter aircraft's target feel.
 import { describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
-import { createHarness, hold, type HarnessModel, type Sample } from './flightHarness';
+import { createHarness, hold, type Sample } from './flightHarness';
 import { installPart, defaultBuild } from '../content/assembly';
 import type { Obstacle } from '../world/obstacles';
 
@@ -21,8 +21,8 @@ async function airborneAt(make: Make, altitudeM = 60, opts: Parameters<typeof cr
 
 type Make = (o?: Parameters<typeof createHarness>[0]) => ReturnType<typeof createHarness>;
 
-describe.each(['legacy', 'new'] as HarnessModel[])('Test Flight Standard — starter ultralight [%s model]', (model) => {
-  const make: Make = (o = {}) => createHarness({ ...o, model });
+describe('Test Flight Standard — starter ultralight', () => {
+  const make: Make = (o = {}) => createHarness(o);
   it('spawns resting on its gear and stays put with the engine off', async () => {
     const h = await make();
     const s = h.run(3, { engineOn: false });
@@ -43,10 +43,10 @@ describe.each(['legacy', 'new'] as HarnessModel[])('Test Flight Standard — sta
     expect(liftoff).toBeDefined();
     expect(liftoff!.distanceM).toBeGreaterThan(40);
     expect(liftoff!.distanceM).toBeLessThan(100);
-    // The new model flies the reference aircraft WITH a pilot (heavier => higher rotation speed).
-    expect(liftoff!.t).toBeLessThan(model === 'new' ? 12 : 10);
-    // Stays near the centreline. The new model has real left-turning tendencies (prop torque, slipstream on the fin) and this script never touches the rudder.
-    expect(Math.abs(liftoff!.position[0])).toBeLessThan(model === 'new' ? 4 : 2);
+    // The reference aircraft carries a pilot (heavier => higher rotation speed).
+    expect(liftoff!.t).toBeLessThan(12);
+    // Stays near the centreline. Real left-turning tendencies (prop torque, slipstream on the fin); this script never touches the rudder.
+    expect(Math.abs(liftoff!.position[0])).toBeLessThan(4);
     expect(liftoff!.crashed).toBe(false);
   });
 

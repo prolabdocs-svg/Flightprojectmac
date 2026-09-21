@@ -9,7 +9,7 @@ import { MenuNavigation } from '../components/MenuNavigation';
 import './Screens.css';
 
 // Assumed reference airspeed (m/s) used only for the Builder's static thrust-to-weight
-// estimate. Not used by the actual flight sim (see sim/flightController.ts).
+// estimate. Not used by the actual flight sim (see flight/flightModel.ts).
 const REFERENCE_SPEED_MS = 15;
 const G = 9.81;
 

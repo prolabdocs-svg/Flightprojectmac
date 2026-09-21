@@ -1,4 +1,4 @@
-// Game-facing flight model (replaces sim/flightController.ts once validated). It composes the
+// Game-facing flight model (the only flight model since the legacy controller was retired). It composes the
 // physical AircraftSimulation with the rules the rest of the game depends on: flight state
 // machine, crash detection, landing scoring, structural damage, obstacles/water and the
 // FlightTelemetry contract used by HUD, economy, missions, audio and camera.
@@ -18,7 +18,7 @@ import { getAirfoilTable } from './aero/airfoil';
 import type { GroundQuery } from './ground/landingGear';
 import {
   DEFAULT_RUNWAY_CONDITIONS,
-  type CrashReason, type FlightSim, type FlightState, type FlightTelemetry, type ResolvedControls,
+  type CrashReason, type FlightState, type FlightTelemetry, type ResolvedControls,
 } from './flightTypes';
 import {
   applyGroundImpact, createDamageState, getAeroEffectivenessMultiplier, getGroundHandlingPenalty,
@@ -46,7 +46,7 @@ export interface FlightModelOptions {
   wind?: Partial<WindFieldConfig>;
 }
 
-export class FlightModel implements FlightSim {
+export class FlightModel {
   readonly world: RAPIER.World;
   readonly aircraft: ResolvedAircraft;
   readonly sim: AircraftSimulation;

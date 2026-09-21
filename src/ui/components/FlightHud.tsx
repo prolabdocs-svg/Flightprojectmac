@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
 import type { MissionDefinition } from '../../core/types';
-import type { FlightTelemetry } from '../../sim/flightController';
+import type { FlightTelemetry } from '../../flight/flightTypes';
 import { useMode2Store } from '../../input/mode2Store';
 import { audioService } from '../../audio/audioService';
 import { getMissionProgress } from '../../content/missionProgress';
@@ -35,7 +35,7 @@ export function FlightHud({ telemetry, mission, freeFlightRegionName, freeFlight
   const toggleFlaps = useMode2Store((s) => s.toggleFlaps);
 
   // Spec 23.2/150.2: procedural engine sound driven by live RPM/throttle
-  // telemetry. Lives here (not in FlightScreen/flightController, which are
+  // telemetry. Lives here (not in FlightScreen/flightModel, which are
   // owned by other in-progress work) since FlightHud already receives
   // telemetry every frame as a prop.
   const engineStartedRef = useRef(false);

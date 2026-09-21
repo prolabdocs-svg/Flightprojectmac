@@ -1,5 +1,5 @@
 import type { MissionDefinition } from '../core/types';
-import type { FlightTelemetry } from '../sim/flightController';
+import type { FlightTelemetry } from '../flight/flightTypes';
 
 export type MissionObjectiveState = 'active' | 'readyToLand' | 'completed' | 'failed';
 

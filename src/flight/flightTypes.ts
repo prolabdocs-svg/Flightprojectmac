@@ -1,5 +1,5 @@
-// Types shared by the legacy FlightController and the new FlightModel, so HUD / economy /
-// missions / audio depend on one definition regardless of which model flies.
+// Game-facing flight contract (state, controls, telemetry) that HUD / economy / missions / audio
+// depend on. Produced by flight/flightModel.ts.
 
 import type { CrashOutcome } from '../sim/damageSystem';
 import type { RunwayConditions } from '../world/landingValidator';
@@ -87,15 +87,4 @@ export interface FlightTelemetry {
   lastTouchdownVsMs: number | null;
   /** Why the flight ended in a crash, null otherwise. */
   crashReason: CrashReason | null;
-}
-
-
-/** What FlightScreen needs from any flight model (legacy FlightController or the new FlightModel). */
-export interface FlightSim {
-  readonly body: import('@dimforge/rapier3d-compat').RigidBody;
-  /** Fixed simulation step this model expects, seconds. */
-  readonly dtS: number;
-  step(controls: ResolvedControls, windWorld: import('three').Vector3): FlightTelemetry;
-  reset(): void;
-  getState(): FlightState;
 }

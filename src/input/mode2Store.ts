@@ -88,7 +88,7 @@ export const useMode2Store = create<Mode2State>((set) => ({
 }));
 
 /** Resolved control inputs after expo/rate/invert, ready for the flight controller.
- * Sign contract (FlightController): pitch > 0 = nose UP, roll > 0 = right wing down,
+ * Sign contract (FlightModel / PilotCommand): pitch > 0 = nose UP, roll > 0 = right wing down,
  * rudder > 0 = nose right, throttle 0..1. */
 export function getResolvedControls() {
   const s = useMode2Store.getState();
