@@ -10,10 +10,11 @@ import { ACTIVE_REGION_ASSETS, FRAME_ASSET_IDS, type WorldAssetPlacement } from 
 import { getSettlementPlacements } from '../world/settlementLayout';
 import { ChaseCamera, type ChaseCameraInput } from './ChaseCamera';
 import { getFreeFlightAirfield, type AirfieldDefinition, type RunwaySurface } from '../world/airfields';
-import { buildTerrainFollowingMesh, getRunwaySafeZone, isInsideZone, layoutRoadTiles } from './fieldAirfieldLayout';
+import { buildTerrainFollowingMesh, getRunwaySafeZone, layoutRoadTiles } from './fieldAirfieldLayout';
 import { getRegionRoadNetwork } from './regionRoadNetworks';
-import { scatterFieldRocks } from '../world/fieldRocks';
-import { buildTreeClusterInstancedMesh, instanceGltf, type TreeClusterPlacement } from './vegetation';
+import { buildFieldLayout } from '../world/fieldPlacement';
+import { FieldWorld } from './fieldWorld';
+import { buildTreeClusterInstancedMesh, type TreeClusterPlacement } from './vegetation';
 import { orientWorldProp } from './blenderAxisFix';
 
 export class FlightScene {
@@ -39,6 +40,8 @@ export class FlightScene {
   // from the region id so the same region always generates the same layout across
   // sessions (see src/core/seededRandom.ts).
   private readonly worldRng: SeededRandom;
+  /** The composed Field (roads, parcels, settlements, masses); undefined for other regions. */
+  private fieldWorld?: FieldWorld;
 
   constructor(canvas: HTMLCanvasElement, region: RegionDefinition, paint?: { fabricColor: string; tubeColor: string }, frameId: string = 'frame_zero') {
     this.worldRng = createSeededRandom('flight-scene-landmarks', region.id);
@@ -67,7 +70,8 @@ export class FlightScene {
     // The Field's real mountains sit 3-6 km out, so it gets a longer view distance.
     const wide = region.environment.terrain === 'meadow';
     this.scene.fog = wide ? new THREE.Fog(fogColor, 1400, 9500) : new THREE.Fog(fogColor, 700, 3200);
-    if (wide) { this.camera.far = 14000; this.camera.updateProjectionMatrix(); }
+    // Near plane 0.5 m: the 24-bit depth buffer resolves ground decals (roads/parcels) at range.
+    if (wide) { this.camera.far = 14000; this.camera.near = 0.5; this.camera.updateProjectionMatrix(); }
     this.addAtmosphericSky(region, wide ? 11000 : 5200);
 
     // Lighting: warm low-angle "workshop afternoon" key light + cool sky fill,
@@ -106,6 +110,12 @@ export class FlightScene {
 
     this.environment = new WorldEnvironment(region);
     this.scene.add(this.environment.root);
+    const fieldGrid = this.environment.fieldGrid;
+    if (fieldGrid) {
+      this.fieldWorld = new FieldWorld(fieldGrid, buildFieldLayout({ grid: fieldGrid, terrain: this.environment.terrainQuery }));
+      this.scene.add(this.fieldWorld.root);
+      void this.fieldWorld.hydrate();
+    }
 
     // The visual runway must occupy the same graded airport pad as physics and spawn
     // logic. The previous fixed y=0 strip was buried by the terrain in the first
@@ -139,14 +149,13 @@ export class FlightScene {
       this.buildScrapValleyLandmarks();
     } else if (region.environment.terrain === 'meadow') {
       this.buildTheFieldLandmarks(airfield);
-      void this.addFieldRocks();
     } else {
       this.buildTerrainLandmarks(region.environment.terrain);
     }
     // Continuous road network connecting the airfield to the region's hero landmark
     // and a branch/second connection (regionRoadNetworks.ts), one system shared by
     // all 8 regions instead of per-region bespoke road code.
-    this.buildRegionRoadNetwork(region.id);
+    if (!this.fieldWorld) this.buildRegionRoadNetwork(region.id);
 
     // Keep a first-frame proxy while the GLB streams, then replace it with the
     // authored airframe already shipped with the game.
@@ -414,72 +423,9 @@ export class FlightScene {
     towerTank.position.set(35, towerGroundY + 17, 260);
     this.scene.add(towerTank);
 
-    // Trunk+canopy clusters (vegetation.ts) instead of a bare cone proxy — each instance
-    // reads as a tree crown from the air, not a spike. One draw call, same as before.
-    const treePlacements: TreeClusterPlacement[] = [];
-    for (let i = 0; i < 40; i++) {
-      const { x, z } = this.placeOffRunway(() => {
-        const angle = this.worldRng.next() * Math.PI * 2;
-        const dist = 80 + this.worldRng.next() * 500;
-        return { x: Math.cos(angle) * dist, z: 150 + Math.sin(angle) * dist };
-      });
-      treePlacements.push({
-        x, z,
-        groundY: this.environment.terrainQuery.getElevation(x, z),
-        scale: 0.8 + this.worldRng.next() * 0.4,
-        rotationY: this.worldRng.next() * Math.PI * 2,
-      });
-    }
-    const trees = buildTreeClusterInstancedMesh(treePlacements, this.worldRng, '#3f6b34');
-    this.scene.add(trees);
-    void this.upgradeTreesToGltf(trees, treePlacements);
-
-    // A sparse fence line and hay bales make the near field feel owned and scaled.
-    const postMat = new THREE.MeshStandardMaterial({ color: '#695238', roughness: 1 });
-    const postGeo = new THREE.CylinderGeometry(.09, .11, 1.3, 5);
-    for (let i = 0; i < 18; i++) {
-      const x = -95 + i * 11, z = 56;
-      if (this.environment.terrainQuery.isOnGradedRunway(x, z)) continue;
-      const post = new THREE.Mesh(postGeo, postMat); post.position.set(x, this.environment.terrainQuery.getElevation(x, z) + .65, z); this.scene.add(post);
-    }
+    // Trees, fences and bales now come from the authored composition (FieldWorld).
 
     if (airfield) this.buildFieldAirfieldCompound(airfield);
-  }
-
-  /** Quaternius boulders on steep/high ground (world/fieldRocks.ts), one InstancedMesh per
-   * model mesh. A load failure just leaves the terrain bare. */
-  private async addFieldRocks(): Promise<void> {
-    const models = ['rock_medium_1', 'rock_medium_2', 'rock_medium_3'];
-    const placements = scatterFieldRocks(this.environment.terrainQuery);
-    try {
-      for (const [k, name] of models.entries()) {
-        const template = await assetLibrary.loadUri(`/assets/regions/field/rocks/${name}.glb`);
-        // The source rocks are near-black; lift them to weathered grey so they read as boulders.
-        template.traverse((o) => {
-          if (o instanceof THREE.Mesh) {
-            const mat = (o.material as THREE.MeshStandardMaterial).clone();
-            mat.color.set('#a39d92');
-            mat.map = null;
-            o.material = mat;
-          }
-        });
-        this.scene.add(instanceGltf(template, placements.filter((_, i) => i % models.length === k)));
-      }
-    } catch { /* terrain reads fine without rocks */ }
-  }
-
-  /** Swaps the procedural tree blobs for the Quaternius trees (ASSET_MANIFEST field.tree.*),
-   * grouped per model into InstancedMeshes. Any load failure keeps the procedural fallback. */
-  private async upgradeTreesToGltf(fallback: THREE.Object3D, placements: TreeClusterPlacement[]): Promise<void> {
-    const models = ['commontree_1', 'commontree_2', 'commontree_3', 'pine_1', 'pine_2', 'pine_3', 'deadtree_1']; // twistedtree_* has autumn-red leaves: not for the green Field
-    try {
-      const groups = await Promise.all(models.map(async (name, k) => {
-        const template = await assetLibrary.loadUri(`/assets/regions/field/vegetation/${name}.glb`);
-        return instanceGltf(template, placements.filter((_, i) => i % models.length === k));
-      }));
-      this.scene.remove(fallback);
-      groups.forEach((g) => this.scene.add(g));
-    } catch { /* keep procedural trees */ }
   }
 
   /** First-minute-of-flight upgrade for field_home (spec: "aeródromo vivo"): an apron
@@ -542,8 +488,6 @@ export class FlightScene {
     // by buildRegionRoadNetwork (regionRoadNetworks.ts), called from the constructor —
     // this compound only owns the apron/fuel/tie-downs. ruralCore stays in sync with
     // that network's the_field primary target (field_village_cluster's anchor).
-    const ruralCore: [number, number] = [160, 350];
-    this.buildFieldRuralCore(ruralCore, safeZone);
   }
 
   /** Builds the continuous access road connecting a region's airfield to its hero
@@ -573,29 +517,6 @@ export class FlightScene {
       road.instanceMatrix.needsUpdate = true;
       road.receiveShadow = true;
       this.scene.add(road);
-    }
-  }
-
-  /** A fenced field around the streamed field_village_cluster GLB anchor, so the
-   * settlement's edge reads as cultivated land. The houses/barn themselves are the
-   * authored field_village_cluster GLB (assetManifest.ts) — no primitive box+cone
-   * houses here to avoid duplicating it. */
-  private buildFieldRuralCore(center: readonly [number, number], safeZone: ReturnType<typeof getRunwaySafeZone>): void {
-    const ground = (x: number, z: number) => this.environment.terrainQuery.getElevation(x, z);
-    // Parcelled field: a flat tinted patch plus a low fence line, distinct from the
-    // wilder procedural scatter so the settlement's edge reads as cultivated land.
-    const parcelMat = new THREE.MeshStandardMaterial({ color: '#8fa15a', roughness: 1 });
-    const parcelX = center[0] + 2, parcelZ = center[1] - 30;
-    const parcel = new THREE.Mesh(new THREE.PlaneGeometry(30, 22), parcelMat);
-    parcel.rotation.x = -Math.PI / 2; parcel.position.set(parcelX, ground(parcelX, parcelZ) + 0.01, parcelZ); parcel.receiveShadow = true;
-    this.scene.add(parcel);
-
-    const fenceMat = new THREE.MeshStandardMaterial({ color: '#5c4a32', roughness: 1 });
-    const fenceGeo = new THREE.CylinderGeometry(.08, .1, 1.1, 5);
-    for (let i = 0; i < 10; i++) {
-      const x = parcelX - 15 + i * 3.3, z = parcelZ - 11;
-      if (isInsideZone(x, z, safeZone)) continue;
-      const post = new THREE.Mesh(fenceGeo, fenceMat); post.position.set(x, ground(x, z) + .55, z); this.scene.add(post);
     }
   }
 
@@ -939,6 +860,7 @@ export class FlightScene {
   }
 
   render() {
+    this.fieldWorld?.update(this.camera.position);
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -954,6 +876,7 @@ export class FlightScene {
   }
 
   dispose() {
+    this.fieldWorld?.dispose();
     // Three.js does not dispose scene-owned GPU resources automatically. Keep this
     // explicit because mobile players can enter/exit many flight sessions in one app run.
     const geometries = new Set<THREE.BufferGeometry>();

@@ -5,7 +5,7 @@ import { BIOME_COLORS } from '../world/biomeWeights';
 import { createSeededRandom } from '../core/seededRandom';
 import { getAmbientTrafficPose } from '../world/ambientTraffic';
 import { buildWaterBodies } from '../world/waterBodies';
-import { FIELD_TERRAIN_SEGMENTS, FIELD_TERRAIN_SIZE_M } from '../world/terrainHeightfield';
+import { createGridSampler, FIELD_TERRAIN_SEGMENTS, FIELD_TERRAIN_SIZE_M, type TerrainGridSampler } from '../world/terrainHeightfield';
 import { FIELD_RIVER_POINTS, SEA_LEVEL_M } from '../world/fieldGeography';
 import { fieldGroundColor } from './fieldTerrainColor';
 import { getDistantLandmarkKind, getTerrainVisualProfile, type TerrainVisualProfile } from './worldVisualIdentity';
@@ -27,6 +27,8 @@ export class WorldEnvironment {
   readonly terrainQuery: TerrainQueryService;
   /** The Field's rendered terrain heights (row-major, same grid as the Rapier heightfield). */
   private fieldHeights?: Float32Array;
+  /** Exact sampler over the rendered Field mesh (decals, roads and prop bases sit on this). */
+  fieldGrid?: TerrainGridSampler;
 
   constructor(region: RegionDefinition) {
     this.region = region;
@@ -37,9 +39,12 @@ export class WorldEnvironment {
     this.addClouds();
     this.windSock = this.addWindSock();
     this.rain = region.environment.weather === 'rain' ? this.addRain() : null;
-    this.addDistantLandmark();
-    this.addRidgeline();
-    this.addGroundScatter();
+    // The Field's landmarks, scatter and rocks come from the authored composition (FieldWorld).
+    if (!this.fieldGrid) {
+      this.addDistantLandmark();
+      this.addRidgeline();
+      this.addGroundScatter();
+    }
     this.addAmbientTraffic();
   }
 
@@ -67,6 +72,7 @@ export class WorldEnvironment {
     if (isField) {
       this.fieldHeights = new Float32Array(pos.count);
       for (let i = 0; i < pos.count; i++) this.fieldHeights[i] = pos.getZ(i);
+      this.fieldGrid = createGridSampler(this.fieldHeights);
     }
     geo.computeVertexNormals();
     // Vertex colour blends real biome weights from TerrainQueryService (spec §250, DoD

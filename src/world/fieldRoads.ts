@@ -100,7 +100,7 @@ export function buildRoadRibbon(path: RoadPath, terrain: TerrainGridSampler, til
       positions.push(x, y, z);
       uvs.push(side < 0 ? 0 : 1, p.s / tileLengthM);
     }
-    if (i > 0) { const a = (i - 1) * 2, b = i * 2; index.push(a, b, a + 1, a + 1, b, b + 1); }
+    if (i > 0) { const a = (i - 1) * 2, b = i * 2; index.push(a, a + 1, b, a + 1, b + 1, b); }
   });
   return { positions, uvs, index };
 }

@@ -54,7 +54,7 @@ const facing = (dx: number, dz: number): number => Math.atan2(dx, dz);
 
 /** Footprint radius (m, at the scale used) per building kind; drives lot spacing checks. */
 const FOOTPRINT_R: Partial<Record<PropKind, number>> = {
-  farmhouse_a: 8, farmhouse_b: 8, small_workshop: 9, barn_a: 15, barn_b: 15, silo: 6, tank: 9, warehouse: 30, stack: 6, lattice_tower: 8, hut: 5,
+  farmhouse_a: 10, farmhouse_b: 10, small_workshop: 11, barn_a: 17, barn_b: 17, silo: 6, tank: 9, warehouse: 30, stack: 6, lattice_tower: 8, hut: 5,
 };
 
 export interface LayoutInput { grid: TerrainGridSampler; terrain: TerrainQueryService }
@@ -163,7 +163,7 @@ export function buildFieldLayout(input: LayoutInput): FieldLayout {
     }
     return placed;
   };
-  const HOUSE_SCALE = { farmhouse_a: [1.5, 1.9], farmhouse_b: [1.5, 1.9], small_workshop: [2.2, 2.7], barn_a: [2.6, 3.2], barn_b: [2.6, 3.2] } as Record<string, [number, number]>;
+  const HOUSE_SCALE = { farmhouse_a: [1.9, 2.4], farmhouse_b: [1.9, 2.4], small_workshop: [2.8, 3.4], barn_a: [3.2, 4.0], barn_b: [3.2, 4.0] } as Record<string, [number, number]>;
   const village = roadById('ROAD_VILLAGE'), main = roadById('ROAD_MAIN'), airfieldRoad = roadById('ROAD_AIRFIELD'), lakeRoad = roadById('ROAD_LAKE');
   const villageKinds: Array<[PropKind, number]> = [['farmhouse_a', 4], ['farmhouse_b', 4], ['small_workshop', 2], ['barn_b', 1.2]];
   frontage({ road: village, fromS: 10, toS: village.lengthM - 30, spacing: 30, offsets: [10, 24], sides: [-1, 1], kinds: villageKinds, chance: 0.86, scale: HOUSE_SCALE });
@@ -227,7 +227,7 @@ export function buildFieldLayout(input: LayoutInput): FieldLayout {
     for (let i = 0; i < count; i++) {
       const t = i / Math.max(1, count - 1), [lx, lz] = [from[0] + (to[0] - from[0]) * t, from[1] + (to[1] - from[1]) * t];
       const [x, z] = rot(a, lx, lz);
-      trees.push({ kind: i % 3 === 0 ? 'broadleaf' : 'conifer', x, z, scale: 1.1 + rng.next() * 0.5, rotY: rng.next() * 6, tint: rng.next(), hero: false });
+      trees.push({ kind: i % 3 === 0 ? 'broadleaf' : 'conifer', x, z, scale: 1.6 + rng.next() * 0.7, rotY: rng.next() * 6, tint: rng.next(), hero: false });
     }
   };
   const A = WORLD_ANCHORS.farmClusterA;
@@ -304,7 +304,7 @@ export function buildFieldLayout(input: LayoutInput): FieldLayout {
       for (let i = 0; i <= n; i++) {
         const t = i / Math.max(1, n), x = a[0] + (b[0] - a[0]) * t + (rng.next() - 0.5) * 3, z = a[1] + (b[1] - a[1]) * t + (rng.next() - 0.5) * 3;
         if (wet(x, z) || nearPad(x, z, 30) || roadDist(x, z) < 9) continue;
-        trees.push({ kind: kind === 'trees' ? (rng.next() < 0.7 ? 'broadleaf' : 'conifer') : 'shrub', x, z, scale: kind === 'trees' ? 1.1 + rng.next() * 0.5 : 1.3 + rng.next() * 0.5, rotY: rng.next() * 6, tint: rng.next(), hero: false });
+        trees.push({ kind: kind === 'trees' ? (rng.next() < 0.7 ? 'broadleaf' : 'conifer') : 'shrub', x, z, scale: kind === 'trees' ? 1.6 + rng.next() * 0.6 : 1.5 + rng.next() * 0.5, rotY: rng.next() * 6, tint: rng.next(), hero: false });
       }
     }
     if (p.crop === 'harvested' || p.crop === 'dry') {
@@ -395,7 +395,7 @@ function generateTreeMasses(ctx: TreeCtx): TreePlacement[] {
       const a = rng.next() * PI * 2, r = 6 + Math.sqrt(rng.next()) * 32;
       const x = g.x + Math.cos(a) * r, z = g.z + Math.sin(a) * r;
       if (wet(x, z) || nearPad(x, z, 70) || roadDist(x, z) < 10 || grid.slopeDeg(x, z) > 38 || inField(x, z, 4)) continue;
-      out.push({ kind: conifer && rng.next() < 0.9 ? 'conifer' : 'broadleaf', x, z, scale: 1.0 + rng.next() * 0.9, rotY: rng.next() * 6.28, tint: rng.next(), hero: false });
+      out.push({ kind: conifer && rng.next() < 0.9 ? 'conifer' : 'broadleaf', x, z, scale: 1.5 + rng.next() * 1.0, rotY: rng.next() * 6.28, tint: rng.next(), hero: false });
     }
   }
   return out;
@@ -409,16 +409,16 @@ function addRoadsideTrees(roads: RoadPath[], out: TreePlacement[], c: { grid: Te
     while (s < road.lengthM - 40) {
       const p = road.points.reduce((best, q) => (Math.abs(q.s - s) < Math.abs(best.s - s) ? q : best));
       if (!p.onBridge) {
-        const side = c.rng.next() < 0.5 ? -1 : 1, n = 4 + Math.floor(c.rng.next() * 4), off = road.def.widthM / 2 + 6 + c.rng.next() * 3;
+        const side = c.rng.next() < 0.5 ? -1 : 1, n = (road.def.id === 'ROAD_PASS' ? 6 : 4) + Math.floor(c.rng.next() * 4), off = road.def.widthM / 2 + 6 + c.rng.next() * (road.def.id === 'ROAD_PASS' ? 40 : 3);
         const conifer = p.y > 90 || c.rng.next() < 0.25;
         for (let i = 0; i < n; i++) {
           const t = (i - n / 2) * 9;
           const x = p.x - p.tz * off * side + p.tx * t, z = p.z + p.tx * off * side + p.tz * t;
           if (c.wet(x, z) || c.nearPad(x, z, 50) || c.inField(x, z, 2) || c.inExclusion(x, z)) continue;
-          out.push({ kind: conifer ? 'conifer' : 'broadleaf', x, z, scale: 1.05 + c.rng.next() * 0.45, rotY: c.rng.next() * 6.28, tint: c.rng.next(), hero: false });
+          out.push({ kind: conifer ? 'conifer' : 'broadleaf', x, z, scale: 1.5 + c.rng.next() * 0.6, rotY: c.rng.next() * 6.28, tint: c.rng.next(), hero: false });
         }
       }
-      s += 120 + c.rng.next() * 190;
+      s += road.def.id === 'ROAD_PASS' ? 45 + c.rng.next() * 80 : 120 + c.rng.next() * 190;
     }
   }
 }
@@ -481,9 +481,9 @@ function buildRockCompositions(
   // Pass gate: two tall outcrops either side of the road, the region's distinctive formation.
   const g = WORLD_ANCHORS.passGate;
   for (const [ox, oz, s0] of [[-58, 0, 13], [-70, 22, 9], [-52, -24, 8], [62, 6, 14], [78, -16, 9.5], [56, 30, 8]] as const) {
-    const x = g.x + ox, z = g.z + oz;
-    out.push({ kind: kinds[out.length % 3], x, z, scale: s0, rotY: rng.next() * 6.28, tilt: 0.05, large: true });
-    out.push({ kind: kinds[(out.length + 1) % 3], x: x + 3, z: z + 4, scale: s0 * 0.6, rotY: rng.next() * 6.28, tilt: -0.1, large: true });
+    const x = g.x + ox * 1.4, z = g.z + oz * 1.4;
+    out.push({ kind: kinds[out.length % 3], x, z, scale: s0 * 2.3, rotY: rng.next() * 6.28, tilt: 0.05, large: true });
+    out.push({ kind: kinds[(out.length + 1) % 3], x: x + 8, z: z + 10, scale: s0 * 1.4, rotY: rng.next() * 6.28, tilt: -0.1, large: true });
   }
   // Saddle cairn field at the top of the pass.
   const n = WORLD_ANCHORS.northPass;

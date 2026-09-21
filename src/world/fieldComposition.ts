@@ -95,19 +95,19 @@ const lakeShore = (angleDeg: number, offsetM: number): Vec2 => {
 export const ROADS: ReadonlyArray<RoadDef> = [
   // Lake village -> bridge -> plain -> home village: the spine of the region.
   {
-    id: 'ROAD_MAIN', surface: 'asphalt', widthM: 8.5, priority: 5,
+    id: 'ROAD_MAIN', surface: 'asphalt', widthM: 9.5, priority: 5,
     bridge: { anchor: 'bridge', halfSpanM: 46 },
     points: [[2500, 900], [2400, 690], [2270, 500], [2140, 375], [2085, 335], [1975, 330], [1850, 325], [1600, 335], [1300, 320], [1000, 330], [750, 310], [500, 300], [330, 300], [250, 300]],
   },
   // Hangar apron -> gate -> village junction.
-  { id: 'ROAD_AIRFIELD', surface: 'asphalt', widthM: 6.5, priority: 4, points: [[150, -92], [178, -70], [218, -30], [246, 40], [254, 150], [252, 300]] },
-  { id: 'ROAD_VILLAGE', surface: 'asphalt', widthM: 6.5, priority: 4, points: [[250, 300], [256, 400], [250, 500], [238, 600], [226, 700]] },
+  { id: 'ROAD_AIRFIELD', surface: 'asphalt', widthM: 7.5, priority: 4, points: [[150, -92], [178, -70], [218, -30], [246, 40], [254, 150], [252, 300]] },
+  { id: 'ROAD_VILLAGE', surface: 'asphalt', widthM: 7.5, priority: 4, points: [[250, 300], [256, 400], [250, 500], [238, 600], [226, 700]] },
   // North to the mountain pass; asphalt gives way to gravel in the foothills.
   {
-    id: 'ROAD_PASS', surface: 'gravel', widthM: 6, priority: 3,
+    id: 'ROAD_PASS', surface: 'gravel', widthM: 7, priority: 3,
     points: [[226, 700], [185, 850], [90, 1050], [-100, 1250], [-380, 1450], [-700, 1650], [-1000, 1850], [-1300, 2050], [-1390, 2400], [-1450, 2750], [-1500, 3100], [-1490, 3500], [-1470, 3900], [-1480, 4020]],
   },
-  { id: 'ROAD_SECOND_AIRFIELD', surface: 'dirt', widthM: 4.5, priority: 2, points: [[256, 440], [200, 505], [140, 575], [100, 625], [72, 645]] },
+  { id: 'ROAD_SECOND_AIRFIELD', surface: 'dirt', widthM: 5, priority: 2, points: [[256, 440], [200, 505], [140, 575], [100, 625], [72, 645]] },
   {
     id: 'ROAD_LAKE', surface: 'gravel', widthM: 5, priority: 2,
     points: [[2500, 900], [...lakeShore(3, 105)], [...lakeShore(20, 105)], [...lakeShore(38, 105)], [...lakeShore(56, 110)], [...lakeShore(74, 120)]],
@@ -115,7 +115,7 @@ export const ROADS: ReadonlyArray<RoadDef> = [
   { id: 'ROAD_FARM_A', surface: 'dirt', widthM: 4, priority: 2, points: [[1000, 330], [990, 480], [965, 640], [925, 780]] },
   { id: 'ROAD_FARM_B', surface: 'dirt', widthM: 4, priority: 2, points: [[-560, 1560], [-620, 1430], [-655, 1330]] },
   { id: 'ROAD_REMOTE', surface: 'dirt', widthM: 3.5, priority: 1, points: [[130, -200], [0, -300], [-300, -400], [-700, -500], [-1000, -600], [-1250, -690]] },
-  { id: 'ROAD_INDUSTRIAL', surface: 'asphalt', widthM: 6.5, priority: 3, points: [[218, -30], [230, -200], [400, -480], [560, -740], [690, -880]] },
+  { id: 'ROAD_INDUSTRIAL', surface: 'asphalt', widthM: 7.5, priority: 3, points: [[218, -30], [230, -200], [400, -480], [560, -740], [690, -880]] },
 ];
 
 // ---------------------------------------------------------------------------------------
