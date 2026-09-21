@@ -37,10 +37,11 @@ export interface RigSample {
   agl: number;
 }
 
-export async function createAirframeRig(def: AircraftDefinition, opts: { altM?: number; speedMs?: number; pitchDeg?: number; wind?: THREE.Vector3; ground?: GroundQuery; onGround?: boolean } = {}) {
+export async function createAirframeRig(def: AircraftDefinition, opts: { altM?: number; speedMs?: number; pitchDeg?: number; wind?: THREE.Vector3; ground?: GroundQuery; onGround?: boolean; dt?: number } = {}) {
+  const dt = opts.dt ?? PHYSICS_DT;
   await initPhysics();
   const world = createWorld();
-  const sim = new AircraftSimulation(world, def, opts.ground);
+  const sim = new AircraftSimulation(world, def, opts.ground, dt);
   const phys = sim.physics;
   const pitch = ((opts.pitchDeg ?? 0) * Math.PI) / 180;
   // Nose +Z pitched up by rotating about -X (nose up = rotation about -X).
@@ -84,12 +85,12 @@ export async function createAirframeRig(def: AircraftDefinition, opts: { altM?: 
       gearLoadN: sim.gear.summary.peakLoadN,
       agl: phys.heightAglM,
     });
-    t += PHYSICS_DT;
+    t += dt;
   };
 
   /** Runs `seconds`; `cmd` may be constant or a function of the latest sample. */
   const run = (seconds: number, cmd: Partial<SimCommand> | ((s: RigSample | undefined) => Partial<SimCommand>) = {}) => {
-    const n = Math.round(seconds / PHYSICS_DT);
+    const n = Math.round(seconds / dt);
     for (let i = 0; i < n; i++) step({ ...NEUTRAL_COMMAND, engineOn: false, ...(typeof cmd === 'function' ? cmd(log[log.length - 1]) : cmd) });
     return log[log.length - 1];
   };

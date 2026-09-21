@@ -50,10 +50,13 @@ export class AircraftSimulation {
   private readonly hubAir = new THREE.Vector3();
   private readonly hubR = new THREE.Vector3();
 
-  constructor(world: RAPIER.World, def: AircraftDefinition, ground: GroundQuery = FLAT_GROUND) {
+  readonly dt: number;
+
+  constructor(world: RAPIER.World, def: AircraftDefinition, ground: GroundQuery = FLAT_GROUND, dt: number = PHYSICS_DT) {
     this.def = def;
     this.ground = ground;
-    this.physics = new AircraftPhysics(world, def, (x, z) => ground.getElevation(x, z));
+    this.dt = dt;
+    this.physics = new AircraftPhysics(world, def, (x, z) => ground.getElevation(x, z), dt);
     this.controls = new FlightControls(def.controls);
     this.propulsion = def.engine && def.propeller ? new Propulsion(def.engine, def.propeller) : null;
     this.gear = new LandingGear(def.gear, this.physics.mass.massKg, this.physics.mass.cg, ground);
@@ -84,8 +87,8 @@ export class AircraftSimulation {
     this.assistance.apply(cmd, {
       bankRad: att.rollRad, pitchRad: att.pitchRad, p: phys.wBody.z, q: -phys.wBody.x, r: -phys.wBody.y,
       betaRad: phys.betaRad, airspeedMs: phys.airspeedMs, stallMarginRad: phys.stallMarginRad, onGround: this.gear.summary.wheelsOnGround > 0,
-    }, PHYSICS_DT, this.assisted);
-    const surf = this.controls.step(this.assisted, PHYSICS_DT);
+    }, this.dt, this.assisted);
+    const surf = this.controls.step(this.assisted, this.dt);
 
     let slip = null;
     let gyro: THREE.Vector3 | null = null;
@@ -96,10 +99,10 @@ export class AircraftSimulation {
       const hp = this.def.engine!.position;
       this.hubR.set(hp[0] - cg[0], hp[1] - cg[1], hp[2] - cg[2]);
       this.hubAir.copy(phys.wBody).cross(this.hubR).add(phys.airBody);
-      pr.step(PHYSICS_DT, { throttle: cmd.throttle, engineOn: cmd.engineOn, fuelL: phys.fuelL, rho: phys.atmosphere.densityKgM3, airAtHub: this.hubAir });
+      pr.step(this.dt, { throttle: cmd.throttle, engineOn: cmd.engineOn, fuelL: phys.fuelL, rho: phys.atmosphere.densityKgM3, airAtHub: this.hubAir });
       slip = pr.slipstream;
       gyro = pr.angularMomentum;
-      phys.fuelL = Math.max(0, phys.fuelL - pr.fuelFlowLps * PHYSICS_DT);
+      phys.fuelL = Math.max(0, phys.fuelL - pr.fuelFlowLps * this.dt);
       phys.refreshMass();
     }
 
@@ -111,6 +114,6 @@ export class AircraftSimulation {
     this.gear.step(phys, { steer: cmd.yaw, brake: cmd.brake, yaw: cmd.yaw, damagePenalty: cmd.gearPenalty ?? 1, gearAttached: cmd.gearAttached ?? true });
     this.structure.step(phys);
     phys.integrate(gyro);
-    this.timeS += PHYSICS_DT;
+    this.timeS += this.dt;
   }
 }

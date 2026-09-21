@@ -70,12 +70,16 @@ export class AircraftPhysics {
   private readonly inertia: Mat3 = [1, 0, 0, 0, 1, 0, 0, 0, 1];
   private lastFuelForMass = -1;
 
-  constructor(world: RAPIER.World, def: AircraftDefinition, terrainHeight: (x: number, z: number) => number = () => 0) {
+  /** Fixed step this body integrates with (must equal the caller's loop step). */
+  readonly dt: number;
+
+  constructor(world: RAPIER.World, def: AircraftDefinition, terrainHeight: (x: number, z: number) => number = () => 0, dt: number = PHYSICS_DT) {
+    this.dt = dt;
     this.world = world;
     this.def = def;
     this.terrainHeight = terrainHeight;
     this.fuelL = def.mass.fuelCapacityL;
-    world.timestep = PHYSICS_DT;
+    world.timestep = dt;
 
     this.aero = new AeroModel(def);
 

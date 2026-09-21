@@ -1,0 +1,270 @@
+{
+  "aircraft": "quicksilver_class_reference",
+  "generatedBy": "src/flight/testing/acceptance.test.ts",
+  "metrics": {
+    "A.cruiseSpeed@65%": {
+      "value": 94.018,
+      "min": 78,
+      "max": 102,
+      "unit": "km/h",
+      "note": "legacy 82; band widened for an honest aircraft with a pilot",
+      "pass": true
+    },
+    "A.verticalSpeed": {
+      "value": 0.018,
+      "min": 0,
+      "max": 0.8,
+      "unit": "m/s",
+      "note": "level flight",
+      "pass": true
+    },
+    "A.speedOscillation(last10s)": {
+      "value": 0.496,
+      "min": 0,
+      "max": 6,
+      "unit": "km/h",
+      "note": "must not grow",
+      "pass": true
+    },
+    "B.glideRatio": {
+      "value": 9.358,
+      "min": 8,
+      "max": 11,
+      "unit": ":1",
+      "note": "legacy 8.3",
+      "pass": true
+    },
+    "B.trimSpeed": {
+      "value": 75.222,
+      "min": 68,
+      "max": 90,
+      "unit": "km/h",
+      "note": "hands-off power-off trim",
+      "pass": true
+    },
+    "B.sinkRate": {
+      "value": 2.233,
+      "min": 1.9,
+      "max": 3,
+      "unit": "m/s",
+      "note": "legacy 2.3-2.9",
+      "pass": true
+    },
+    "B.dynamicSink": {
+      "value": 2.277,
+      "min": 1.6746813646545287,
+      "max": 2.9027810320678498,
+      "unit": "m/s",
+      "note": "simulated glide within 25% of the static analysis",
+      "pass": true
+    },
+    "C.stallSpeed(1g)": {
+      "value": 66.23,
+      "min": 52,
+      "max": 68,
+      "unit": "km/h",
+      "note": "legacy 49 (no pilot); +70 kg pilot raises it",
+      "pass": true
+    },
+    "C.CLmax": {
+      "value": 1.275,
+      "min": 1.15,
+      "max": 1.6,
+      "unit": "-",
+      "note": "fabric ultralight wing",
+      "pass": true
+    },
+    "C.alphaAtStall": {
+      "value": 10.843,
+      "min": 8,
+      "max": 16,
+      "unit": "deg body",
+      "note": "body AoA at CLmax",
+      "pass": true
+    },
+    "D.bank": {
+      "value": 28.216,
+      "min": 26,
+      "max": 34,
+      "unit": "deg",
+      "note": "commanded 30",
+      "pass": true
+    },
+    "D.turnRate/expected": {
+      "value": 1.019,
+      "min": 0.8,
+      "max": 1.2,
+      "unit": "-",
+      "note": "physics identity for a coordinated level turn",
+      "pass": true
+    },
+    "D.sideslip": {
+      "value": 1.503,
+      "min": 0,
+      "max": 3,
+      "unit": "deg",
+      "note": "coordinated",
+      "pass": true
+    },
+    "D.altitudeChange(10s)": {
+      "value": 1.78,
+      "min": -25,
+      "max": 25,
+      "unit": "m",
+      "note": "assisted turn holds altitude",
+      "pass": true
+    },
+    "D.G": {
+      "value": 1.142,
+      "min": 1.05,
+      "max": 1.3,
+      "unit": "g",
+      "note": "1/cos(30)=1.155",
+      "pass": true
+    },
+    "E.groundRoll": {
+      "value": 75.399,
+      "min": 45,
+      "max": 110,
+      "unit": "m",
+      "note": "legacy 59",
+      "pass": true
+    },
+    "E.rotateSpeed": {
+      "value": 52.048,
+      "min": 45,
+      "max": 62,
+      "unit": "km/h",
+      "note": "scripted 52",
+      "pass": true
+    },
+    "E.liftoffSpeed": {
+      "value": 59.443,
+      "min": 50,
+      "max": 72,
+      "unit": "km/h",
+      "note": "legacy 59",
+      "pass": true
+    },
+    "E.climbAfterLiftoff": {
+      "value": 1.45,
+      "min": 1,
+      "max": 4,
+      "unit": "m/s",
+      "note": "legacy 2.6 (best-climb, higher wing loading here)",
+      "pass": true
+    },
+    "E.bestClimb": {
+      "value": 2.332,
+      "min": 1.8,
+      "max": 3.5,
+      "unit": "m/s",
+      "note": "legacy 2.6",
+      "pass": true
+    },
+    "E.bestClimbSpeed": {
+      "value": 72,
+      "min": 60,
+      "max": 85,
+      "unit": "km/h",
+      "note": "",
+      "pass": true
+    },
+    "E.topSpeed": {
+      "value": 104.4,
+      "min": 95,
+      "max": 118,
+      "unit": "km/h",
+      "note": "legacy ~100",
+      "pass": true
+    },
+    "F.approachSpeed": {
+      "value": 83.591,
+      "min": 62,
+      "max": 88,
+      "unit": "km/h",
+      "note": "",
+      "pass": true
+    },
+    "F.touchdownSink": {
+      "value": 0.537,
+      "min": 0,
+      "max": 3.5,
+      "unit": "m/s",
+      "note": "within gear tolerance",
+      "pass": true
+    },
+    "F.flarePitch": {
+      "value": -0.915,
+      "min": -2,
+      "max": 12,
+      "unit": "deg",
+      "note": "nose comes up in the flare",
+      "pass": true
+    },
+    "F.rollout": {
+      "value": 56.514,
+      "min": 5,
+      "max": 250,
+      "unit": "m",
+      "note": "brakes on",
+      "pass": true
+    },
+    "G.touchdownOffset": {
+      "value": 16.292,
+      "min": 0,
+      "max": 20,
+      "unit": "m",
+      "note": "lateral error at touchdown",
+      "pass": true
+    },
+    "G.finalOffset": {
+      "value": 11.95,
+      "min": 0,
+      "max": 30,
+      "unit": "m",
+      "note": "",
+      "pass": true
+    },
+    "G.maxSideForce": {
+      "value": 435.154,
+      "min": 50,
+      "max": 4000,
+      "unit": "N",
+      "note": "tyres carry a real side load, within limits",
+      "pass": true
+    },
+    "G.structuralStrike": {
+      "value": 0,
+      "min": 0,
+      "max": 0,
+      "unit": "-",
+      "note": "no wing/belly strike",
+      "pass": true
+    },
+    "H.rollAuthority(30/15 m/s)": {
+      "value": 3.214,
+      "min": 2.5,
+      "max": 4.6,
+      "unit": "-",
+      "note": "ideal (30/15)^2 = 4; damping trims it",
+      "pass": true
+    },
+    "H.pitchAuthority(30/15 m/s)": {
+      "value": 4.24,
+      "min": 2.5,
+      "max": 4.6,
+      "unit": "-",
+      "note": "ideal (30/15)^2 = 4; damping trims it",
+      "pass": true
+    },
+    "H.yawAuthority(30/15 m/s)": {
+      "value": 3.904,
+      "min": 2.5,
+      "max": 4.6,
+      "unit": "-",
+      "note": "ideal (30/15)^2 = 4; damping trims it",
+      "pass": true
+    }
+  }
+}
