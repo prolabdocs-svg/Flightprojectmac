@@ -1,15 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { estimatePerformance } from './performance';
-import { defaultBuild, installPart, resolveAircraft } from '../content/assembly';
+import { defaultBuild, installPart } from '../content/assembly';
 
-const perf = (build = defaultBuild()) => estimatePerformance(resolveAircraft(build));
+const perf = (build = defaultBuild()) => estimatePerformance(build);
 
 describe('estimatePerformance', () => {
   it('puts the starter ultralight in its target envelope', () => {
     const p = perf();
-    expect(p.stallSpeedKmh).toBeGreaterThan(40);
-    expect(p.stallSpeedKmh).toBeLessThan(55);
-    expect(p.cruiseSpeedKmh).toBeGreaterThan(75);
+    // The estimate now comes from the flown physics (heavier reference aircraft: it carries a pilot).
+    expect(p.stallSpeedKmh).toBeGreaterThan(50);
+    expect(p.stallSpeedKmh).toBeLessThan(62);
+    expect(p.cruiseSpeedKmh).toBeGreaterThan(80);
     expect(p.cruiseSpeedKmh).toBeLessThan(100);
     expect(p.topSpeedKmh).toBeGreaterThan(p.cruiseSpeedKmh);
     expect(p.topSpeedKmh).toBeLessThan(125);

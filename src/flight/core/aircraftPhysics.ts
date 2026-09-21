@@ -12,28 +12,12 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { PHYSICS_DT } from './constants';
 import { BodyFrame, angleOfAttack, pointVelocityBody, sideslip, type Vec3 } from './coordinates';
-import { getAirfoilTable, type AirfoilTable } from '../aero/airfoil';
-import { AeroContext, AeroElement, BluffBody, newElementResult, type ElementResult } from '../aero/aeroElement';
-import { groundInducedFactor, groundLiftGain } from '../aero/groundEffect';
+import { AeroModel, type SurfaceDeflections, type Slipstream } from '../aero/aeroModel';
 import { sampleAtmosphere, type AtmosphereSample } from '../atmosphere/atmosphere';
 import type { AircraftDefinition } from '../aircraft/aircraftDefinition';
 import { computeMassProperties, principalAxes, type Mat3, type MassProperties } from '../aircraft/massModel';
 
-/** Deflections in the lift-positive sense (see coordinates.ts), radians. */
-export interface SurfaceDeflections {
-  elevator: number;
-  aileronLeft: number;
-  aileronRight: number;
-  rudder: number;
-}
-
-/** Slipstream state handed to the aero elements. */
-export interface Slipstream {
-  axialMs: number;
-  swirl: number;
-  discRadiusM: number;
-  discCentreY: number;
-}
+export type { SurfaceDeflections, Slipstream };
 
 const MAX_ANGULAR_RATE = 25; // rad/s: defensive numerical guard, never expected in normal flight
 const MAX_SPEED = 120; // m/s
@@ -42,12 +26,8 @@ export class AircraftPhysics {
   readonly world: RAPIER.World;
   readonly body: RAPIER.RigidBody;
   readonly def: AircraftDefinition;
-  readonly elements: AeroElement[] = [];
-  readonly bluff: BluffBody[] = [];
-  readonly results: ElementResult[] = [];
-  readonly bluffResults: ElementResult[] = [];
+  readonly aero: AeroModel;
   readonly frame = new BodyFrame();
-  readonly ctx = new AeroContext();
   readonly atmosphere: AtmosphereSample = { temperatureK: 288.15, pressurePa: 101325, densityKgM3: 1.225 };
   mass!: MassProperties;
   fuelL: number;
@@ -77,12 +57,10 @@ export class AircraftPhysics {
   airspeedMs = 0;
   alphaRad = 0;
   betaRad = 0;
-  wingCl = 0;
-  /** Margin (rad) between the most-loaded wing element's AoA and the AoA of CLmax. < 0 = past the stall peak. */
-  stallMarginRad = 1;
   liftBodyN = 0;
   dragBodyN = 0;
 
+  private readonly aeroInput = { rho: 1.225, velBody: this.velBody, wBody: this.wBody, windBody: this.windBody, upBody: this.upBody, heightAglM: 100, cg: [0, 0, 0] as Vec3, densityScale: 1 };
   private readonly terrainHeight: (x: number, z: number) => number;
   private readonly tmpA = new THREE.Vector3();
   private readonly tmpB = new THREE.Vector3();
@@ -91,9 +69,6 @@ export class AircraftPhysics {
   private readonly tmpR = new THREE.Vector3();
   private readonly inertia: Mat3 = [1, 0, 0, 0, 1, 0, 0, 0, 1];
   private lastFuelForMass = -1;
-  private readonly wingAc: Vec3;
-  private readonly wingElementCount: number;
-  private readonly wingAlphaClMax: number;
 
   constructor(world: RAPIER.World, def: AircraftDefinition, terrainHeight: (x: number, z: number) => number = () => 0) {
     this.world = world;
@@ -102,24 +77,7 @@ export class AircraftPhysics {
     this.fuelL = def.mass.fuelCapacityL;
     world.timestep = PHYSICS_DT;
 
-    const tables: Record<string, AirfoilTable> = {
-      wing: getAirfoilTable(def.aero.airfoils.wing),
-      htail: getAirfoilTable(def.aero.airfoils.tail),
-      vtail: getAirfoilTable(def.aero.airfoils.fin),
-    };
-    // Wings first: the tailplane needs the wing's CL for downwash.
-    const ordered = [...def.aero.elements].sort((a, b) => (a.group === 'wing' ? 0 : 1) - (b.group === 'wing' ? 0 : 1));
-    for (const spec of ordered) {
-      this.elements.push(new AeroElement(spec, tables[spec.group]));
-      this.results.push(newElementResult());
-    }
-    for (const b of def.aero.bluffBodies) {
-      this.bluff.push(new BluffBody(b));
-      this.bluffResults.push(newElementResult());
-    }
-    this.wingElementCount = this.elements.filter((e) => e.spec.group === 'wing').length;
-    this.wingAlphaClMax = tables.wing.alphaClMaxRad;
-    this.wingAc = def.geometry.wingAcPosition;
+    this.aero = new AeroModel(def);
 
     this.body = world.createRigidBody(
       RAPIER.RigidBodyDesc.dynamic().setLinearDamping(0).setAngularDamping(0).setCanSleep(false).setCcdEnabled(false),
@@ -129,6 +87,14 @@ export class AircraftPhysics {
     world.createCollider(RAPIER.ColliderDesc.ball(0.3).setDensity(0), this.body);
     this.refreshMass(true);
   }
+
+  get elements() { return this.aero.elements; }
+  get bluff() { return this.aero.bluff; }
+  get results() { return this.aero.results; }
+  get bluffResults() { return this.aero.bluffResults; }
+  get ctx() { return this.aero.ctx; }
+  get wingCl() { return this.aero.wingCl; }
+  get stallMarginRad() { return this.aero.stallMarginRad; }
 
   /** Recomputes mass/CG/inertia from the definition + current fuel and pushes it to Rapier. */
   refreshMass(force = false): void {
@@ -147,8 +113,7 @@ export class AircraftPhysics {
       { x: quaternion[0], y: quaternion[1], z: quaternion[2], w: quaternion[3] },
       true,
     );
-    for (const e of this.elements) e.setCg(cg);
-    for (const b of this.bluff) b.setCg(cg);
+    this.aero.setCg(cg);
   }
 
   /** Places the aircraft (spawn/reset only). `pos` is the model datum, not the CG. */
@@ -193,62 +158,16 @@ export class AircraftPhysics {
 
   /** Step 2: all aerodynamic elements. Adds to forceBody/momentBody. */
   computeAero(surf: SurfaceDeflections, slip: Slipstream | null, effectiveness: (damageId: string) => number): void {
-    const c = this.ctx;
-    c.rho = this.atmosphere.densityKgM3 * this.densityScale;
-    c.vx = this.velBody.x; c.vy = this.velBody.y; c.vz = this.velBody.z;
-    c.wx = this.wBody.x; c.wy = this.wBody.y; c.wz = this.wBody.z;
-    c.windX = this.windBody.x; c.windY = this.windBody.y; c.windZ = this.windBody.z;
-    c.upX = this.upBody.x; c.upY = this.upBody.y; c.upZ = this.upBody.z;
-    c.cgHeightAglM = this.heightAglM;
-    if (slip) {
-      c.slipAxialMs = slip.axialMs; c.slipSwirl = slip.swirl; c.discRadiusM = slip.discRadiusM; c.discCentreY = slip.discCentreY;
-    } else {
-      c.slipAxialMs = 0;
-    }
-    // Ground effect from the height of the wing (not the CG): height of wing AC above ground.
-    const cg = this.mass.cg;
-    const wingRelUp = this.upBody.x * (this.wingAc[0] - cg[0]) + this.upBody.y * (this.wingAc[1] - cg[1]) + this.upBody.z * (this.wingAc[2] - cg[2]);
-    const wingHeight = Math.max(0, this.heightAglM + wingRelUp);
-    const phi = groundInducedFactor(wingHeight, this.def.geometry.wingspanM);
-    c.groundInducedFactor = phi;
-    c.groundLiftGain = groundLiftGain(wingHeight, this.def.geometry.wingspanM);
-
-    let clArea = 0;
-    let maxWingAlpha = -Math.PI;
-    let wingArea = 0;
-    let lift = 0;
-    let drag = 0;
-    for (let i = 0; i < this.elements.length; i++) {
-      const el = this.elements[i];
-      const s = el.spec;
-      if (i === this.wingElementCount) {
-        // Wings done: downwash angle at the tail, reduced near the ground (less downwash in ground effect).
-        this.wingCl = wingArea > 0 ? clArea / wingArea : 0;
-        c.downwashRad = ((2 * this.wingCl) / (Math.PI * this.def.geometry.wingspanM * this.def.geometry.wingspanM / this.def.geometry.wingAreaM2)) * phi;
-      }
-      el.effectiveness = effectiveness(s.damageId);
-      el.deflectionRad = deflectionFor(s.control?.kind, s.outboard, surf);
-      const r = el.compute(c, this.results[i]);
-      this.forceBody.x += r.fx; this.forceBody.y += r.fy; this.forceBody.z += r.fz;
-      this.momentBody.x += r.mx; this.momentBody.y += r.my; this.momentBody.z += r.mz;
-      if (i < this.wingElementCount) {
-        clArea += r.cl * s.areaM2;
-        wingArea += s.areaM2;
-        if (r.alphaRad > maxWingAlpha) maxWingAlpha = r.alphaRad;
-      }
-      lift += r.liftN;
-      drag += r.dragN;
-    }
-    for (let i = 0; i < this.bluff.length; i++) {
-      const r = this.bluff[i].compute(c, this.bluffResults[i]);
-      this.forceBody.x += r.fx; this.forceBody.y += r.fy; this.forceBody.z += r.fz;
-      this.momentBody.x += r.mx; this.momentBody.y += r.my; this.momentBody.z += r.mz;
-      drag += r.dragN;
-    }
-    this.aeroForce.copy(this.forceBody);
-    this.stallMarginRad = this.wingAlphaClMax - maxWingAlpha;
-    this.liftBodyN = lift;
-    this.dragBodyN = drag;
+    this.aeroInput.rho = this.atmosphere.densityKgM3;
+    this.aeroInput.heightAglM = this.heightAglM;
+    this.aeroInput.cg = this.mass.cg;
+    this.aeroInput.densityScale = this.densityScale;
+    this.aero.compute(this.aeroInput, surf, slip, effectiveness);
+    this.forceBody.add(this.aero.force);
+    this.momentBody.add(this.aero.moment);
+    this.aeroForce.copy(this.aero.force);
+    this.liftBodyN = this.aero.liftSumN;
+    this.dragBodyN = this.aero.dragSumN;
   }
 
   /** Adds a force (body axes) applied at a body-fixed point `p` (datum coordinates) and an optional pure moment. */
@@ -332,14 +251,5 @@ export class AircraftPhysics {
   /** Velocity of a body-fixed point in BODY axes (debug/telemetry). */
   pointVelocityBodyAxes(r: THREE.Vector3, out: THREE.Vector3): THREE.Vector3 {
     return pointVelocityBody(this.velBody, this.wBody, r, out);
-  }
-}
-
-function deflectionFor(kind: string | undefined, outboard: number, s: SurfaceDeflections): number {
-  switch (kind) {
-    case 'elevator': return s.elevator;
-    case 'rudder': return s.rudder;
-    case 'aileron': return outboard > 0 ? s.aileronLeft : s.aileronRight;
-    default: return 0;
   }
 }

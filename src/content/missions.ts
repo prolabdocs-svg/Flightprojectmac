@@ -142,7 +142,7 @@ export const MISSIONS: Array<MissionDefinition & MissionAirfieldLinks> = [
     // Side contract (not on the mandatory unlock path — red_canyon_route_01 alone opens
     // Backcountry). Riding the ridge launch needs real acceleration off the ground; a
     // Field Twin 18hp or the high-lift wing (both cheap, tech-free Builder buys) clears it.
-    aircraftRequirement: { maxTakeoffRollM: 45, label: 'Necesitas más aceleración en despegue (motor o ala mejorados)' },
+    aircraftRequirement: { maxTakeoffRollM: 55, label: 'Necesitas más aceleración en despegue (motor o ala mejorados)' },
   },
   // Región 4 — BACKCOUNTRY.
   {
@@ -291,7 +291,7 @@ export const MISSIONS: Array<MissionDefinition & MissionAirfieldLinks> = [
     bonuses: [{ id: 'landing_quality', label: 'Aterrizaje suave', check: 'landingQuality', value: 0.76, rewardCash: 55, rewardRp: 8 }],
     // Side contract (desert_record_01 alone opens The Range). A STOL contract living up
     // to its name: the same short-roll bar as the ridge launch clears it.
-    aircraftRequirement: { maxTakeoffRollM: 45, label: 'Necesitas un despegue más corto (motor o ala mejorados)' },
+    aircraftRequirement: { maxTakeoffRollM: 55, label: 'Necesitas un despegue más corto (motor o ala mejorados)' },
   },
   // Región 8 — THE RANGE, the end-game mountain crossing.
   {

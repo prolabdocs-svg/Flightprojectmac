@@ -3,7 +3,6 @@
 // so callers can tell "not yet unlocked" apart from "unlocked but this build can't finish it".
 
 import type { AircraftBuild, MissionDefinition } from '../core/types';
-import { resolveAircraft } from './assembly';
 import { estimatePerformance } from '../sim/performance';
 
 export interface MissionReadiness {
@@ -20,7 +19,7 @@ const READY: MissionReadiness = { ready: true, shortfalls: [] };
 export function evaluateMissionReadiness(mission: MissionDefinition, build: AircraftBuild): MissionReadiness {
   const requirement = mission.aircraftRequirement;
   if (!requirement) return READY;
-  const perf = estimatePerformance(resolveAircraft(build));
+  const perf = estimatePerformance(build);
   const shortfalls: string[] = [];
   if (requirement.minRangeKm !== undefined && perf.rangeKm < requirement.minRangeKm) {
     shortfalls.push(`Autonomía ${perf.rangeKm.toFixed(1)} km · necesitas ${requirement.minRangeKm} km`);

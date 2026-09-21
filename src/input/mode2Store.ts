@@ -10,17 +10,21 @@ export type ControlPreset = 'beginner' | 'normal' | 'sport' | 'custom';
 export interface ExpoRate {
   expo: number;
   rate: number;
+  /** Stick travel ignored around centre (0..0.5). Part of the touch pipeline: dead zone -> expo -> rate. */
+  deadZone?: number;
 }
 
 export const PRESETS: Record<ControlPreset, ExpoRate> = {
-  beginner: { expo: 0.65, rate: 0.7 },
-  normal: { expo: 0.4, rate: 1.0 },
-  sport: { expo: 0.15, rate: 1.0 },
-  custom: { expo: 0.4, rate: 1.0 },
+  beginner: { expo: 0.65, rate: 0.7, deadZone: 0.06 },
+  normal: { expo: 0.4, rate: 1.0, deadZone: 0.04 },
+  sport: { expo: 0.15, rate: 1.0, deadZone: 0.02 },
+  custom: { expo: 0.4, rate: 1.0, deadZone: 0.04 },
 };
 
-export function applyExpo(x: number, { expo, rate }: ExpoRate): number {
-  const clamped = Math.max(-1, Math.min(1, x));
+export function applyExpo(x: number, { expo, rate, deadZone = 0 }: ExpoRate): number {
+  const raw = Math.max(-1, Math.min(1, x));
+  // Dead zone first (rescaled so full deflection still reaches 1), then the expo curve, then the rate.
+  const clamped = Math.abs(raw) <= deadZone ? 0 : Math.sign(raw) * ((Math.abs(raw) - deadZone) / (1 - deadZone));
   return rate * ((1 - expo) * clamped + expo * clamped ** 3);
 }
 
