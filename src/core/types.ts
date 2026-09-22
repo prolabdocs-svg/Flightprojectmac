@@ -2,6 +2,7 @@
 // Mirrors the data model described in the PROJECT FLIGHT spec (secciones 6, 35, 43).
 
 import type { Vector3 } from 'three';
+import type { OperationsState } from '../mission/types';
 
 export type Vec3 = [number, number, number];
 
@@ -135,6 +136,8 @@ export interface FrameDefinition {
   basePhysics: PartPhysics;
   baseAeroSurfaces: AeroSurfaceSpec[];
   defaultLoadout: Partial<Record<PartCategory, string>>;
+  /** Maximum takeoff mass (empty + pilot + fuel + payload), kg. Falls back to a ratio of the empty mass. */
+  mtowKg?: number;
   /** Per-airframe handling overrides (see sim/flightModel.ts HandlingSpec). */
   handling?: Partial<Record<'pitchAuthority' | 'rollAuthority' | 'yawAuthority' | 'pitchDamping' | 'rollDamping' | 'yawDamping' | 'pitchStability' | 'yawStability' | 'dihedral', number>>;
 }
@@ -249,6 +252,8 @@ export interface PlayerProfile {
   completedMissions: Record<string, { bestScore: number; attempts: number }>;
   currentBuild: AircraftBuild;
   homeBase: HomeBaseState;
+  /** Contract loop state (src/mission): parked location, fuel on board, discoveries, active contract, ledger. */
+  operations: OperationsState;
   settings: {
     controlPreset: 'beginner' | 'normal' | 'sport' | 'custom';
     assistMode: 'assisted' | 'standard' | 'acro';

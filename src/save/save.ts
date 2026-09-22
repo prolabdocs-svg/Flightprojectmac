@@ -8,10 +8,11 @@
 // (the previous implementation) into IndexedDB and then clears the legacy key.
 
 import type { HomeBaseState, PlayerProfile } from '../core/types';
-import { defaultBuild } from '../content/assembly';
+import { defaultBuild, resolveAircraft } from '../content/assembly';
+import { createOperations, OPERATIONS_VERSION } from '../mission/operationsState';
 import { GAME_VERSION } from '../buildInfo';
 
-export const SAVE_SCHEMA_VERSION = 3;
+export const SAVE_SCHEMA_VERSION = 4;
 const DB_NAME = 'project-flight';
 const DB_VERSION = 1;
 const STORE_NAME = 'profile';
@@ -50,6 +51,7 @@ export function createDefaultProfile(): PlayerProfile {
     completedMissions: {},
     currentBuild: defaultBuild(),
     homeBase: { runwayLevel: 0, hangarLevel: 0 },
+    operations: createOperations(),
     settings: {
       controlPreset: 'normal',
       assistMode: 'assisted',
@@ -76,7 +78,15 @@ const DEFAULT_ACCESSIBILITY_SETTINGS = {
 
 const DEFAULT_HOME_BASE: HomeBaseState = { runwayLevel: 0, hangarLevel: 0 };
 
-/** Migrates an older save forward. Add cases as schemaVersion increases. */
+/** Migrates an older save forward. Add cases as schemaVersion increases. Exported for tests. */
+export function migrateProfile(raw: PlayerProfile): PlayerProfile {
+  return migrate(raw);
+}
+
+function sanitizeBuildSafe(p: PlayerProfile) {
+  return p.currentBuild ?? defaultBuild();
+}
+
 function migrate(raw: PlayerProfile): PlayerProfile {
   let profile = raw;
   if (profile.schemaVersion < 1) {
@@ -93,7 +103,19 @@ function migrate(raw: PlayerProfile): PlayerProfile {
   if (profile.schemaVersion < 3) {
     profile = { ...profile, schemaVersion: 3, ownedFrameIds: profile.ownedFrameIds?.length ? profile.ownedFrameIds : ['frame_zero'] };
   }
+  if (profile.schemaVersion < 4) {
+    // v4: contract operations (location, fuel on board, discoveries, active contract, settlement ledger).
+    profile = { ...profile, schemaVersion: 4 };
+  }
   profile = { ...profile, ownedFrameIds: profile.ownedFrameIds?.length ? profile.ownedFrameIds : ['frame_zero'] };
+  if (!profile.operations || profile.operations.version === undefined) {
+    const fresh = createOperations();
+    const build = sanitizeBuildSafe(profile);
+    profile = { ...profile, operations: { ...fresh, fuelL: resolveAircraft(build).fuelCapacityL } };
+  } else {
+    // Forward-compatible backfill for fields added after OPERATIONS_VERSION 1.
+    profile = { ...profile, operations: { ...createOperations(), ...profile.operations, version: OPERATIONS_VERSION } };
+  }
   profile = { ...profile, homeBase: { ...DEFAULT_HOME_BASE, ...profile.homeBase } };
   return profile;
 }

@@ -5,6 +5,9 @@ import { canUnlockTech } from '../content/techtree';
 import { MAX_HOME_BASE_LEVEL } from '../content/homeBase';
 import { getFrame } from '../content/parts';
 import { buildForFrame } from '../content/assembly';
+import * as ops from '../mission/operations';
+import type { Loadout } from '../mission/types';
+import type { FlightTelemetry } from '../flight/flightTypes';
 
 interface ProfileState {
   profile: PlayerProfile;
@@ -21,6 +24,13 @@ interface ProfileState {
   applyFlightResult: (result: FlightResult) => void;
   updateSettings: (patch: Partial<PlayerProfile['settings']>) => void;
   resetProfile: () => void;
+  // Contract loop (src/mission). Thin wrappers: the domain functions are pure, this only commits + persists.
+  acceptContract: (contractId: string) => ReturnType<typeof ops.acceptContract>;
+  prepareMission: (loadout: Loadout) => ReturnType<typeof ops.prepareMission>;
+  advanceMission: (telemetry: FlightTelemetry) => void;
+  settleMission: (telemetry?: FlightTelemetry | null) => ReturnType<typeof ops.settleActive>;
+  abandonMission: (telemetry?: FlightTelemetry) => ReturnType<typeof ops.abandonMission>;
+  recoverAircraft: () => ReturnType<typeof ops.recoverAircraft>;
 }
 
 export const useProfileStore = create<ProfileState>((set, get) => ({
@@ -29,7 +39,11 @@ export const useProfileStore = create<ProfileState>((set, get) => ({
   load: async () => {
     await whenSaveRepositoryReady();
     const loaded = saveRepository.load();
-    set({ profile: loaded ?? createDefaultProfile() });
+    const profile = loaded ?? createDefaultProfile();
+    // A save can be loaded mid-contract: resolve it through the state machine before any screen sees it.
+    const reconciled = ops.reconcileAfterLoad(profile);
+    set({ profile: reconciled });
+    if (reconciled !== profile) get().persist();
   },
 
   persist: () => {
@@ -45,7 +59,7 @@ export const useProfileStore = create<ProfileState>((set, get) => ({
     const { profile } = get();
     if (profile.ownedParts.includes(partId)) return true;
     if (profile.cash < priceCash) return false;
-    set({ profile: { ...profile, cash: profile.cash - priceCash, ownedParts: [...profile.ownedParts, partId] } });
+    set({ profile: ops.recordUpgrade({ ...profile, cash: profile.cash - priceCash, ownedParts: [...profile.ownedParts, partId] }, partId) });
     get().persist();
     return true;
   },
@@ -163,4 +177,24 @@ export const useProfileStore = create<ProfileState>((set, get) => ({
     saveRepository.clear();
     set({ profile: createDefaultProfile() });
   },
+
+  acceptContract: (contractId) => commit(ops.acceptContract(get().profile, contractId)),
+  prepareMission: (loadout) => commit(ops.prepareMission(get().profile, loadout)),
+  advanceMission: (telemetry) => {
+    const r = ops.advanceMission(get().profile, telemetry);
+    if (r.events.length === 0) return;
+    set({ profile: r.profile });
+    get().persist();
+  },
+  settleMission: (telemetry) => commit(ops.settleActive(get().profile, telemetry)),
+  abandonMission: (telemetry) => commit(ops.abandonMission(get().profile, telemetry)),
+  recoverAircraft: () => commit(ops.recoverAircraft(get().profile)),
 }));
+
+function commit<T extends ops.OpResult<object>>(r: T): T {
+  if (r.ok) {
+    useProfileStore.setState({ profile: r.profile });
+    useProfileStore.getState().persist();
+  }
+  return r;
+}

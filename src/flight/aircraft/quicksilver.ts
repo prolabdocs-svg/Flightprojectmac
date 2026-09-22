@@ -29,6 +29,8 @@ export const HTAIL_INCIDENCE_DEG = -3.5;
 /** Tailplane aspect ratio as seen by the flow (open tube frame: worse than the geometric span^2/area). */
 const TAIL_EFFECTIVE_AR = 3.5;
 const WING_SECTIONS = 4;
+/** Gasoline, kg per litre. Shared with the mission fuel model (src/mission/fuel.ts). */
+export const FUEL_DENSITY_KG_L = 0.72;
 const PILOT_MASS_KG = 70;
 const PILOT_Z = -0.55; // PLACEHOLDER seat station
 const GEAR_RATIO = 2.3;
@@ -207,7 +209,7 @@ export function buildAircraftDefinition(build: AircraftBuild, cal = CATALOGUE_CA
       fuelPosition: tankPos,
       fuelSize: [0.4, 0.3, 0.4],
       fuelCapacityL: resolved.fuelCapacityL,
-      fuelDensityKgL: 0.72,
+      fuelDensityKgL: FUEL_DENSITY_KG_L,
     },
     geometry: { wingAreaM2: area, wingspanM: span, meanChordM: meanChord, wingAcPosition: [0, wing.localPosition[1], wing.localPosition[2]] },
     aero: {

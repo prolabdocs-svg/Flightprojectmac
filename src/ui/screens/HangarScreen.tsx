@@ -1,7 +1,10 @@
 import { useGameStore } from '../../state/gameStore';
 import { useProfileStore } from '../../state/profileStore';
 import { resolveAircraft } from '../../content/assembly';
-import { getNextAvailableMission } from '../../content/missions';
+import { getAirfield } from '../../world/airfields';
+import { getPart } from '../../content/parts';
+import { getDestinationStatuses } from '../../mission/operations';
+import { STATE_LABEL } from '../../mission/labels';
 import { BrandMark } from '../components/BrandMark';
 import { MenuNavigation } from '../components/MenuNavigation';
 import { ResourceBar } from '../components/ScreenHeader';
@@ -10,15 +13,17 @@ import { UiIcon } from '../components/UiIcon';
 import { HangarAircraft } from '../components/HangarAircraft';
 import { MAX_HOME_BASE_LEVEL, getHomeBaseBenefits } from '../../content/homeBase';
 import { getNextPilotRank, getPilotRank } from '../../content/reputation';
+import '../components/ContractPlanner.css';
 import './Screens.css';
 
 // Spec 82.3 Main Hangar: primary hub with FLY CTA and navigation to other screens.
 export function HangarScreen() {
   const goTo = useGameStore((s) => s.goTo);
   const selectMission = useGameStore((s) => s.selectMission);
-  const selectFreeFlight = useGameStore((s) => s.selectFreeFlight);
   const profile = useProfileStore((s) => s.profile);
   const upgradeHomeBase = useProfileStore((s) => s.upgradeHomeBase);
+  const abandonMission = useProfileStore((s) => s.abandonMission);
+  const recoverAircraft = useProfileStore((s) => s.recoverAircraft);
   const aircraft = resolveAircraft(profile.currentBuild);
   const homeBaseBenefits = getHomeBaseBenefits(profile.homeBase);
   const pilotRank = getPilotRank(profile.reputation);
@@ -27,18 +32,19 @@ export function HangarScreen() {
   const runwayCost = (profile.homeBase.runwayLevel + 1) * 300 - 100;
   const hangarCost = (profile.homeBase.hangarLevel + 1) * 300 - 100;
 
-  const flyFirstAvailable = () => {
-    const mission = getNextAvailableMission(profile);
-    if (!mission) {
-      selectFreeFlight('the_range');
-      goTo('run');
+  const ops = profile.operations;
+  const location = getAirfield(ops.locationId);
+  const bestUsableKm = getDestinationStatuses(profile).reduce((m, st) => Math.max(m, st.assessment.plan.range.usableKm), 0);
+  const parts = Object.values(profile.currentBuild.installed).map((id) => (id ? getPart(id)?.name : undefined)).filter(Boolean);
+
+  // Flying always starts from the map (contracts hang off destinations); an accepted contract resumes in its briefing.
+  const fly = () => {
+    if (ops.active && (ops.active.session.state === 'ACCEPTED' || ops.active.session.state === 'PREPARED')) {
+      selectMission(ops.active.contract.id);
+      goTo('briefing');
       return;
     }
-    selectMission(mission.id);
-    // Give a first-time player the contract objective, reward and landing target
-    // before handing them the controls. The map already follows this route, so the
-    // primary hangar CTA should not bypass the playable mission loop.
-    goTo('briefing');
+    goTo('map');
   };
 
   const paint = PAINT_PRESETS.find((x) => x.id === profile.selectedPaintId);
@@ -66,8 +72,26 @@ export function HangarScreen() {
               <span className="chip">{aircraft.engine?.name ?? 'SIN MOTOR'}</span>
               <span className="chip">{aircraft.fuelCapacityL} L</span>
             </div>
-            <button className="fly-cta" onClick={flyFirstAvailable}><UiIcon name="flight" size={22} /> Volar ahora <UiIcon name="chevron" size={18} /></button>
-            <span className="hangar-caption">LISTO PARA PISTA · CONDICIÓN OPERATIVA</span>
+            <button className="fly-cta" onClick={fly} data-testid="fly"><UiIcon name="flight" size={22} /> Volar ahora <UiIcon name="chevron" size={18} /></button>
+            <span className="hangar-caption">{location?.name?.toUpperCase() ?? 'EN PISTA'} · {ops.active ? STATE_LABEL[ops.active.session.state].toUpperCase() : 'LISTO PARA PISTA'}</span>
+          </section>
+
+          <section className="panel ops-panel" data-testid="ops-panel">
+            <div><span className="panel-kicker">OPERACIONES</span><h3>Estado de la aeronave</h3></div>
+            <div className="tile-row">
+              <div className="tile"><b data-testid="hangar-location">{location?.name ?? ops.locationId}</b><span>Ubicación</span></div>
+              <div className="tile"><b data-testid="hangar-fuel">{ops.fuelL.toFixed(1)}<small>/ {aircraft.fuelCapacityL} L</small></b><span>Combustible a bordo</span></div>
+              <div className="tile"><b data-testid="hangar-range">{bestUsableKm.toFixed(1)}<small>km</small></b><span>Alcance útil</span></div>
+              <div className={`tile${ops.debtCash > 0 ? ' tile-warn' : ''}`}><b data-testid="hangar-debt">${ops.debtCash}</b><span>Deuda</span></div>
+            </div>
+            <p className="results-note" data-testid="hangar-condition">Condición: {ops.condition.flights} vuelos · {ops.condition.landings} aterrizajes · {ops.condition.hardLandings} duros · Configuración: {parts.join(' · ')}</p>
+            {ops.active && (
+              <div className="planner-notice" data-testid="hangar-active">
+                Contrato {STATE_LABEL[ops.active.session.state].toLowerCase()}: {ops.active.contract.title}
+                {(ops.active.session.state === 'ACCEPTED' || ops.active.session.state === 'PREPARED' || ops.active.session.state === 'ACTIVE') && <button className="secondary-btn" onClick={() => abandonMission()}>Cancelar contrato</button>}
+                {(ops.active.session.state === 'FAILED' || ops.active.session.state === 'ABORTED') && <button className="secondary-btn" onClick={() => recoverAircraft()}>Recuperar aeronave</button>}
+              </div>
+            )}
           </section>
 
           <section className="panel home-base-panel">

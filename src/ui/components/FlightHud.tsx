@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react';
 import type { MissionDefinition } from '../../core/types';
 import type { FlightTelemetry } from '../../flight/flightTypes';
+import type { ContractState } from '../../mission/types';
 import { useMode2Store } from '../../input/mode2Store';
 import { audioService } from '../../audio/audioService';
 import { getMissionProgress } from '../../content/missionProgress';
@@ -20,9 +21,15 @@ interface FlightHudProps {
   freeFlightAirfieldName?: string;
   paused: boolean;
   onPause: () => void;
+  /** Tank size in litres, so the fuel readout is the same magnitude the simulation burns and the save stores. */
+  fuelCapacityL?: number;
+  /** Current mission phase from the mission domain (RODAJE, DESPEGUE, ...). */
+  phaseLabel?: string;
+  /** Contract state from the mission domain; when present it decides the end-of-flight banner. */
+  contractState?: ContractState;
 }
 
-export function FlightHud({ telemetry, mission, freeFlightRegionName, freeFlightAirfieldName, paused, onPause }: FlightHudProps) {
+export function FlightHud({ telemetry, mission, freeFlightRegionName, freeFlightAirfieldName, paused, onPause, fuelCapacityL, phaseLabel, contractState }: FlightHudProps) {
   const setThrottle = useMode2Store((s) => s.setThrottle);
   const setRudder = useMode2Store((s) => s.setRudder);
   const setElevator = useMode2Store((s) => s.setElevator);
@@ -105,8 +112,8 @@ export function FlightHud({ telemetry, mission, freeFlightRegionName, freeFlight
           <span className="hud-unit">ft ALT</span>
         </div>
         <div className={`hud-readout hud-readout-${fuelStatus}`}>
-          <span className="hud-value">{fuelPct}%</span>
-          <span className="hud-unit">FUEL</span>
+          <span className="hud-value" data-testid="hud-fuel">{fuelCapacityL ? (telemetry.fuelFraction * fuelCapacityL).toFixed(1) : `${fuelPct}%`}</span>
+          <span className="hud-unit">{fuelCapacityL ? 'L FUEL' : 'FUEL'}</span>
         </div>
         <div className={`hud-readout hud-readout-${rpmStatus}`}>
           <span className="hud-value">{Math.round(telemetry.rpm)}</span>
@@ -123,6 +130,7 @@ export function FlightHud({ telemetry, mission, freeFlightRegionName, freeFlight
           <span className={`hud-objective hud-objective-${missionProgress?.state ?? 'active'}`}>{missionProgress?.primaryLabel}</span>
           {missionProgress?.secondaryLabel && <span>{missionProgress.secondaryLabel}</span>}
           {bearingLabel && <span className="hud-bearing" aria-label={`Rumbo al destino ${bearingLabel}`}>{bearingLabel}</span>}
+          {phaseLabel && <span className="hud-phase" data-testid="hud-phase">{phaseLabel}</span>}
           <span>{telemetry.elapsedS.toFixed(1)} s</span>
         </div>
       )}
@@ -135,8 +143,11 @@ export function FlightHud({ telemetry, mission, freeFlightRegionName, freeFlight
       )}
 
       <div className="hud-state-banner">
-        {telemetry.crashed && <span className="banner-crash">ACCIDENTE</span>}
-        {telemetry.landed && !telemetry.crashed && <span className={missionProgress?.state === 'completed' ? 'banner-landed' : 'banner-objective-missed'}>
+        {contractState === 'FAILED' && <span className="banner-crash">CONTRATO FALLIDO</span>}
+        {contractState === 'OBJECTIVE_MET' && <span className="banner-landed">CONTRATO COMPLETADO — calidad {(telemetry.landingQuality * 100).toFixed(0)}%</span>}
+        {contractState === 'ABORTED' && <span className="banner-objective-missed">CONTRATO ABORTADO</span>}
+        {!contractState && telemetry.crashed && <span className="banner-crash">ACCIDENTE</span>}
+        {!contractState && telemetry.landed && !telemetry.crashed && <span className={missionProgress?.state === 'completed' ? 'banner-landed' : 'banner-objective-missed'}>
           {missionProgress?.state === 'completed' ? 'CONTRATO COMPLETADO' : 'ATERRIZAJE FUERA DE OBJETIVO'} — calidad {(telemetry.landingQuality * 100).toFixed(0)}%
         </span>}
       </div>

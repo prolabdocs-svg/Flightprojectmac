@@ -28,7 +28,7 @@ export interface Sample extends FlightTelemetry {
 /** The Field's height grid is deterministic; building it (66k samples) once keeps harnesses cheap. */
 let fieldGrid: Float32Array | undefined;
 
-export async function createHarness(opts: { build?: AircraftBuild; regionId?: string; wind?: THREE.Vector3; spawn?: THREE.Vector3; headingDeg?: number; obstacles?: Obstacle[] } = {}) {
+export async function createHarness(opts: { build?: AircraftBuild; regionId?: string; wind?: THREE.Vector3; spawn?: THREE.Vector3; headingDeg?: number; obstacles?: Obstacle[]; load?: { fuelL?: number; payloadKg?: number } } = {}) {
   const RAPIER = await initPhysics();
   const world = createWorld();
   const region = getRegion(opts.regionId ?? 'the_field');
@@ -37,7 +37,7 @@ export async function createHarness(opts: { build?: AircraftBuild; regionId?: st
   const spawn = opts.spawn ?? new THREE.Vector3(0, terrain.getElevation(0, 0) + 1.2, 0);
   const build = opts.build ?? defaultBuild();
   const aircraft = resolveAircraft(build);
-  const fc = new FlightModel(world, aircraft, build, spawn, opts.headingDeg ?? 0, terrain, { obstacles: opts.obstacles });
+  const fc = new FlightModel(world, aircraft, build, spawn, opts.headingDeg ?? 0, terrain, { obstacles: opts.obstacles, load: opts.load });
   const dt = fc.dtS;
   const wind = opts.wind ?? new THREE.Vector3();
   let t = 0;

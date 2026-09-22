@@ -25,6 +25,8 @@ export interface AirfieldDefinition {
    * visible on the map (e.g. the home field); 'hidden' ones must be discovered by
    * flying nearby or completing a mission; 'rumored' ones are teased but not located. */
   discoveryState: AirfieldDiscoveryState;
+  /** Airfields that become visible on the map the first time the player lands here. */
+  reveals?: string[];
 }
 
 export const AIRFIELDS: AirfieldDefinition[] = [
@@ -46,6 +48,43 @@ export const AIRFIELDS: AirfieldDefinition[] = [
     position: [0, 0, 620],
     runwayLengthM: 180,
     runwayWidthM: 20,
+    surface: 'grass',
+    services: ['fuel'],
+    discoveryState: 'known',
+  },
+  // Operations ladder inside The Field (docs: master gameplay loop, milestone A/B/C): distances
+  // are set against the starter ultralight's real range so B is demanding-but-reachable and
+  // C is out of range until a capacity upgrade (tank_12) moves it to marginal.
+  {
+    id: 'field_east_meadow',
+    name: 'Prado del Este',
+    regionId: 'the_field',
+    position: [1300, 0, 1000],
+    runwayLengthM: 140,
+    runwayWidthM: 16,
+    surface: 'grass',
+    services: ['fuel'],
+    discoveryState: 'known',
+  },
+  {
+    id: 'field_far_ridge',
+    name: 'Cresta Lejana',
+    regionId: 'the_field',
+    position: [1950, 0, -3380],
+    runwayLengthM: 150,
+    runwayWidthM: 16,
+    surface: 'gravel',
+    services: ['fuel'],
+    discoveryState: 'known',
+    reveals: ['field_ridge_hollow'],
+  },
+  {
+    id: 'field_ridge_hollow',
+    name: 'Hondonada del Risco',
+    regionId: 'the_field',
+    position: [1000, 0, -3770],
+    runwayLengthM: 170,
+    runwayWidthM: 16,
     surface: 'grass',
     services: ['fuel'],
     discoveryState: 'hidden',

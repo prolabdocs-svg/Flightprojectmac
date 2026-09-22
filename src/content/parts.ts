@@ -382,6 +382,8 @@ export const FRAME_ZERO: FrameDefinition = {
     mountStrength: 50,
   },
   baseAeroSurfaces: [ELEVATOR, RUDDER],
+  // Ultralight-class useful load: ~105 kg over the 255 kg empty aircraft (frame + parts + 70 kg pilot).
+  mtowKg: 360,
   defaultLoadout: {
     engine: 'engine_small',
     wingSet: 'wing_a_basic',

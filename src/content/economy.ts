@@ -19,7 +19,7 @@ import { getHomeBaseBenefits } from './homeBase';
 
 /** Cash charged per liter of fuel actually burned. A gameplay abstraction, not a real
  * fuel price (see parts.ts's "Nota de seguridad" comment for the same disclaimer). */
-const FUEL_COST_PER_LITER_CASH = 0.9;
+export const FUEL_COST_PER_LITER_CASH = 0.9;
 /** Fallback fuel tank size if no aircraft is supplied (matches assembly.ts's own default
  * fallback for an unrecognized/empty build). */
 const DEFAULT_FUEL_CAPACITY_L = 8;
@@ -80,9 +80,11 @@ export function computeOperatingCosts(
   aircraft?: ResolvedAircraft,
   build?: AircraftBuild,
   homeBase?: HomeBaseState,
+  /** Fuel fraction at takeoff (default: full tank). Fuel is charged for what was burned, not for what was on board. */
+  startFuelFraction = 1,
 ): OperatingCosts {
   const fuelCapacityL = aircraft?.fuelCapacityL ?? DEFAULT_FUEL_CAPACITY_L;
-  const fuelBurnedL = Math.max(0, 1 - telemetry.fuelFraction) * fuelCapacityL;
+  const fuelBurnedL = Math.max(0, startFuelFraction - telemetry.fuelFraction) * fuelCapacityL;
   const fuelCost = fuelBurnedL * FUEL_COST_PER_LITER_CASH;
 
   let repairCost = 0;
@@ -120,6 +122,7 @@ export function computeFlightResult(
   aircraft?: ResolvedAircraft,
   build?: AircraftBuild,
   homeBase?: HomeBaseState,
+  startFuelFraction = 1,
 ): FlightResult {
   let rewardCash = mission?.rewardBaseCash ?? 20;
   let rewardRp = mission?.rewardBaseRp ?? 3;
@@ -172,7 +175,7 @@ export function computeFlightResult(
   }
 
   const roundedRewardCash = Math.round(rewardCash);
-  const operatingCosts = computeOperatingCosts(telemetry, aircraft, build, homeBase);
+  const operatingCosts = computeOperatingCosts(telemetry, aircraft, build, homeBase, startFuelFraction);
   // Never let costs push the flight's net cash below a small floor - same "a bad flight
   // never wipes out all progress" guarantee the crash-penalty cap already gives the
   // reward side above, just applied to the reward-minus-cost total instead. When the raw

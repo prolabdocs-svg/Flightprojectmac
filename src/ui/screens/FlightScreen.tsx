@@ -6,7 +6,10 @@ import { useProfileStore } from '../../state/profileStore';
 import { useMode2Store, getResolvedControls } from '../../input/mode2Store';
 import { mapGamepad } from '../../input/gamepad';
 import { resolveAircraft } from '../../content/assembly';
-import { getMission, isMissionAvailableToProfile } from '../../content/missions';
+import { isMissionAvailableToProfile } from '../../content/missions';
+import { resolveMission } from '../../mission/operations';
+import { tickContractFlight, concludeContractFlight } from '../../state/contractFlight';
+import { PHASE_LABEL, STATE_LABEL } from '../../mission/labels';
 import { evaluateMissionReadiness } from '../../content/missionReadiness';
 import { getRegion } from '../../content/regions';
 import { initPhysics, createWorld } from '../../sim/physics';
@@ -64,8 +67,14 @@ export function FlightScreen() {
   const [telemetry, setTelemetry] = useState<FlightTelemetry | null>(null);
   const [ready, setReady] = useState(false);
 
-  const mission = selectedMissionId ? getMission(selectedMissionId) ?? null : null;
+  // Dynamic contracts resolve through the profile (persisted active contract), not just the static campaign.
+  // Resolved once at mount: the contract leaves `active` the moment it is settled, but this flight still ends on it.
+  const resolvedRef = useRef<ReturnType<typeof resolveMission> | null>(null);
+  if (!resolvedRef.current) resolvedRef.current = resolveMission(profile, selectedMissionId);
+  const { mission, contract } = resolvedRef.current;
   const activeRegion = mission ? getRegion(mission.regionId) : getRegion(selectedFreeFlightRegionId);
+  const missionSession = profile.operations.active?.contract.id === contract?.id ? profile.operations.active?.session ?? null : null;
+  const fuelCapacityL = resolveAircraft(profile.currentBuild).fuelCapacityL;
 
   const getModel = useCallback(() => controllerRef.current, []);
 
@@ -87,7 +96,13 @@ export function FlightScreen() {
       // Last-resort guard against the map/briefing invariant: a contract the profile
       // hasn't unlocked, or the current build can't reasonably complete, must never
       // actually launch here even if UI navigation/state was bypassed to reach RUN.
-      if (mission && (!isMissionAvailableToProfile(mission, profile) || !evaluateMissionReadiness(mission, profile.currentBuild).ready)) {
+      if (contract) {
+        // A domain contract only launches from PREPARED: accepted, configured and feasible through the state machine.
+        if (profile.operations.active?.contract.id !== contract.id || profile.operations.active.session.state !== 'PREPARED') {
+          goTo('briefing');
+          return;
+        }
+      } else if (mission && (!isMissionAvailableToProfile(mission, profile) || !evaluateMissionReadiness(mission, profile.currentBuild).ready)) {
         goTo('briefing');
         return;
       }
@@ -107,7 +122,10 @@ export function FlightScreen() {
       // analytic terrainQuery queries in the flight model, so nothing is double-counted:
       // the body collider only touches terrain once the airframe is already wrecked.
       // Every region keeps a deep flat floor as the last resort.
-      const region = activeRegion;
+      // A contract flies in ITS weather (the same wind the planner used), not the region's generic mean.
+      const region = contract
+        ? { ...activeRegion, windBaseMs: contract.weather.windMs, environment: { ...activeRegion.environment, gustStrengthMs: contract.weather.gustMs } }
+        : activeRegion;
       const terrainQuery = createTerrainQueryService(region);
       const SAFETY_FLOOR_Y = -500;
       const groundDesc = RAPIER.ColliderDesc.cuboid(3000, 0.5, 3000).setTranslation(0, SAFETY_FLOOR_Y - 0.5, 0).setFriction(0.04);
@@ -134,7 +152,7 @@ export function FlightScreen() {
         ? { ...baseRunwayConditions, roughness: Math.max(0.04, baseRunwayConditions.roughness - getHomeBaseBenefits(profile.homeBase).runwayRoughnessReduction) }
         : baseRunwayConditions;
       const obstacles = getRegionObstacles(region.id, terrainQuery);
-      const controller = new FlightModel(world, aircraft, profile.currentBuild, spawn, mission?.spawnHeadingDeg ?? 0, terrainQuery, { runwayConditions, obstacles });
+      const controller = new FlightModel(world, aircraft, profile.currentBuild, spawn, mission?.spawnHeadingDeg ?? 0, terrainQuery, { runwayConditions, obstacles, load: contract ? profile.operations.active?.loadout ?? undefined : undefined });
       // The simulation owns its fixed step (PHYSICS_HZ); the clock must match it.
       fixedDt = controller.dtS;
       clock = new FixedStepClock(fixedDt, 0.1, Math.ceil(0.1 / fixedDt) + 2);
@@ -363,7 +381,16 @@ export function FlightScreen() {
           lastDetachedCount = telem.detachedPartIds.length;
         }
 
-        if ((telem.crashed || telem.landed) && endTimerRef.current === null) {
+        useGameStore.getState().setFlightTelemetry(telem);
+        if (contract) {
+          // Phases, terminal states and payment all come from the mission domain, fed by real telemetry.
+          if (tickContractFlight(telem) && endTimerRef.current === null) {
+            const final = telem;
+            endTimerRef.current = window.setTimeout(() => {
+              concludeContractFlight(final);
+            }, 1600);
+          }
+        } else if ((telem.crashed || telem.landed) && endTimerRef.current === null) {
           const final = telem;
           endTimerRef.current = window.setTimeout(() => {
             const result = computeFlightResult(mission, final, aircraft, profile.currentBuild, profile.homeBase);
@@ -381,6 +408,8 @@ export function FlightScreen() {
           controller,
           scene,
           recorder: recorderRef.current,
+          // Dev/QA: the scripted test pilot (src/mission/bot.ts), loaded lazily so it never ships in the production bundle.
+          loadBot: () => import('../../mission/bot').then((m) => m.BotPilot),
           simulate: (seconds: number, overrides: Partial<ResolvedControls> | ((t: FlightTelemetry | null) => Partial<ResolvedControls>) = {}) => {
             const ticks = Math.round(seconds / fixedDt);
             for (let i = 0; i < ticks; i++) {
@@ -461,7 +490,7 @@ export function FlightScreen() {
     <div className="flight-screen">
       <canvas ref={canvasRef} className="flight-canvas" />
       {ready && telemetry && (
-        <FlightHud telemetry={telemetry} mission={mission} freeFlightRegionName={mission ? undefined : activeRegion.name} freeFlightAirfieldName={mission ? undefined : getFreeFlightAirfield(activeRegion.id)?.name} onPause={() => setPaused(true)} paused={paused} />
+        <FlightHud telemetry={telemetry} mission={mission} fuelCapacityL={fuelCapacityL} phaseLabel={missionSession?.phase ? PHASE_LABEL[missionSession.phase] : missionSession ? STATE_LABEL[missionSession.state] : undefined} contractState={missionSession?.state} freeFlightRegionName={mission ? undefined : activeRegion.name} freeFlightAirfieldName={mission ? undefined : getFreeFlightAirfield(activeRegion.id)?.name} onPause={() => setPaused(true)} paused={paused} />
       )}
       {ready && debugOn && (
         <FlightDebugOverlay getModel={getModel} recorder={recorderRef.current} showGizmos={gizmosOn} onToggleGizmos={() => setGizmosOn((v) => !v)} />

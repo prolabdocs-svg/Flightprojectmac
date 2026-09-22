@@ -2,11 +2,18 @@ import { useEffect } from 'react';
 import { useGameStore } from '../../state/gameStore';
 import { audioService } from '../../audio/audioService';
 import { UiIcon } from '../components/UiIcon';
+import { ContractResults } from '../components/ContractResults';
 import './Screens.css';
 import { getResultsHeadline } from './resultsHeadline';
 
 // Spec 82.14 Results: score, rewards, damage, next action.
+// Contract flights are settled by the mission domain and shown from the profile; legacy flights keep their own path.
 export function ResultsScreen() {
+  const outcome = useGameStore((s) => s.lastOutcome);
+  return outcome === 'contract' ? <ContractResults /> : <LegacyResults />;
+}
+
+function LegacyResults() {
   const goTo = useGameStore((s) => s.goTo);
   const result = useGameStore((s) => s.lastResult);
   const selectMission = useGameStore((s) => s.selectMission);

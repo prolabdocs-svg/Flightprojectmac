@@ -36,23 +36,33 @@ describe('MapScreen', () => {
     expect(byText('nav button', /Taller/)).toBeTruthy();
     expect(host.querySelector('.mission-card')).toBeNull(); // no permanent mission stack
   });
-  it('selecting an airfield opens a compact panel with runway data and its contracts; PLAN launches the briefing', async () => {
+  it('selecting the parked-at airfield shows the aircraft state from the save (fuel in litres), not contracts', async () => {
     await mount();
     click(byText('.wmap-sr button', /Taller de campo/));
     const panel = host.querySelector('.wmap-panel')!;
     expect(panel.textContent).toContain('220 m'); // runway length, labelled separately from distance
-    expect(panel.textContent).toContain('Primer salto');
+    expect(panel.textContent).toContain('AERONAVE ESTACIONADA');
+    expect(host.querySelector('[data-testid="fuel-onboard"]')!.textContent).toContain('8.0 / 8 L');
     expect(useGameStore.getState().mapSelectionId).toBe('field_home');
+  });
+  it('a neighbour strip lists GENERATED contracts (domain offers); PLANIFICAR opens the briefing for that contract', async () => {
+    await mount();
+    click(byText('.wmap-sr button', /Franja Norte/));
+    const offers = [...host.querySelectorAll('[data-testid="offer"]')];
+    expect(offers.length).toBeGreaterThan(0);
+    expect(host.textContent).not.toContain('Primer salto'); // static campaign contracts are gone from this region
     click(byText('.wmap-plan', /PLANIFICAR/));
     expect(useGameStore.getState().screen).toBe('briefing');
-    expect(useGameStore.getState().selectedMissionId).toBe('field_distance_01');
+    expect(useGameStore.getState().selectedMissionId).toMatch(/_field_home_field_north_strip_/);
+    expect(useProfileStore.getState().profile.operations.active).toBeNull(); // nothing is accepted until the briefing STARTs
   });
-  it('the neighbour strip shows real distance and a comfortable range verdict', async () => {
+  it('the neighbour strip shows real distance and the planner verdict with its limiting factor', async () => {
     await mount();
     click(byText('.wmap-sr button', /Franja Norte/));
     const panel = host.querySelector('.wmap-panel')!;
     expect(panel.textContent).toContain('620 m');
-    expect(panel.textContent).toContain('ALCANCE CÓMODO');
+    expect(host.querySelector('[data-testid="reach"]')!.getAttribute('data-reach')).toBe('REACHABLE');
+    expect(host.querySelector('[data-testid="reach-detail"]')!.textContent).toMatch(/Limita: /);
   });
   it('an out-of-range reference stays selectable and explains itself (no hard lock)', async () => {
     await mount();

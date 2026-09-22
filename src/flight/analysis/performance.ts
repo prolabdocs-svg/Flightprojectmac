@@ -10,9 +10,11 @@ import { GROUND_SURFACES } from '../../world/surfaces';
 import { buildAircraftDefinition } from '../aircraft/quicksilver';
 import type { AircraftDefinition } from '../aircraft/aircraftDefinition';
 import { computeMassProperties } from '../aircraft/massModel';
+import { payloadMassItem } from '../aircraft/payload';
 import { AeroModel } from '../aero/aeroModel';
+import { getAirfoilTable } from '../aero/airfoil';
 import { GRAVITY, DEG, SEA_LEVEL_DENSITY } from '../core/constants';
-import { sampleAtmosphere } from '../atmosphere/atmosphere';
+import { airDensity, sampleAtmosphere } from '../atmosphere/atmosphere';
 import { Propulsion } from '../propulsion/propulsion';
 
 export interface LevelPoint {
@@ -43,10 +45,12 @@ class Analyzer {
   private readonly air = new THREE.Vector3();
   private readonly atm = { temperatureK: 0, pressurePa: 0, densityKgM3: 1.225 };
 
-  constructor(def: AircraftDefinition, fuelFraction = 1) {
+  constructor(def: AircraftDefinition, fuelFraction = 1, payloadKg = 0) {
     this.def = def;
     const d = def.mass;
-    const mp = computeMassProperties([...d.items, { id: 'fuel', massKg: d.fuelCapacityL * fuelFraction * d.fuelDensityKgL, position: d.fuelPosition, size: d.fuelSize }]);
+    const items = [...d.items, { id: 'fuel', massKg: d.fuelCapacityL * fuelFraction * d.fuelDensityKgL, position: d.fuelPosition, size: d.fuelSize }];
+    if (payloadKg > 0) items.push(payloadMassItem(payloadKg));
+    const mp = computeMassProperties(items);
     this.massKg = mp.massKg;
     this.cg = mp.cg;
     this.aero = new AeroModel(def);
@@ -99,6 +103,60 @@ class Analyzer {
     const stalled = !found || e.up < weight * 0.97;
     return { speedMs: V, alphaDeg: alpha / DEG, thrustN: th.thrustN, dragN: th.thrustN - e.fwd, climbMs: (e.fwd * V) / weight, rpm: th.rpm, powerFraction: th.powerFraction, stalled };
   }
+
+  /** Airspeed at which lift at the 9 deg rotation attitude carries the weight, m/s. */
+  liftoffSpeed(stallMs: number, rho: number): number {
+    const weight = this.massKg * GRAVITY;
+    for (let V = stallMs * 0.8; V < stallMs * 1.6; V += 0.25) {
+      const f = this.aeroAt(V, 9 * DEG, rho, 100, null);
+      if (f.z * Math.sin(9 * DEG) + f.y * Math.cos(9 * DEG) >= weight) return V;
+    }
+    return stallMs * 1.05;
+  }
+
+  /** Ground roll to liftoff at full throttle. `surfaceRr` is GROUND_SURFACES[..].rollingResistance,
+   * `headwindMs` shortens the roll (airspeed = groundspeed + headwind), `rho` is the air density. */
+  takeoffRoll(stallMs: number, surfaceRr: number, headwindMs: number, rho: number, rotationS = 0): number {
+    const weight = this.massKg * GRAVITY;
+    const mu = this.def.gear.rollingResistance * surfaceRr;
+    const alphaGround = 1.5 * DEG;
+    const vLof = this.liftoffSpeed(stallMs, rho);
+    let v = 0;
+    let x = 0;
+    const dt = 0.1;
+    while (v + headwindMs < vLof && x < 2000) {
+      const va = Math.max(v + headwindMs, 0);
+      const th = this.thrustAt(va, 1, rho).thrustN;
+      const slip = this.prop && th > 0 ? this.prop.slipstream : null;
+      const f = this.aeroAt(Math.max(va, 0.5), alphaGround, rho, 1.1, slip);
+      const c = Math.cos(alphaGround);
+      const sn = Math.sin(alphaGround);
+      const lift = f.z * sn + f.y * c;
+      const acc = (f.z * c - f.y * sn + th - mu * Math.max(0, weight - lift)) / this.massKg;
+      if (acc <= 0.01) return Infinity;
+      v += acc * dt;
+      x += v * dt;
+    }
+    // Rotation: the aircraft keeps rolling at liftoff speed while the pilot pulls the nose up.
+    x += v * rotationS;
+    return x < 2000 ? x : Infinity;
+  }
+
+  /** Fuel flow (L/h) holding level flight at V: bisect the throttle whose excess power is zero. */
+  levelBurnLph(V: number, altM: number): { burnLph: number; throttle: number; canHold: boolean } {
+    const eng = this.def.engine;
+    if (!eng) return { burnLph: 0, throttle: 0, canHold: false };
+    let lo = 0.05;
+    let hi = 1;
+    const top = this.level(V, hi, altM);
+    if (top.stalled || top.climbMs < 0) return { burnLph: eng.fuelBurnLph * (0.12 + 0.88 * top.powerFraction), throttle: 1, canHold: false };
+    for (let i = 0; i < 14; i++) {
+      const mid = (lo + hi) / 2;
+      if (this.level(V, mid, altM).climbMs < 0) lo = mid; else hi = mid;
+    }
+    const p = this.level(V, hi, altM);
+    return { burnLph: eng.fuelBurnLph * (0.12 + 0.88 * p.powerFraction), throttle: hi, canHold: true };
+  }
 }
 
 export function levelPerformance(def: AircraftDefinition, speeds: number[], throttle = 1, altM = 0): LevelPoint[] {
@@ -147,36 +205,8 @@ function estimate(def: AircraftDefinition): AircraftPerformance {
     if (!p.stalled && p.climbMs > 0) { cruise = V; cruisePoint = p; }
   }
 
-  // Takeoff roll: accelerate on the ground attitude to the liftoff speed, thrust and aero from the same model.
-  const weight = a.massKg * GRAVITY;
-  const grass = GROUND_SURFACES.grass;
-  const mu = def.gear.rollingResistance * grass.rollingResistance;
-  const alphaGround = 1.5 * DEG;
   const rho0 = SEA_LEVEL_DENSITY;
-  // Liftoff: the speed where lift at the rotation attitude (9 deg) carries the weight.
-  let vLof = vs * 1.05;
-  for (let V = vs * 0.8; V < vs * 1.6; V += 0.25) {
-    const f = a.aeroAt(V, 9 * DEG, rho0, 100, null);
-    const c = Math.cos(9 * DEG);
-    const sn = Math.sin(9 * DEG);
-    if (f.z * sn + f.y * c >= weight) { vLof = V; break; }
-  }
-  let v = 0;
-  let x = 0;
-  const dt = 0.1;
-  while (v < vLof && x < 2000) {
-    const th = a.thrustAt(v, 1, rho0).thrustN;
-    const slip = a.prop && th > 0 ? a.prop.slipstream : null;
-    const f = a.aeroAt(Math.max(v, 0.5), alphaGround, rho0, 1.1, slip);
-    const c = Math.cos(alphaGround);
-    const sn = Math.sin(alphaGround);
-    const lift = f.z * sn + f.y * c;
-    const fwd = f.z * c - f.y * sn + th;
-    const acc = (fwd - mu * Math.max(0, weight - lift)) / a.massKg;
-    if (acc <= 0.01) { x = Infinity; break; }
-    v += acc * dt;
-    x += v * dt;
-  }
+  const takeoffRollM = a.takeoffRoll(vs, GROUND_SURFACES.grass.rollingResistance, 0, rho0);
 
   const eng = def.engine;
   let burnLpm = 0;
@@ -189,7 +219,7 @@ function estimate(def: AircraftDefinition): AircraftPerformance {
     stallSpeedKmh: vs * 3.6,
     cruiseSpeedKmh: cruise * 3.6,
     topSpeedKmh: s.topSpeedKmh,
-    takeoffRollM: Number.isFinite(x) && v >= vLof ? x : Infinity,
+    takeoffRollM,
     climbRateMs: s.bestClimbMs,
     rangeKm: (cruise * enduranceMin * 60) / 1000,
     enduranceMin,
@@ -208,4 +238,99 @@ export function estimatePerformance(build: AircraftBuild): AircraftPerformance {
     cache.set(key, p);
   }
   return p;
+}
+
+// --- Load-aware analysis (mission planning) -----------------------------------------------------
+// Same Analyzer, same aero + propulsion model, but with the fuel on board and the payload chosen
+// for THIS flight, at the departure/arrival conditions of THIS route. Mass enters through
+// massModel (fuel + payload items), so range, takeoff roll, climb and stall all move together.
+
+export interface LoadCondition {
+  fuelL: number;
+  payloadKg: number;
+}
+
+export interface OperatingCondition {
+  /** Density altitude of the departure field, m. */
+  altM: number;
+  /** Wind component along the takeoff/landing direction, m/s (+ = headwind). */
+  headwindMs: number;
+  /** GROUND_SURFACES rolling resistance at departure. */
+  departureRr: number;
+  /** GROUND_SURFACES rolling resistance / dry braking grip at arrival. */
+  arrivalRr: number;
+  arrivalBrakingGrip: number;
+}
+
+export interface LoadedPerformance {
+  massKg: number;
+  stallSpeedMs: number;
+  liftoffSpeedMs: number;
+  /** Level cruise speed (reference cruise of the unloaded aircraft, raised to 1.25 Vs if heavy), m/s. */
+  cruiseSpeedMs: number;
+  /** Fuel flow holding level flight at cruise speed for THIS mass, L/h. */
+  cruiseBurnLph: number;
+  /** False if even full throttle cannot hold level flight at cruise speed (overweight / density). */
+  cruiseHoldable: boolean;
+  /** Fuel flow at full throttle (takeoff and climb), L/h. */
+  fullBurnLph: number;
+  bestClimbMs: number;
+  takeoffRollM: number;
+  landingRollM: number;
+}
+
+/** Ground roll includes ~1 s of rotation at liftoff speed. Measured against the real flight model with a rotating
+ * pilot: the roll to first wheel-lift is 94 m against 82 m without it (the planner used to under-promise the runway). */
+const ROTATION_S = 1;
+/** Touchdown at 1.15 Vs, 2 s of flare float, brakes worth half the dry grip (main wheels only). */
+const LANDING_SPEED_FACTOR = 1.15;
+const FLARE_FLOAT_S = 2;
+const BRAKE_EFFICIENCY = 0.5;
+
+const definitionCache = new Map<string, AircraftDefinition>();
+const loadedCache = new Map<string, LoadedPerformance>();
+
+const buildKey = (build: AircraftBuild) => JSON.stringify([build.frameId, Object.entries(build.installed).sort()]);
+
+export function definitionFor(build: AircraftBuild): AircraftDefinition {
+  const key = buildKey(build);
+  let def = definitionCache.get(key);
+  if (!def) definitionCache.set(key, (def = buildAircraftDefinition(build)));
+  return def;
+}
+
+export function analyzeLoaded(build: AircraftBuild, load: LoadCondition, cond: OperatingCondition): LoadedPerformance {
+  const r = (v: number, q: number) => Math.round(v / q);
+  const key = JSON.stringify([buildKey(build), r(load.fuelL, 0.05), r(load.payloadKg, 0.5), r(cond.altM, 25), r(cond.headwindMs, 0.25), r(cond.departureRr, 0.005), r(cond.arrivalRr, 0.005), r(cond.arrivalBrakingGrip, 0.01)]);
+  const hit = loadedCache.get(key);
+  if (hit) return hit;
+
+  const def = definitionFor(build);
+  const cap = def.mass.fuelCapacityL;
+  const a = new Analyzer(def, cap > 0 ? Math.min(1, Math.max(0, load.fuelL / cap)) : 0, Math.max(0, load.payloadKg));
+  const rho = airDensity(cond.altM);
+  const clMax = getAirfoilTable(def.aero.airfoils.wing).clMax * 0.96;
+  const stallMs = Math.sqrt((2 * a.massKg * GRAVITY) / (rho * def.geometry.wingAreaM2 * clMax));
+  const cruiseMs = Math.max(estimatePerformance(build).cruiseSpeedKmh / 3.6, stallMs * 1.25);
+  const burn = a.levelBurnLph(cruiseMs, cond.altM);
+
+  let bestClimbMs = -Infinity;
+  for (let V = Math.ceil(stallMs * 1.1); V <= cruiseMs; V += 2) bestClimbMs = Math.max(bestClimbMs, a.level(V, 1, cond.altM).climbMs);
+
+  const vTouchdown = Math.max(0, LANDING_SPEED_FACTOR * stallMs - cond.headwindMs);
+  const decel = GRAVITY * (cond.arrivalBrakingGrip * BRAKE_EFFICIENCY + cond.arrivalRr);
+  const out: LoadedPerformance = {
+    massKg: a.massKg,
+    stallSpeedMs: stallMs,
+    liftoffSpeedMs: a.liftoffSpeed(stallMs, rho),
+    cruiseSpeedMs: cruiseMs,
+    cruiseBurnLph: burn.burnLph,
+    cruiseHoldable: burn.canHold,
+    fullBurnLph: def.engine?.fuelBurnLph ?? 0,
+    bestClimbMs,
+    takeoffRollM: a.takeoffRoll(stallMs, cond.departureRr, cond.headwindMs, rho, ROTATION_S),
+    landingRollM: FLARE_FLOAT_S * vTouchdown + (vTouchdown * vTouchdown) / (2 * decel),
+  };
+  loadedCache.set(key, out);
+  return out;
 }

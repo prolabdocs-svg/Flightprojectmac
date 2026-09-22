@@ -45,7 +45,7 @@ describe('airfields on the map', () => {
   });
   it('the map shows every airfield of the region, hidden ones stay "?" unless a contract points at them', () => {
     const t = getMapTargets('the_field').filter((x) => x.kind === 'airfield');
-    expect(t.map((x) => x.id).sort()).toEqual(['field_home', 'field_north_strip']);
+    expect(t.map((x) => x.id).sort()).toEqual(['field_east_meadow', 'field_far_ridge', 'field_home', 'field_north_strip', 'field_ridge_hollow']);
     expect(t.find((x) => x.id === 'field_north_strip')!.revealed).toBe(true); // precision contract targets it
     const coast = getMapTargets('coast_run').find((x) => x.id === 'coast_run_pier')!;
     expect(coast.airfield!.discoveryState).toBe('rumored');

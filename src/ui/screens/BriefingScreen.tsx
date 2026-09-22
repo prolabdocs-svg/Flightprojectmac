@@ -5,14 +5,28 @@ import { evaluateMissionReadiness } from '../../content/missionReadiness';
 import { getRegion } from '../../content/regions';
 import { ScreenHeader } from '../components/ScreenHeader';
 import { UiIcon } from '../components/UiIcon';
+import { ContractPlanner } from '../components/ContractPlanner';
+import { findContract } from '../../mission/operations';
 import './Screens.css';
 
 // Spec 82.5 Mission briefing: fits on one mobile screen, single START action.
 export function BriefingScreen() {
   const goTo = useGameStore((s) => s.goTo);
   const selectedMissionId = useGameStore((s) => s.selectedMissionId);
-  const build = useProfileStore((s) => s.profile.currentBuild);
+  const profile = useProfileStore((s) => s.profile);
+  const build = profile.currentBuild;
+  // Operations-domain contracts (generated offers or the persisted active contract) get the full mission planner;
+  // static campaign missions of other regions keep the legacy briefing below.
+  const contract = findContract(profile, selectedMissionId);
   const mission = selectedMissionId ? getMission(selectedMissionId) : null;
+
+  if (contract) {
+    return (
+      <div className="screen briefing-screen">
+        <ContractPlanner key={contract.id} profile={profile} contract={contract} onBack={() => goTo('map')} onStart={() => goTo('run')} />
+      </div>
+    );
+  }
 
   if (!mission) {
     goTo('map');

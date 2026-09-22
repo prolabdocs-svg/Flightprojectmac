@@ -8,6 +8,7 @@ import * as THREE from 'three';
 import type { AircraftBuild } from '../core/types';
 import type { ResolvedAircraft } from '../content/assembly';
 import { buildAircraftDefinition } from './aircraft/quicksilver';
+import { payloadMassItem } from './aircraft/payload';
 import { AircraftSimulation } from './core/aircraftSimulation';
 import { PHYSICS_DT, SEA_LEVEL_DENSITY, GRAVITY } from './core/constants';
 import { attitude } from './core/coordinates';
@@ -44,6 +45,8 @@ export interface FlightModelOptions {
   runwayConditions?: RunwayConditions;
   obstacles?: Obstacle[];
   wind?: Partial<WindFieldConfig>;
+  /** Fuel on board at takeoff (L, default = full tank) and payload mass (kg, default none). */
+  load?: { fuelL?: number; payloadKg?: number };
 }
 
 export class FlightModel {
@@ -60,6 +63,7 @@ export class FlightModel {
   private readonly obstacles: Obstacle[];
   private readonly windField: WindField;
   private readonly clMax: number;
+  private readonly initialFuelL: number;
 
   private state: FlightState = 'prestart';
   private crashed = false;
@@ -114,7 +118,12 @@ export class FlightModel {
     this.spawnHeadingDeg = spawnHeadingDeg;
     this.windField = new WindField({ ...DEFAULT_WIND_CONFIG, ...opts.wind });
     const def = buildAircraftDefinition(build);
+    const payloadKg = Math.max(0, opts.load?.payloadKg ?? 0);
+    if (payloadKg > 0) def.mass.items.push(payloadMassItem(payloadKg));
+    this.initialFuelL = Math.min(def.mass.fuelCapacityL, Math.max(0, opts.load?.fuelL ?? def.mass.fuelCapacityL));
     this.sim = new AircraftSimulation(world, def, groundFromTerrain(terrain));
+    this.sim.physics.fuelL = this.initialFuelL;
+    this.sim.physics.refreshMass(true);
     this.clMax = getAirfoilTable(def.aero.airfoils.wing).clMax * 0.96;
     this.damage = createDamageState(aircraft.aeroSurfaces.map((s) => s.id));
     this.sim.effectiveness = (id) => getAeroEffectivenessMultiplier(this.damage, id);
@@ -134,7 +143,7 @@ export class FlightModel {
     this.sim.placeOnGround(this.spawnXZ[0], this.spawnXZ[1], this.spawnHeadingDeg);
     this.body.setLinearDamping(0);
     this.body.setAngularDamping(0);
-    this.sim.physics.fuelL = this.sim.def.mass.fuelCapacityL;
+    this.sim.physics.fuelL = this.initialFuelL;
     this.sim.physics.refreshMass(true);
     this.sim.propulsion?.reset();
     this.sim.controls.reset();

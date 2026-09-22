@@ -22,6 +22,9 @@ function distanceBetween(aId: string, bId: string): number {
  * derived from airfield positions so edge data never drifts from the world layout. */
 const ROUTE_LINKS: Array<{ fromId: string; toId: string; difficulty: number }> = [
   { fromId: 'field_home', toId: 'field_north_strip', difficulty: 0.1 },
+  { fromId: 'field_home', toId: 'field_east_meadow', difficulty: 0.3 },
+  { fromId: 'field_home', toId: 'field_far_ridge', difficulty: 0.55 },
+  { fromId: 'field_far_ridge', toId: 'field_ridge_hollow', difficulty: 0.4 },
   { fromId: 'field_north_strip', toId: 'scrap_yard_strip', difficulty: 0.35 },
   { fromId: 'scrap_yard_strip', toId: 'scrap_quarry_strip', difficulty: 0.3 },
   { fromId: 'scrap_quarry_strip', toId: 'red_canyon_mesa', difficulty: 0.5 },

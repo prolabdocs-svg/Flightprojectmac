@@ -101,3 +101,9 @@
 }
 @media (prefers-reduced-motion: reduce) { .wmap-panel { animation: none; } }
 .wmap-terrain { display: flex; flex-direction: column; gap: 9px; }
+
+/* Active contract strip (operations domain): the map never hides that a contract is already accepted. */
+.wmap-active { position: absolute; z-index: 2; left: 60px; top: 10px; display: flex; align-items: center; gap: 8px; max-width: calc(100% - 340px); padding: 6px 10px; border: 1px solid var(--accent-strong); border-radius: var(--radius-sm); background: rgba(14,18,20,.9); font-size: 11px; }
+.wmap-active span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wmap-active .secondary-btn { min-height: 30px; padding: 4px 10px; font-size: 10px; }
+@media (max-width: 720px) { .wmap-active { left: 8px; right: 8px; top: 52px; max-width: none; } }

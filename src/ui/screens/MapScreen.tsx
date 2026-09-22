@@ -4,6 +4,11 @@ import { useProfileStore } from '../../state/profileStore';
 import { REGIONS, isRegionUnlocked } from '../../content/regions';
 import { isMissionAvailableToProfile } from '../../content/missions';
 import { estimatePerformance } from '../../sim/performance';
+import { getDestinationStatuses, getOffers, operationsRegionId } from '../../mission/operations';
+import { ROUTE_FACTOR } from '../../mission/planning';
+import { archetypeLabel } from '../../mission/labels';
+import { resolveAircraft } from '../../content/assembly';
+import { OpsDestinationPanel, type OpsPanelPlan } from '../components/OpsDestinationPanel';
 import { classifyRange, COMFORTABLE_FRACTION, contractsForAirfield, flightTimeS, getMapTargets, getOrigin, getRegionAirRoutes, regionTerrain, routeTags, sampleRouteProfile, usableRangeKm, formatDistance, type MapTarget } from '../../map/mapPlan';
 import { distanceM, type Insets } from '../../map/mapProjection';
 import { MenuNavigation } from '../components/MenuNavigation';
@@ -27,6 +32,7 @@ export function MapScreen() {
   const selectionId = useGameStore((s) => s.mapSelectionId);
   const setSelection = useGameStore((s) => s.setMapSelection);
   const profile = useProfileStore((s) => s.profile);
+  const abandonMission = useProfileStore((s) => s.abandonMission);
 
   const region = REGIONS.find((r) => r.id === selectedRegionId) ?? REGIONS[0];
   const mapRef = useRef<WorldMapHandle>(null);
@@ -35,37 +41,82 @@ export function MapScreen() {
   const [insets, setInsets] = useState<Insets>(NO_INSETS);
   const [contractId, setContractId] = useState<string | null>(null);
 
+  // Operations region = where the aircraft is parked. There the mission domain is the ONLY authority for
+  // range, availability and contracts; other regions keep the legacy campaign view until the world graph spans them.
+  const isOps = region.id === operationsRegionId(profile);
+  const ops = profile.operations;
+  const statuses = useMemo(() => (isOps ? getDestinationStatuses(profile) : []), [profile, isOps]);
+  const offers = useMemo(() => (isOps ? getOffers(profile) : []), [profile, isOps]);
   const perf = useMemo(() => estimatePerformance(profile.currentBuild), [profile.currentBuild]);
-  const usableKm = usableRangeKm(perf.rangeKm);
+  const legacyUsableKm = usableRangeKm(perf.rangeKm);
+  const statusFor = (id: string) => statuses.find((s) => s.airfieldId === id) ?? null;
+  const rawTargets = useMemo(() => getMapTargets(region.id), [region.id]);
+  // Knowledge comes from the save: known = visible on the map, visited = landed there (marked with a check).
+  const targets = useMemo(() => (isOps
+    ? rawTargets.map((t) => (t.kind === 'airfield' ? { ...t, revealed: ops.knownAirfieldIds.includes(t.id), name: ops.visitedAirfieldIds.includes(t.id) && t.id !== ops.locationId ? `${t.name} ✓` : t.name } : t))
+    : rawTargets), [rawTargets, isOps, ops.knownAirfieldIds, ops.visitedAirfieldIds, ops.locationId]);
+  const origin = useMemo(() => targets.find((t) => t.id === (isOps ? ops.locationId : getOrigin(region.id)?.id)) ?? null, [targets, region.id, isOps, ops.locationId]);
+  const selectedForRange = statusFor(selectionId ?? '');
+  // Range ring: the planner's usable range for the selected route (or the first known one), as straight-line metres.
+  const usableKm = isOps
+    ? ((selectedForRange ?? statuses[0])?.assessment.plan.range.usableKm ?? 0) / ROUTE_FACTOR
+    : legacyUsableKm;
   const range = useMemo(() => ({ usableM: usableKm * 1000, comfortableM: usableKm * 1000 * COMFORTABLE_FRACTION }), [usableKm]);
-  const targets = useMemo(() => getMapTargets(region.id), [region.id]);
-  const origin = useMemo(() => targets.find((t) => t.id === getOrigin(region.id)?.id) ?? null, [targets, region.id]);
   const routes = useMemo(() => getRegionAirRoutes(region.id).flatMap((r) => {
     const from = targets.find((t) => t.id === r.fromId), to = targets.find((t) => t.id === r.toId);
     return from && to ? [{ from, to }] : [];
   }), [targets, region.id]);
 
-  const statusOf = (t: MapTarget) => origin ? classifyRange(distanceM(origin.x, origin.z, t.x, t.z) / 1000, usableKm) : null;
+  const statusOf = (t: MapTarget) => {
+    if (!origin || t.id === origin.id) return null;
+    if (isOps) {
+      const st = statusFor(t.id);
+      if (st) return ({ REACHABLE: 'comfortable', MARGINAL: 'marginal', OUT_OF_RANGE: 'insufficient' } as const)[st.assessment.reach];
+      return classifyRange((distanceM(origin.x, origin.z, t.x, t.z) / 1000) * ROUTE_FACTOR, usableKm * ROUTE_FACTOR); // reference points: same planner range
+    }
+    return classifyRange(distanceM(origin.x, origin.z, t.x, t.z) / 1000, legacyUsableKm);
+  };
   const selected = targets.find((t) => t.id === selectionId) ?? null;
 
   const plan = useMemo<PanelPlan | null>(() => {
-    if (!selected) return null;
+    if (!selected || isOps) return null;
     const terrain = regionTerrain(region.id);
     const dM = origin ? distanceM(origin.x, origin.z, selected.x, selected.z) : 0;
     const profileLine = origin && selected.id !== origin.id ? sampleRouteProfile(terrain, [origin.x, origin.z], [selected.x, selected.z]) : null;
     return {
       target: selected, origin, distanceM: dM, timeS: flightTimeS(dM, perf.cruiseSpeedKmh), elevationM: terrain.getElevation(selected.x, selected.z),
-      status: origin && selected.id !== origin.id ? statusOf(selected) : null, usableKm, profile: profileLine,
+      status: origin && selected.id !== origin.id ? statusOf(selected) : null, usableKm: legacyUsableKm, profile: profileLine,
       tags: profileLine ? routeTags(profileLine, selected, terrain) : selected.airfield ? routeTags(sampleRouteProfile(terrain, [selected.x, selected.z], [selected.x, selected.z], 2), selected, terrain) : [],
       contracts: selected.airfield ? contractsForAirfield(region.id, selected.airfield.id) : [],
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected, origin, perf, usableKm, region.id]);
+  }, [selected, origin, perf, legacyUsableKm, region.id, isOps]);
+
+  const opsPlan = useMemo<OpsPanelPlan | null>(() => {
+    if (!selected || !isOps) return null;
+    const terrain = regionTerrain(region.id);
+    const line = origin && selected.id !== origin.id ? sampleRouteProfile(terrain, [origin.x, origin.z], [selected.x, selected.z]) : null;
+    return {
+      target: selected, origin, status: statusFor(selected.id), offers: offers.filter((o) => o.contract.destinationId === selected.id),
+      known: selected.revealed, visited: ops.visitedAirfieldIds.includes(selected.id), elevationM: terrain.getElevation(selected.x, selected.z),
+      profile: line, tags: line ? routeTags(line, selected, terrain) : [], fuelOnBoardL: ops.fuelL, fuelCapacityL: resolveAircraft(profile.currentBuild).fuelCapacityL,
+      reference: !statusFor(selected.id) && origin && selected.id !== origin.id ? (() => {
+        const st = statusOf(selected);
+        const dKm = distanceM(origin.x, origin.z, selected.x, selected.z) / 1000;
+        return st ? { reach: ({ comfortable: 'REACHABLE', marginal: 'MARGINAL', insufficient: 'OUT_OF_RANGE' } as const)[st], distanceKm: dKm, usableKm } : null;
+      })() : null,
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected, origin, statuses, offers, isOps, ops.fuelL, ops.visitedAirfieldIds]);
+  const [opsContractId, setOpsContractId] = useState<string | null>(null);
+  useEffect(() => { setOpsContractId(opsPlan?.offers.find((o) => o.available)?.contract.id ?? opsPlan?.offers[0]?.contract.id ?? null); }, [opsPlan?.target.id, opsPlan?.offers.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  const opsContract = offers.find((o) => o.contract.id === opsContractId)?.contract ?? null;
 
   // Default the highlighted contract to the first one the profile can take.
   useEffect(() => { setContractId(plan?.contracts.find((m) => isMissionAvailableToProfile(m, profile))?.id ?? null); }, [plan?.target.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const contract = plan?.contracts.find((m) => m.id === contractId);
-  const contractTarget = contract?.targetPoint ? { x: contract.targetPoint[0], z: contract.targetPoint[2], radiusM: contract.targetRadiusM ?? 20 } : null;
+  const shownContract = isOps ? opsContract?.mission : contract;
+  const contractTarget = shownContract?.targetPoint ? { x: shownContract.targetPoint[0], z: shownContract.targetPoint[2], radiusM: shownContract.targetRadiusM ?? 20 } : null;
 
   // Tell the canvas how much of the stage the panel hides, so routes stay visible beside/above it.
   useLayoutEffect(() => {
@@ -81,7 +132,7 @@ export function MapScreen() {
     const ro = new ResizeObserver(measure);
     ro.observe(panel); ro.observe(stage);
     return () => ro.disconnect();
-  }, [plan?.target.id]);
+  }, [plan?.target.id, opsPlan?.target.id]);
 
   return (
     <div className="screen map-screen">
@@ -139,7 +190,27 @@ export function MapScreen() {
           <button onClick={() => mapRef.current?.zoomBy(1 / 1.6)} aria-label="Alejar">−</button>
           <button onClick={() => mapRef.current?.centerHome()} aria-label="Centrar en la base" title="Centrar en la base">⌖</button>
         </div>
-        {!plan && <span className="wmap-hint">Toca una pista o un lugar para planear la ruta</span>}
+        {!plan && !opsPlan && <span className="wmap-hint">Toca una pista o un lugar para planear la ruta</span>}
+
+        {ops.active && isOps && (
+          <div className="wmap-active" role="status" data-testid="active-contract">
+            <span><b>{archetypeLabel(ops.active.contract.archetype)}</b> · {ops.active.contract.title}</span>
+            <button className="secondary-btn" onClick={() => { selectMission(ops.active!.contract.id); goTo('briefing'); }}>Continuar</button>
+            {(ops.active.session.state === 'ACCEPTED' || ops.active.session.state === 'PREPARED') && <button className="secondary-btn" onClick={() => abandonMission()}>Cancelar</button>}
+          </div>
+        )}
+
+        {opsPlan && (
+          <OpsDestinationPanel
+            plan={opsPlan}
+            contractId={opsContractId}
+            onContract={setOpsContractId}
+            onPlan={(id) => { selectMission(id); goTo('briefing'); }}
+            onWorkshop={() => goTo('builder')}
+            onClose={() => setSelection(null)}
+            panelRef={panelRef}
+          />
+        )}
 
         {plan && (
           <MapDestinationPanel

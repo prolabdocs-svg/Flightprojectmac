@@ -3,6 +3,7 @@
 
 import { create } from 'zustand';
 import type { FlightResult } from '../core/types';
+import type { FlightTelemetry } from '../flight/flightTypes';
 import type { MapView } from '../map/mapProjection';
 
 export type Screen =
@@ -29,6 +30,10 @@ interface GameState {
   mapViews: Record<string, MapView>;
   mapSelectionId: string | null;
   lastResult: FlightResult | null;
+  /** Which pipeline produced the results on screen: a settled contract (read from the profile) or a legacy flight. */
+  lastOutcome: 'contract' | 'legacy' | null;
+  /** Latest simulation sample of the flight in progress, so the pause menu can abandon with real fuel/damage. */
+  flightTelemetry: FlightTelemetry | null;
   paused: boolean;
   /** Monotonic runtime key. Entering RUN always creates a fresh physics session. */
   flightSession: number;
@@ -39,6 +44,8 @@ interface GameState {
   setMapView: (regionId: string, view: MapView) => void;
   setMapSelection: (id: string | null) => void;
   setLastResult: (r: FlightResult) => void;
+  setLastOutcome: (o: 'contract' | 'legacy' | null) => void;
+  setFlightTelemetry: (t: FlightTelemetry | null) => void;
   setPaused: (p: boolean) => void;
 }
 
@@ -50,6 +57,8 @@ export const useGameStore = create<GameState>((set) => ({
   mapViews: {},
   mapSelectionId: null,
   lastResult: null,
+  lastOutcome: null,
+  flightTelemetry: null,
   paused: false,
   flightSession: 0,
   goTo: (screen) =>
@@ -63,6 +72,8 @@ export const useGameStore = create<GameState>((set) => ({
   selectMapRegion: (regionId) => set({ selectedMapRegionId: regionId, mapSelectionId: null }),
   setMapView: (regionId, view) => set((s) => ({ mapViews: { ...s.mapViews, [regionId]: view } })),
   setMapSelection: (id) => set({ mapSelectionId: id }),
-  setLastResult: (r) => set({ lastResult: r }),
+  setLastResult: (r) => set({ lastResult: r, lastOutcome: 'legacy' }),
+  setLastOutcome: (o) => set({ lastOutcome: o }),
+  setFlightTelemetry: (t) => set({ flightTelemetry: t }),
   setPaused: (p) => set({ paused: p }),
 }));

@@ -26,7 +26,7 @@ const STATUS_TEXT: Record<RangeStatus, { glyph: string; label: string }> = {
   insufficient: { glyph: '✕', label: 'FUERA DE ALCANCE' },
 };
 
-function ProfileChart({ profile, from, to }: { profile: RouteProfile; from: string; to: string }) {
+export function ProfileChart({ profile, from, to }: { profile: RouteProfile; from: string; to: string }) {
   const W = 260, H = 54, span = Math.max(60, profile.maxM - profile.minM), lo = profile.minM - span * 0.12;
   const x = (d: number) => (d / Math.max(1, profile.totalM)) * W;
   const y = (e: number) => H - 4 - ((e - lo) / (span * 1.24)) * (H - 8);
