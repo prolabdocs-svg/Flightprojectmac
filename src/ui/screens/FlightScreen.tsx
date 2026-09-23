@@ -8,6 +8,7 @@ import { mapGamepad } from '../../input/gamepad';
 import { resolveAircraft } from '../../content/assembly';
 import { isMissionAvailableToProfile } from '../../content/missions';
 import { resolveMission } from '../../mission/operations';
+import { conditionToPartIntegrity, conditionToPowerMultiplier } from '../../mission/damageIntegration';
 import { tickContractFlight, concludeContractFlight } from '../../state/contractFlight';
 import { PHASE_LABEL, STATE_LABEL } from '../../mission/labels';
 import { evaluateMissionReadiness } from '../../content/missionReadiness';
@@ -43,6 +44,9 @@ import { createTerrainQueryService } from '../../world/terrainQuery';
 import { buildHeightGrid, createHeightfieldCollider, FIELD_TERRAIN_SEGMENTS, FIELD_TERRAIN_SIZE_M } from '../../world/terrainHeightfield';
 import { getHomeBaseBenefits } from '../../content/homeBase';
 import { getRegionObstacles } from '../../world/obstacles';
+import { createMasterRegionTerrain, getMasterTerrain } from '../../world/master/masterRuntime';
+import { MasterWorldAdapter } from '../../world/master/masterWorldAdapter';
+import { hasRegionComposition } from '../../world/regionCompositions';
 
 export function FlightScreen() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -126,7 +130,23 @@ export function FlightScreen() {
       const region = contract
         ? { ...activeRegion, windBaseMs: contract.weather.windMs, environment: { ...activeRegion.environment, gustStrengthMs: contract.weather.gustMs } }
         : activeRegion;
-      const terrainQuery = createTerrainQueryService(region);
+      // PHASE 2C: a campaign-site region with a master-world frame (src/world/master/masterRuntime.ts)
+      // gets its terrain/physics from the real streamed master authority instead of the flat safety
+      // floor it had before. Two regions are excluded, both to keep single terrain authority (never
+      // two ground truths for the same region — see docs/world/PHASE_2C_GAMEPLAY_INTEGRATION.md):
+      //   - 'the_field' keeps its own authored/legacy terrain exactly as-is (spec item 6: preserve
+      //     the vertical slice).
+      //   - any region with a legacy `regionCompositions.ts` entry (src/world/regionCompositions.ts,
+      //     owned by concurrent Slice-4 work landing in this same branch) already gets its terrain,
+      //     roads and fieldGrid from WorldEnvironment's own analytic heightfield; wiring master
+      //     streaming on top would be the exact double-terrain-authority bug this phase exists to
+      //     avoid. EXTERNAL CONCURRENT CHANGE, discovered mid-task — see PHASE_2C doc for detail.
+      //     Every campaign-site region currently has a composition, so master streaming is real,
+      //     tested (masterWorldAdapter, streamingRuntime, colliderStreaming) and ready, but not yet
+      //     reachable from gameplay until Slice-4's compositions themselves move to master elevation.
+      const masterTerrain = getMasterTerrain();
+      const useMasterWorld = region.id !== 'the_field' && masterTerrain.hasFrame(region.id) && !hasRegionComposition(region.id);
+      const terrainQuery = useMasterWorld ? createMasterRegionTerrain(region, masterTerrain) : createTerrainQueryService(region);
       const SAFETY_FLOOR_Y = -500;
       const groundDesc = RAPIER.ColliderDesc.cuboid(3000, 0.5, 3000).setTranslation(0, SAFETY_FLOOR_Y - 0.5, 0).setFriction(0.04);
       world.createCollider(groundDesc);
@@ -152,7 +172,14 @@ export function FlightScreen() {
         ? { ...baseRunwayConditions, roughness: Math.max(0.04, baseRunwayConditions.roughness - getHomeBaseBenefits(profile.homeBase).runwayRoughnessReduction) }
         : baseRunwayConditions;
       const obstacles = getRegionObstacles(region.id, terrainQuery);
-      const controller = new FlightModel(world, aircraft, profile.currentBuild, spawn, mission?.spawnHeadingDeg ?? 0, terrainQuery, { runwayConditions, obstacles, load: contract ? profile.operations.active?.loadout ?? undefined : undefined });
+      // Persistent damage/wear (mission/aircraftCondition.ts) carries into every flight, contract
+      // or free-flight alike — it's the same airframe either way (spec item 3).
+      const condition = profile.operations.aircraftCondition;
+      const controller = new FlightModel(world, aircraft, profile.currentBuild, spawn, mission?.spawnHeadingDeg ?? 0, terrainQuery, {
+        runwayConditions, obstacles, load: contract ? profile.operations.active?.loadout ?? undefined : undefined,
+        initialPartIntegrity: condition ? conditionToPartIntegrity(condition, aircraft.aeroSurfaces.map((s) => s.id)) : undefined,
+        powerMultiplier: condition ? conditionToPowerMultiplier(condition) : undefined,
+      });
       // The simulation owns its fixed step (PHYSICS_HZ); the clock must match it.
       fixedDt = controller.dtS;
       clock = new FixedStepClock(fixedDt, 0.1, Math.ceil(0.1 / fixedDt) + 2);
@@ -162,9 +189,12 @@ export function FlightScreen() {
       const scene = new FlightScene(canvasRef.current, region, paint && {
         fabricColor: paint.fabricColor,
         tubeColor: paint.tubeColor,
-      }, profile.currentBuild.frameId);
+      }, profile.currentBuild.frameId, useMasterWorld ? { terrainQuery, skipTerrainMesh: true } : undefined);
       scene.setTargetMarker(mission?.targetPoint, mission?.targetRadiusM ?? 20);
       sceneRef.current = scene;
+      // PHASE 2C: real THREE.Scene + real Rapier.World wiring for MasterStreamingRuntime (see
+      // masterWorldAdapter.ts for why region-local coordinates, not master-world-absolute ones).
+      const masterWorld = useMasterWorld ? new MasterWorldAdapter(region, scene.scene, RAPIER, world, masterTerrain) : null;
       {
         const gizmos = new FlightGizmos(scene.scene);
         gizmos.setVisible(debugRef.current && gizmosOnRef.current);
@@ -187,6 +217,7 @@ export function FlightScreen() {
         if (sceneRef.current === scene) sceneRef.current = null;
         gizmosRef.current?.dispose();
         gizmosRef.current = null;
+        masterWorld?.dispose();
         scene.dispose();
         world.free();
         audioService.stopFlight();
@@ -311,6 +342,23 @@ export function FlightScreen() {
       const renderQuaternion = previousQuaternion.clone();
       const windPosition = previousPosition.clone();
 
+      // PHASE 2C floating origin: a master-world rebase shifts every registered THREE object AND the
+      // streamed terrain colliders (inside MasterWorldAdapter/MasterStreamingRuntime) by `delta`. The
+      // aircraft's Rapier body and this loop's render-interpolation vectors hold the SAME region-local
+      // x/z but are not registered with FloatingOrigin (that only shifts `Object3D.position`), so they
+      // must be shifted here by the identical delta — a pure relabelling of the same geographic point,
+      // never touching velocity, attitude, altitude, heading or fuel (spec item 5).
+      if (masterWorld) {
+        masterWorld.addFollower((delta) => {
+          const t = controller.body.translation();
+          controller.body.setTranslation({ x: t.x - delta.x, y: t.y, z: t.z - delta.z }, true);
+          previousPosition.x -= delta.x; previousPosition.z -= delta.z;
+          currentPosition.x -= delta.x; currentPosition.z -= delta.z;
+          renderPosition.x -= delta.x; renderPosition.z -= delta.z;
+          windPosition.x -= delta.x; windPosition.z -= delta.z;
+        });
+      }
+
       // Damage-system feedback (task item 4): fire once per edge, not every frame, on the
       // damage/crash-outcome transitions FlightModel reports in telemetry.
       let lastCrashOutcome: FlightTelemetry['crashOutcome'] = 'none';
@@ -410,6 +458,18 @@ export function FlightScreen() {
           recorder: recorderRef.current,
           // Dev/QA: the scripted test pilot (src/mission/bot.ts), loaded lazily so it never ships in the production bundle.
           loadBot: () => import('../../mission/bot').then((m) => m.BotPilot),
+          // Phase 2C instrumentation (item 8): off the HUD by default, available from devtools —
+          // `__pf.masterWorld()` — global/local position, origin offset, tile/collider counts, LOD,
+          // triangles, pending queues and distance to unprepared terrain. null outside master-world regions.
+          masterWorld: () => {
+            if (!masterWorld) return null;
+            const t = controller.body.translation();
+            return {
+              localPosition: { x: t.x, y: t.y, z: t.z },
+              originOffset: masterWorld.runtime.origin.originOffset,
+              ...masterWorld.metrics(),
+            };
+          },
           simulate: (seconds: number, overrides: Partial<ResolvedControls> | ((t: FlightTelemetry | null) => Partial<ResolvedControls>) = {}) => {
             const ticks = Math.round(seconds / fixedDt);
             for (let i = 0; i < ticks; i++) {
@@ -442,6 +502,18 @@ export function FlightScreen() {
 
         renderPosition.copy(previousPosition).lerp(currentPosition, renderAlpha);
         renderQuaternion.copy(previousQuaternion).slerp(currentQuaternion, renderAlpha).normalize();
+
+        // Phase 2C: drive the master streamer once per render frame (not per physics substep — tile
+        // selection is a render/LOD concern) from the aircraft's real position/velocity/AGL, predictive
+        // on heading+speed (masterStreaming.ts `physicsRing`/look-ahead already takes vx/vz/aglM as an
+        // aircraft-agnostic API, so a faster future airframe just widens the same ring).
+        if (masterWorld) {
+          const t = controller.body.translation();
+          const v = controller.body.linvel();
+          const aglM = t.y - terrainQuery.getElevation(t.x, t.z);
+          masterWorld.update(t.x, t.z, v.x, v.z, aglM);
+        }
+
         const speedMs = lastTelemetry?.speedMs ?? 0;
         scene.syncAircraft(renderPosition, renderQuaternion, frameDt, {
           speedMs,

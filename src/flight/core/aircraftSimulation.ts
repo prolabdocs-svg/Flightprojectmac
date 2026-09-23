@@ -43,6 +43,8 @@ export class AircraftSimulation {
   readonly def: AircraftDefinition;
   /** Damage-system hook: 0..1 effectiveness per surface id. */
   effectiveness: (damageId: string) => number = () => 1;
+  /** Persistent-condition hook: combined engine+propeller output multiplier (1 = nominal). */
+  powerMultiplier = 1;
   timeS = 0;
   private readonly fwd = new THREE.Vector3();
   private readonly left = new THREE.Vector3();
@@ -100,6 +102,10 @@ export class AircraftSimulation {
       this.hubR.set(hp[0] - cg[0], hp[1] - cg[1], hp[2] - cg[2]);
       this.hubAir.copy(phys.wBody).cross(this.hubR).add(phys.airBody);
       pr.step(this.dt, { throttle: cmd.throttle, engineOn: cmd.engineOn, fuelL: phys.fuelL, rho: phys.atmosphere.densityKgM3, airAtHub: this.hubAir });
+      if (this.powerMultiplier !== 1) {
+        pr.thrustN *= this.powerMultiplier;
+        pr.thrust.multiplyScalar(this.powerMultiplier);
+      }
       slip = pr.slipstream;
       gyro = pr.angularMomentum;
       phys.fuelL = Math.max(0, phys.fuelL - pr.fuelFlowLps * this.dt);

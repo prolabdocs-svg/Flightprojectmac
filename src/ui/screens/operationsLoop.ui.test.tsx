@@ -220,7 +220,7 @@ describe('briefing planner limits', () => {
 
 function acceptContractFixture(p: ReturnType<typeof createDefaultProfile>, contract: ReturnType<typeof getOffers>[number]['contract']) {
   // A persisted ACCEPTED contract (the shape a save file holds): used where the generator never offers an impossible load.
-  return { ...p, operations: { ...p.operations, active: { contract, session: { contractId: contract.id, state: 'ACCEPTED' as const, phase: null, airborne: false, taxiObserved: false, fuelExhausted: false, atDestination: false, history: [{ event: 'ACCEPT' as const, from: { state: 'AVAILABLE' as const, phase: null }, to: { state: 'ACCEPTED' as const, phase: null } }], lastEvent: 'ACCEPT' as const }, loadout: null, startFuelFraction: null, finalTelemetry: null } } };
+  return { ...p, operations: { ...p.operations, active: { contract, session: { contractId: contract.id, state: 'ACCEPTED' as const, phase: null, airborne: false, taxiObserved: false, fuelExhausted: false, atDestination: false, history: [{ event: 'ACCEPT' as const, from: { state: 'AVAILABLE' as const, phase: null }, to: { state: 'ACCEPTED' as const, phase: null } }], lastEvent: 'ACCEPT' as const }, loadout: null, startFuelFraction: null, finalTelemetry: null, checkpoint: null } } };
 }
 
 describe('reload, settlement and failure branches through the screens', () => {

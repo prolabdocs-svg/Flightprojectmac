@@ -5,7 +5,8 @@ import { isMissionCompleted } from '../content/missionProgress';
 import { getAirfield } from '../world/airfields';
 import { generateContracts } from './contracts';
 import {
-  abandonMission, acceptContract, applySettlement, getDestinationStatuses, getOffers, prepareMission, reconcileAfterLoad, recoverAircraft, resolveMission, settleActive, suggestedLoadout,
+  abandonMission, acceptContract, advanceMission, aircraftAirworthiness, applySettlement, collectRepair, getDestinationStatuses, getOffers,
+  prepareMission, reconcileAfterLoad, recoverAircraft, repairEstimateFor, resolveMission, settleActive, startRepair, suggestedLoadout,
 } from './operations';
 import { applyEvent } from './stateMachine';
 import { nominalTelemetry, settleContract } from './settlement';
@@ -240,12 +241,18 @@ describe('failure, abort and recovery', () => {
     expect(failed.profile.operations.debtCash).toBeLessThanOrEqual(500);
     const recovered = ok(recoverAircraft(failed.profile)).profile;
     expect(getOffers(recovered).filter((o) => o.available).length).toBeGreaterThan(0);
-    const { profile: q0 } = prepared('field_north_strip', undefined, recovered);
+    // A totalLoss crash grounds the engine/propeller (spec item 7); at $0 cash the repair is
+    // financed on debt (spec item 8) rather than soft-locking the player out of flying again.
+    expect(aircraftAirworthiness(recovered).status).toBe('GROUNDED');
+    const repairStarted = ok(startRepair(recovered, undefined, 0)).profile;
+    const repaired = ok(collectRepair(repairStarted, repairStarted.operations.pendingRepair!.readyAtMs)).profile;
+    expect(aircraftAirworthiness(repaired).status).toBe('AIRWORTHY');
+    const { profile: q0 } = prepared('field_north_strip', undefined, repaired);
     const q1 = withEvents(q0, ...TO_LANDED, { type: 'AIRCRAFT_STOPPED', atDestination: true });
     const paid = ok(settleActive(q1, cleanTelemetry(q1)));
-    expect(paid.profile.operations.debtCash).toBeLessThan(recovered.operations.debtCash);
+    expect(paid.profile.operations.debtCash).toBeLessThan(repaired.operations.debtCash);
     expect(paid.profile.cash).toBeGreaterThan(0);
-    expect(paid.profile.cash + (recovered.operations.debtCash - paid.profile.operations.debtCash)).toBe(paid.settlement.net);
+    expect(paid.profile.cash + (repaired.operations.debtCash - paid.profile.operations.debtCash)).toBe(paid.settlement.net);
   });
   it('abandoning in the air costs a penalty; a diversion lands at the strip where it stopped', () => {
     const { profile: p0 } = prepared('field_east_meadow', 'cargo');
@@ -308,5 +315,140 @@ describe('load-time reconciliation and resolution (reload safety)', () => {
     expect(resolveMission(profile, 'field_distance_01').mission?.id).toBe('field_distance_01');
     expect(resolveMission(profile, 'nope')).toEqual({ mission: null, contract: null });
     expect(resolveMission(fresh(), contract.id).mission).toBeNull(); // not generated for a fresh profile: no phantom contracts
+  });
+});
+
+describe('Slice 4A: persistent aircraft condition, maintenance & repair', () => {
+  it('a normal flight with no damage leaves aircraftCondition essentially untouched', () => {
+    const { profile: p1 } = prepared();
+    const t = cleanTelemetry(p1);
+    const settled = ok(settleActive(withEvents(p1, ...TO_LANDED, { type: 'AIRCRAFT_STOPPED', atDestination: true }), t)).profile;
+    for (const c of Object.values(settled.operations.aircraftCondition) as { integrity: number }[]) expect(c.integrity).toBeGreaterThan(0.99);
+    expect(settled.operations.lastSettlement!.damagedComponentIds).toEqual([]);
+  });
+
+  it('a hard landing persists wing/gear damage into the NEXT flight instead of resetting to perfect condition', () => {
+    const { profile: p1 } = prepared();
+    const hard = cleanTelemetry(p1, { crashOutcome: 'hardLanding', damagedPartIds: ['aileron_l', '__gear__'], partIntegrity: { aileron_l: 0.5, aileron_r: 1, wing_root_main: 1, elevator: 1, rudder: 1, __gear__: 0.4 } });
+    const settled = ok(settleActive(withEvents(p1, ...TO_LANDED, { type: 'AIRCRAFT_STOPPED', atDestination: true }), hard)).profile;
+    expect(settled.operations.aircraftCondition.wingLeft.integrity).toBeCloseTo(0.5, 1);
+    expect(settled.operations.aircraftCondition.gearLeft.integrity).toBeCloseTo(0.4, 1);
+    expect(settled.operations.lastSettlement!.damagedComponentIds).toEqual(expect.arrayContaining(['wingLeft', 'gearLeft', 'gearRight', 'gearNose']));
+    // A second, otherwise-clean flight (back towards home) starts from that same damaged
+    // condition instead of resetting to nominal.
+    const { profile: p2, contract: c2 } = prepared('field_home', undefined, settled);
+    expect(p2.operations.aircraftCondition.wingLeft.integrity).toBeCloseTo(0.5, 1);
+    const clean2 = { ...nominalTelemetry({ distanceM: c2.distanceM, elapsedS: 60, fuelFraction: 0.5, endPosition: [0, 0, 0] }) };
+    const settled2 = ok(settleActive(withEvents(p2, ...TO_LANDED, { type: 'AIRCRAFT_STOPPED', atDestination: true }), clean2)).profile;
+    // Still damaged: a clean flight doesn't repair anything on its own.
+    expect(settled2.operations.aircraftCondition.wingLeft.integrity).toBeLessThanOrEqual(0.5);
+  });
+
+  it('an engine/propeller total-loss crash grounds the aircraft (INOPERATIVE) for the next flight', () => {
+    const { profile: p1 } = prepared();
+    const t = cleanTelemetry(p1, { crashOutcome: 'totalLoss', crashed: true, landed: false });
+    const settled = ok(settleActive(withEvents(p1, ...TO_LANDED.slice(0, 3), { type: 'CRASH', reason: 'terrain' }), t)).profile;
+    const airworthiness = aircraftAirworthiness(settled);
+    expect(airworthiness.status).toBe('GROUNDED');
+    const recovered = ok(recoverAircraft(settled)).profile;
+    const offer = getOffers(recovered).find((o) => o.available)!;
+    const acc = ok(acceptContract(recovered, offer.contract.id));
+    const prep = prepareMission(acc.profile, suggestedLoadout(acc.profile)!);
+    expect(prep).toEqual({ ok: false, error: expect.stringContaining('plan not feasible') });
+  });
+
+  it('RESTRICTED (CRITICAL component, not INOPERATIVE) still allows preparing a flight', () => {
+    const p = fresh();
+    p.operations.aircraftCondition.wingLeft.integrity = 0.29; // CRITICAL, not INOPERATIVE
+    expect(aircraftAirworthiness(p).status).toBe('RESTRICTED');
+    const offer = getOffers(p).find((o) => o.available)!;
+    const acc = ok(acceptContract(p, offer.contract.id));
+    const prep = ok(prepareMission(acc.profile, suggestedLoadout(acc.profile)!));
+    expect(prep.profile.operations.active!.session.state).toBe('PREPARED');
+  });
+
+  it('repair: estimate vs. actually purchased are separate; repair is deferred and completes at readyAtMs', () => {
+    const p = fresh();
+    p.operations.aircraftCondition.wingLeft.integrity = 0.5;
+    const estimate = repairEstimateFor(p);
+    expect(estimate.costCash).toBeGreaterThan(0);
+    // Merely looking at the estimate never charges anything.
+    expect(p.cash).toBe(fresh().cash);
+
+    const started = ok(startRepair(p, undefined, 1000));
+    expect(started.profile.cash).toBe(p.cash - estimate.costCash);
+    expect(started.profile.operations.pendingRepair!.readyAtMs).toBeGreaterThan(1000);
+    // Damage is still there until the repair is collected — no free/instant fix.
+    expect(started.profile.operations.aircraftCondition.wingLeft.integrity).toBeCloseTo(0.5);
+
+    const tooSoon = collectRepair(started.profile, started.profile.operations.pendingRepair!.readyAtMs - 1);
+    expect(tooSoon).toEqual({ ok: false, error: 'REPAIR_NOT_READY' });
+
+    const done = ok(collectRepair(started.profile, started.profile.operations.pendingRepair!.readyAtMs));
+    expect(done.profile.operations.aircraftCondition.wingLeft.integrity).toBe(1);
+    expect(done.profile.operations.pendingRepair).toBeNull();
+    // Collecting again (double-collect) is a clean no-op failure, never a second charge.
+    expect(collectRepair(done.profile, started.profile.operations.pendingRepair!.readyAtMs)).toEqual({ ok: false, error: 'NO_PENDING_REPAIR' });
+  });
+
+  it('settlement never auto-charges for damage: costs.damage is an estimate excluded from net', () => {
+    const { profile: p1 } = prepared();
+    const t = cleanTelemetry(p1, { crashOutcome: 'hardLanding', damagedPartIds: ['aileron_l'], partIntegrity: { aileron_l: 0.5, aileron_r: 1, wing_root_main: 1, elevator: 1, rudder: 1, __gear__: 1 } });
+    const settlement = settleActive(withEvents(p1, ...TO_LANDED, { type: 'AIRCRAFT_STOPPED', atDestination: true }), t);
+    const s = ok(settlement).settlement;
+    expect(s.costs.damage).toBeGreaterThan(0);
+    expect(s.costs.total).toBe(s.costs.fuel + s.costs.recovery + s.costs.fees);
+  });
+
+  it('checkpoint (spec item 11): advanceMission refreshes fuel periodically during ACTIVE, not just on events', () => {
+    const { profile: p1, contract } = prepared();
+    const started = withEvents(p1, { type: 'ENGINE_STARTED' }, { type: 'TAKEOFF_ROLL' }, { type: 'AIRBORNE' });
+    const base = nominalTelemetry({ distanceM: 100, elapsedS: 1, fuelFraction: 0.9, endPosition: [0, 0, 0] });
+    const first = advanceMission(started, { ...base, state: 'airborne', elapsedS: 1 });
+    const checkpointBefore = first.profile.operations.active!.checkpoint;
+    // No mission event fires here (still airborne, same phase) but 6s have passed: a checkpoint is due.
+    const second = advanceMission(first.profile, { ...base, state: 'airborne', elapsedS: 7, fuelFraction: 0.6 });
+    expect(second.profile).not.toBe(first.profile);
+    expect(second.profile.operations.active!.checkpoint).not.toEqual(checkpointBefore);
+    expect(second.profile.operations.active!.checkpoint!.fuelFraction).toBeCloseTo(0.6);
+    void contract;
+  });
+
+  it('an abrupt close mid-flight (reload) settles fuel from the last checkpoint instead of refunding it', () => {
+    const { profile: p1 } = prepared();
+    const startFraction = p1.operations.active!.startFuelFraction!;
+    const started = withEvents(p1, { type: 'ENGINE_STARTED' }, { type: 'TAKEOFF_ROLL' }, { type: 'AIRBORNE' });
+    const t1 = nominalTelemetry({ distanceM: 500, elapsedS: 1, fuelFraction: startFraction, endPosition: [0, 0, 0] });
+    const afterCheckpoint = advanceMission(started, { ...t1, state: 'airborne', elapsedS: 6, fuelFraction: startFraction * 0.6 }).profile;
+    expect(afterCheckpoint.operations.active!.checkpoint).not.toBeNull();
+    expect(afterCheckpoint.operations.active!.finalTelemetry).toBeNull(); // never reached a terminal event
+    const reconciled = reconcileAfterLoad(afterCheckpoint);
+    expect(reconciled.operations.active!.session.state).toBe('ABORTED'); // waits for recovery, never soft-locks
+    // Fuel actually burned (down to 0.55) was charged, not silently refunded to full tank.
+    expect(reconciled.operations.lastSettlement!.costs.fuel).toBeGreaterThan(0);
+  });
+
+  it('E2E: flight -> damage -> Results -> Hangar -> repair -> next flight recovers behavior', () => {
+    const { profile: p1 } = prepared();
+    const hard = cleanTelemetry(p1, { crashOutcome: 'hardLanding', damagedPartIds: ['aileron_l'], partIntegrity: { aileron_l: 0.35, aileron_r: 1, wing_root_main: 1, elevator: 1, rudder: 1, __gear__: 1 } });
+    const afterFlight = ok(settleActive(withEvents(p1, ...TO_LANDED, { type: 'AIRCRAFT_STOPPED', atDestination: true }), hard)).profile;
+
+    // Results: shows what happened, doesn't pretend it's fixed.
+    expect(afterFlight.operations.lastSettlement!.damagedComponentIds).toContain('wingLeft');
+    expect(afterFlight.operations.aircraftCondition.wingLeft.integrity).toBeCloseTo(0.35);
+
+    // Hangar: estimate, then buy the repair.
+    const estimate = repairEstimateFor(afterFlight, ['wingLeft']);
+    const repaired = ok(startRepair(afterFlight, ['wingLeft'], 0));
+    const collected = ok(collectRepair(repaired.profile, repaired.profile.operations.pendingRepair!.readyAtMs));
+    expect(collected.profile.operations.aircraftCondition.wingLeft.integrity).toBe(1);
+    expect(collected.profile.cash).toBe(afterFlight.cash - estimate.costCash);
+
+    // Next flight: behavior recovered (fully healthy again, nothing carried over).
+    const { profile: p2, contract: c2 } = prepared('field_home', undefined, collected.profile);
+    expect(p2.operations.aircraftCondition.wingLeft.integrity).toBe(1);
+    const cleanNext = nominalTelemetry({ distanceM: c2.distanceM, elapsedS: 60, fuelFraction: 0.5, endPosition: [0, 0, 0] });
+    const settledNext = ok(settleActive(withEvents(p2, ...TO_LANDED, { type: 'AIRCRAFT_STOPPED', atDestination: true }), cleanNext)).profile;
+    expect(settledNext.operations.aircraftCondition.wingLeft.integrity).toBeGreaterThan(0.999);
   });
 });

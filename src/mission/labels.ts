@@ -32,6 +32,7 @@ export function blockerText(b: Blocker, p: MissionPlan): string {
     case 'FUEL_OVER_CAPACITY': return `El tanque solo admite ${p.fuel.capacityL} L.`;
     case 'FUEL_NOT_AVAILABLE': return 'La pista de salida no vende combustible: solo puedes llevar lo que ya tienes a bordo.';
     case 'PAYLOAD_OUT_OF_BOUNDS': return 'La carga está fuera de lo que admite el contrato.';
+    case 'AIRCRAFT_GROUNDED': return 'El avión está en tierra: hay un componente inoperativo que necesita reparación antes de volar.';
   }
 }
 

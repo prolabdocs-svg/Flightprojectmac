@@ -52,6 +52,11 @@ export interface FlightTelemetry {
   crashOutcome: CrashOutcome;
   damagedPartIds: string[];
   detachedPartIds: string[];
+  /** Authoritative per-part integrity (1 = nominal .. 0 = destroyed), including the gear
+   * pseudo-part (sim/damageSystem.ts#gearPartId). Optional so existing fixtures/tests that
+   * only set damagedPartIds/detachedPartIds keep compiling; mission/damageIntegration.ts
+   * falls back to those lists when absent. */
+  partIntegrity?: Record<string, number>;
   /** validateLanding() failure reasons for the final touchdown. */
   landingFailures: string[];
   /** Fixed-step flight duration (excludes pauses). */

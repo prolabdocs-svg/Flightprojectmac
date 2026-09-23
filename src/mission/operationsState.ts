@@ -1,4 +1,5 @@
 import { AIRFIELDS } from '../world/airfields';
+import { createAircraftCondition } from './aircraftCondition';
 import type { OperationsState } from './types';
 
 export const OPERATIONS_VERSION = 1;
@@ -19,6 +20,8 @@ export function createOperations(): OperationsState {
     contractSeed: 1,
     debtCash: 0,
     condition: { flights: 0, landings: 0, hardLandings: 0 },
+    aircraftCondition: createAircraftCondition(),
+    pendingRepair: null,
     log: [],
     lastSettlement: null,
   };

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { createSeededRandom } from '../core/seededRandom';
 import { FIELD_COMPOSITION_SEED } from '../world/fieldComposition';
+import type { TerrainType } from '../world/regionArtBible';
 import { buildRoadRibbon, type RoadPath } from '../world/fieldRoads';
 import type { FieldLayout, GroundPatch, Placement, PropKind, RockPlacement, TreePlacement } from '../world/fieldPlacement';
 import { FIELD_LAKE } from '../world/fieldGeography';
@@ -9,6 +10,7 @@ import type { TerrainGridSampler } from '../world/terrainHeightfield';
 import { assetLibrary } from './assetLibrary';
 import { orientWorldProp } from './blenderAxisFix';
 import { buildTreeClusterGeometry, instanceGltf, type TreeClusterPlacement } from './vegetation';
+import { applySurfaceDetail } from './surfaceDetail';
 
 /**
  * Draws the composed Field (world/fieldPlacement.ts) with a mobile-WebGL2 budget:
@@ -69,7 +71,7 @@ function colorize(geo: THREE.BufferGeometry, hex: string): THREE.BufferGeometry 
 
 interface Part { geo: THREE.BufferGeometry; color: string; pos?: [number, number, number]; rot?: [number, number, number]; scale?: [number, number, number] }
 /** Merges coloured primitives into one static vertex-coloured geometry (one draw call per prop type). */
-function mergeParts(parts: Part[]): THREE.BufferGeometry {
+export function mergeParts(parts: Part[]): THREE.BufferGeometry {
   const list = parts.map(({ geo, color, pos = [0, 0, 0], rot = [0, 0, 0], scale = [1, 1, 1] }) => {
     const g = geo.index ? geo.toNonIndexed() : geo;
     g.applyMatrix4(new THREE.Matrix4().compose(new THREE.Vector3(...pos), new THREE.Quaternion().setFromEuler(new THREE.Euler(...rot)), new THREE.Vector3(...scale)));
@@ -80,8 +82,8 @@ function mergeParts(parts: Part[]): THREE.BufferGeometry {
   list.forEach((g) => g.dispose());
   return merged;
 }
-const box = (w: number, h: number, d: number) => new THREE.BoxGeometry(w, h, d);
-const cyl = (rt: number, rb: number, h: number, seg = 8) => new THREE.CylinderGeometry(rt, rb, h, seg);
+export const box = (w: number, h: number, d: number) => new THREE.BoxGeometry(w, h, d);
+export const cyl = (rt: number, rb: number, h: number, seg = 8) => new THREE.CylinderGeometry(rt, rb, h, seg);
 
 /** Procedural prop geometries in metres, origin at the base centre, +Z along the prop's length. */
 function buildPropGeometry(kind: PropKind): THREE.BufferGeometry | null {
@@ -138,20 +140,20 @@ function buildPropGeometry(kind: PropKind): THREE.BufferGeometry | null {
   }
 }
 
-function makeTexture(w: number, h: number, draw: (ctx: CanvasRenderingContext2D) => void, repeat = true): THREE.CanvasTexture {
+export function makeTexture(w: number, h: number, draw: (ctx: CanvasRenderingContext2D) => void, repeat = true): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
   canvas.width = w; canvas.height = h;
   const ctx = canvas.getContext('2d')!;
   draw(ctx);
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 4;
+  tex.anisotropy = 8;
   if (repeat) tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
   return tex;
 }
 
 /** Deterministic speckle so surfaces never read as flat plastic. */
-function speckle(ctx: CanvasRenderingContext2D, w: number, h: number, count: number, tones: string[], seed: string) {
+export function speckle(ctx: CanvasRenderingContext2D, w: number, h: number, count: number, tones: string[], seed: string) {
   const rng = createSeededRandom(FIELD_COMPOSITION_SEED, seed);
   for (let i = 0; i < count; i++) {
     ctx.globalAlpha = 0.08 + rng.next() * 0.16;
@@ -162,31 +164,69 @@ function speckle(ctx: CanvasRenderingContext2D, w: number, h: number, count: num
 }
 
 const roadTexture = (surface: 'asphalt' | 'gravel' | 'dirt'): THREE.CanvasTexture =>
-  makeTexture(64, 128, (ctx) => {
+  makeTexture(128, 256, (ctx) => {
+    // u = across the road, v = 12 m along it. Wear follows traffic: wheel paths, eroded edges.
+    const wheelPaths = (tone: string, alpha: number, w: number) => {
+      ctx.globalAlpha = alpha; ctx.fillStyle = tone;
+      for (const x of [26, 46, 82, 102]) ctx.fillRect(x - w / 2, 0, w, 256);
+      ctx.globalAlpha = 1;
+    };
+    const ragged = (tone: string, depth: number, seed: string) => {
+      const rng = createSeededRandom(FIELD_COMPOSITION_SEED, seed);
+      ctx.fillStyle = tone;
+      for (let y = 0; y < 256; y += 4) {
+        ctx.fillRect(0, y, 2 + rng.next() * depth, 4);
+        ctx.fillRect(128 - 2 - rng.next() * depth, y, 2 + depth, 4);
+      }
+    };
     if (surface === 'asphalt') {
-      ctx.fillStyle = '#4e5256'; ctx.fillRect(0, 0, 64, 128);
-      speckle(ctx, 64, 128, 420, ['#3c4043', '#6a6e71', '#585c5f'], 'road-asphalt');
-      ctx.fillStyle = '#e9e6d6'; ctx.fillRect(4, 0, 2, 128); ctx.fillRect(58, 0, 2, 128);
-      ctx.fillStyle = '#e8c85a'; ctx.fillRect(31, 8, 2, 46); ctx.fillRect(31, 72, 2, 46);
+      ctx.fillStyle = '#50545a'; ctx.fillRect(0, 0, 128, 256);
+      speckle(ctx, 128, 256, 2600, ['#3c4043', '#6d7175', '#585c5f', '#7a7d80'], 'road-asphalt');
+      wheelPaths('#2f3236', 0.22, 12);
+      // A patched repair and a few hairline cracks.
+      ctx.fillStyle = 'rgba(40,43,46,0.35)'; ctx.fillRect(70, 150, 34, 40);
+      ctx.strokeStyle = 'rgba(30,32,34,0.5)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(14, 20); ctx.lineTo(20, 60); ctx.lineTo(16, 96); ctx.moveTo(110, 200); ctx.lineTo(104, 236); ctx.stroke();
+      ragged('rgba(110,120,80,0.55)', 4, 'asphalt-edge');
+      ctx.fillStyle = '#e9e6d6'; ctx.fillRect(8, 0, 3, 256); ctx.fillRect(117, 0, 3, 256);
+      ctx.fillStyle = '#e8c85a'; ctx.fillRect(62, 16, 4, 92); ctx.fillRect(62, 144, 4, 92);
     } else if (surface === 'gravel') {
-      ctx.fillStyle = '#b3a891'; ctx.fillRect(0, 0, 64, 128);
-      speckle(ctx, 64, 128, 700, ['#8f8571', '#cbc0aa', '#a1977f'], 'road-gravel');
-      ctx.fillStyle = 'rgba(120,108,88,0.35)'; ctx.fillRect(18, 0, 7, 128); ctx.fillRect(39, 0, 7, 128);
-      ctx.fillStyle = 'rgba(120,150,80,0.25)'; ctx.fillRect(0, 0, 4, 128); ctx.fillRect(60, 0, 4, 128);
+      ctx.fillStyle = '#b3a891'; ctx.fillRect(0, 0, 128, 256);
+      speckle(ctx, 128, 256, 4200, ['#8f8571', '#cbc0aa', '#a1977f', '#6f6757'], 'road-gravel');
+      wheelPaths('#786c58', 0.3, 14);
+      ctx.fillStyle = 'rgba(120,150,80,0.3)'; ctx.fillRect(58, 0, 12, 256); // grassy crown
+      ragged('rgba(110,140,70,0.6)', 10, 'gravel-edge');
     } else {
-      ctx.fillStyle = '#a4825a'; ctx.fillRect(0, 0, 64, 128);
-      speckle(ctx, 64, 128, 500, ['#876a45', '#bd9a6d', '#7a5f3d'], 'road-dirt');
-      ctx.fillStyle = 'rgba(96,72,46,0.4)'; ctx.fillRect(17, 0, 8, 128); ctx.fillRect(39, 0, 8, 128);
-      ctx.fillStyle = 'rgba(110,140,70,0.35)'; ctx.fillRect(0, 0, 5, 128); ctx.fillRect(59, 0, 5, 128);
+      ctx.fillStyle = '#a4825a'; ctx.fillRect(0, 0, 128, 256);
+      speckle(ctx, 128, 256, 3000, ['#876a45', '#bd9a6d', '#7a5f3d'], 'road-dirt');
+      wheelPaths('#604a30', 0.38, 16);
+      ctx.fillStyle = 'rgba(110,140,70,0.45)'; ctx.fillRect(56, 0, 16, 256);
+      ragged('rgba(100,135,62,0.7)', 14, 'dirt-edge');
     }
   });
 
 const cropRowTexture = (): THREE.CanvasTexture =>
-  makeTexture(64, 64, (ctx) => {
-    ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, 64, 64);
-    for (let i = 0; i < 8; i++) { ctx.fillStyle = 'rgba(0,0,0,0.10)'; ctx.fillRect(i * 8, 0, 3, 64); ctx.fillStyle = 'rgba(255,255,255,0.35)'; ctx.fillRect(i * 8 + 4, 0, 2, 64); }
-    speckle(ctx, 64, 64, 90, ['#000000', '#ffffff'], 'crop-rows');
+  makeTexture(128, 128, (ctx) => {
+    // 16 m tile: 16 rows of crop with darker soil furrows between them; multiplied by parcel colour.
+    ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, 128, 128);
+    for (let i = 0; i < 16; i++) {
+      ctx.fillStyle = 'rgba(60,40,20,0.22)'; ctx.fillRect(i * 8, 0, 3, 128);
+      ctx.fillStyle = 'rgba(255,255,230,0.3)'; ctx.fillRect(i * 8 + 5, 0, 2, 128);
+    }
+    speckle(ctx, 128, 128, 700, ['#000000', '#ffffff', '#5a4020'], 'crop-rows');
   });
+
+/** Per-region tree palette. The shared instanced-tree geometry stays the same; only the
+ * colours change, which is what keeps a canyon cottonwood from reading as a meadow oak.
+ * Regions not listed fall back to `meadow`. */
+const TREE_PALETTES: Partial<Record<TerrainType, { canopy: string; canopyLit: string; conifer: string; coniferTip: string; shrub: string; trunk: string; emissive: string }>> = {
+  meadow: { canopy: '#3f7d36', canopyLit: '#45853b', conifer: '#2f6a3a', coniferTip: '#285a33', shrub: '#4d8a3c', trunk: '#5c4326', emissive: '#18351c' },
+  canyon: { canopy: '#6d8a46', canopyLit: '#7d9a52', conifer: '#6f6a3c', coniferTip: '#625d34', shrub: '#8a8150', trunk: '#6a4632', emissive: '#2a2a14' },
+};
+
+/** Boulder tint per region (The Field's weathered grey; Red Canyon's sandstone, from
+ * REGION_ART_BIBLE.canyon.accentColors[1]). */
+const ROCK_COLORS: Partial<Record<TerrainType, string>> = { meadow: '#a9a396', canyon: '#c2764a' };
 
 export class FieldWorld {
   readonly root = new THREE.Group();
@@ -200,11 +240,15 @@ export class FieldWorld {
 
   private readonly grid: TerrainGridSampler;
   private readonly layout: FieldLayout;
+  private readonly seed: string;
+  private readonly terrain: TerrainType;
 
-  constructor(grid: TerrainGridSampler, layout: FieldLayout) {
+  constructor(grid: TerrainGridSampler, layout: FieldLayout, opts: { seed?: string; terrain?: TerrainType } = {}) {
     this.grid = grid;
     this.layout = layout;
-    this.root.name = 'field-world';
+    this.seed = opts.seed ?? FIELD_COMPOSITION_SEED;
+    this.terrain = opts.terrain ?? 'meadow';
+    this.root.name = `region-world:${this.terrain}`;
     this.buildRoads();
     this.buildPatches();
     this.buildBridge();
@@ -250,7 +294,8 @@ export class FieldWorld {
       geo.setIndex(data.index);
       geo.computeVertexNormals();
       const tex = roadTexture(surface as 'asphalt');
-      const mat = new THREE.MeshStandardMaterial({ map: tex, roughness: 1, metalness: 0, polygonOffset: true, polygonOffsetFactor: offsets[surface as keyof typeof offsets], polygonOffsetUnits: offsets[surface as keyof typeof offsets] });
+      // World-space macro/meso wear breaks the 12 m texture repeat (Art Bible §6.8).
+      const mat = applySurfaceDetail(new THREE.MeshStandardMaterial({ map: tex, roughness: surface === 'asphalt' ? 0.88 : 1, metalness: 0, polygonOffset: true, polygonOffsetFactor: offsets[surface as keyof typeof offsets], polygonOffsetUnits: offsets[surface as keyof typeof offsets] }), { macro: 0.5, meso: 0.6, soil: 0, bump: 0.5, fineScaleM: 3.1 });
       const mesh = new THREE.Mesh(geo, mat);
       mesh.name = `roads:${surface}`;
       mesh.receiveShadow = true;
@@ -262,7 +307,7 @@ export class FieldWorld {
   private buildPatches() {
     const build = (patches: GroundPatch[], textured: boolean) => {
       const positions: number[] = [], colors: number[] = [], uvs: number[] = [], index: number[] = [];
-      const rng = createSeededRandom(FIELD_COMPOSITION_SEED, 'patch-shade');
+      const rng = createSeededRandom(this.seed, 'patch-shade');
       for (const p of patches) {
         const nx = Math.max(1, Math.ceil(p.widthM / 26)), nz = Math.max(1, Math.ceil(p.depthM / 26));
         const c = Math.cos(p.headingRad), s = Math.sin(p.headingRad), ra = p.rowAngleRad, rc = Math.cos(ra), rs = Math.sin(ra);
@@ -289,7 +334,7 @@ export class FieldWorld {
       geo.computeVertexNormals();
       const tex = textured ? cropRowTexture() : null;
       const off = textured ? -2 : -3;
-      const mat = new THREE.MeshStandardMaterial({ vertexColors: true, map: tex, roughness: 1, polygonOffset: true, polygonOffsetFactor: off, polygonOffsetUnits: off });
+      const mat = applySurfaceDetail(new THREE.MeshStandardMaterial({ vertexColors: true, map: tex, roughness: 1, polygonOffset: true, polygonOffsetFactor: off, polygonOffsetUnits: off }), { macro: 0.6, soil: textured ? 0.25 : 0.15 });
       const mesh = new THREE.Mesh(geo, mat);
       mesh.name = textured ? 'parcels:crops' : 'parcels:surfaces';
       mesh.receiveShadow = true;
@@ -395,17 +440,17 @@ export class FieldWorld {
 
   // ---- tree masses (procedural, two detail levels) --------------------------------------------
   private buildTreeMasses() {
-    const rng = createSeededRandom(FIELD_COMPOSITION_SEED, 'tree-geo');
-    const canopy = (hex: string) => hex;
+    const rng = createSeededRandom(this.seed, 'tree-geo');
+    const pal = TREE_PALETTES[this.terrain] ?? TREE_PALETTES.meadow!;
     const geos = {
-      broadleafHi: buildTreeClusterGeometry(rng, canopy('#3f7d36')),
-      broadleafLo: mergeParts([{ geo: new THREE.IcosahedronGeometry(2.0, 0), color: '#3f7d36', pos: [0, 3.3, 0], scale: [1, 0.95, 1] }, { geo: new THREE.IcosahedronGeometry(1.5, 0), color: '#45853b', pos: [0.9, 4.1, 0.5] }, { geo: cyl(0.25, 0.3, 1.8, 4), color: '#5c4326', pos: [0, 0.9, 0] }]),
-      coniferHi: mergeParts([{ geo: cyl(0.2, 0.32, 1.6, 5), color: '#5a4427', pos: [0, 0.8, 0] }, { geo: new THREE.ConeGeometry(1.9, 3.0, 8), color: '#2f6a3a', pos: [0, 2.7, 0] }, { geo: new THREE.ConeGeometry(1.5, 2.6, 8), color: '#2b6236', pos: [0, 4.3, 0] }, { geo: new THREE.ConeGeometry(1.0, 2.2, 8), color: '#285a33', pos: [0, 5.7, 0] }]),
-      coniferLo: mergeParts([{ geo: new THREE.ConeGeometry(1.9, 6.4, 6), color: '#2d6538', pos: [0, 3.5, 0] }]),
-      shrub: mergeParts([{ geo: new THREE.IcosahedronGeometry(1.25, 1), color: '#4d8a3c', pos: [0, 0.9, 0], scale: [1.4, 0.8, 1.4] }]),
+      broadleafHi: buildTreeClusterGeometry(rng, pal.canopy, pal.trunk),
+      broadleafLo: mergeParts([{ geo: new THREE.IcosahedronGeometry(2.0, 0), color: pal.canopy, pos: [0, 3.3, 0], scale: [1, 0.95, 1] }, { geo: new THREE.IcosahedronGeometry(1.5, 0), color: pal.canopyLit, pos: [0.9, 4.1, 0.5] }, { geo: cyl(0.25, 0.3, 1.8, 4), color: pal.trunk, pos: [0, 0.9, 0] }]),
+      coniferHi: mergeParts([{ geo: cyl(0.2, 0.32, 1.6, 5), color: pal.trunk, pos: [0, 0.8, 0] }, { geo: new THREE.ConeGeometry(1.9, 3.0, 8), color: pal.conifer, pos: [0, 2.7, 0] }, { geo: new THREE.ConeGeometry(1.5, 2.6, 8), color: pal.conifer, pos: [0, 4.3, 0] }, { geo: new THREE.ConeGeometry(1.0, 2.2, 8), color: pal.coniferTip, pos: [0, 5.7, 0] }]),
+      coniferLo: mergeParts([{ geo: new THREE.ConeGeometry(1.9, 6.4, 6), color: pal.conifer, pos: [0, 3.5, 0] }]),
+      shrub: mergeParts([{ geo: new THREE.IcosahedronGeometry(1.25, 1), color: pal.shrub, pos: [0, 0.9, 0], scale: [1.4, 0.8, 1.4] }]),
     };
-    // Same subtle green lift the previous tree pass used, so far crowns don't collapse to black.
-    const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0, emissive: '#18351c', emissiveIntensity: 0.34 });
+    // Same subtle lift the previous tree pass used, so far crowns don't collapse to black.
+    const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0, emissive: pal.emissive, emissiveIntensity: 0.34 });
     this.disposables.push(mat, ...Object.values(geos));
     const masses = this.layout.trees.filter((t) => !t.hero);
     const instance = (geo: THREE.BufferGeometry, list: TreePlacement[], size: number, far: number, near: number) => {
@@ -492,7 +537,7 @@ export class FieldWorld {
         template.traverse((o) => {
           if (o instanceof THREE.Mesh) {
             const mat = (o.material as THREE.MeshStandardMaterial).clone();
-            mat.color.set('#a9a396'); mat.map = null; mat.vertexColors = false;
+            mat.color.set(ROCK_COLORS[this.terrain] ?? '#a9a396'); mat.map = null; mat.vertexColors = false;
             o.material = mat;
           }
         });

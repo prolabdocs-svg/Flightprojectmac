@@ -3,7 +3,7 @@
 import 'fake-indexeddb/auto';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { IDBFactory } from 'fake-indexeddb';
-import { createDefaultProfile, SAVE_SCHEMA_VERSION } from './save';
+import { createDefaultProfile, migrateProfile, SAVE_SCHEMA_VERSION } from './save';
 
 describe('createDefaultProfile', () => {
   it('produces a fresh profile with starter resources and parts', () => {
@@ -22,6 +22,27 @@ describe('createDefaultProfile', () => {
     const b = createDefaultProfile();
     a.cash = 999;
     expect(b.cash).toBe(200);
+  });
+});
+
+describe('migrateProfile (Slice 4A: aircraftCondition/pendingRepair)', () => {
+  it('a pre-4A save with no aircraftCondition comes back with a fully healthy aircraft, not a guess', () => {
+    const legacy = createDefaultProfile();
+    legacy.schemaVersion = 4;
+    const ops = legacy.operations as unknown as Record<string, unknown>;
+    delete ops.aircraftCondition;
+    delete ops.pendingRepair;
+    const migrated = migrateProfile(legacy);
+    expect(migrated.schemaVersion).toBe(SAVE_SCHEMA_VERSION);
+    expect(migrated.operations.pendingRepair).toBeNull();
+    for (const c of Object.values(migrated.operations.aircraftCondition)) expect(c.integrity).toBe(1);
+  });
+
+  it('a save that already has aircraftCondition keeps it exactly (no silent reset)', () => {
+    const p = createDefaultProfile();
+    p.operations.aircraftCondition.engine.integrity = 0.42;
+    const migrated = migrateProfile(p);
+    expect(migrated.operations.aircraftCondition.engine.integrity).toBe(0.42);
   });
 });
 

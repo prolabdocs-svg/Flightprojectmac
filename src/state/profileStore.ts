@@ -31,6 +31,9 @@ interface ProfileState {
   settleMission: (telemetry?: FlightTelemetry | null) => ReturnType<typeof ops.settleActive>;
   abandonMission: (telemetry?: FlightTelemetry) => ReturnType<typeof ops.abandonMission>;
   recoverAircraft: () => ReturnType<typeof ops.recoverAircraft>;
+  // Maintenance & repair (Slice 4A).
+  startRepair: (componentIds?: import('../mission/aircraftCondition').ComponentId[]) => ReturnType<typeof ops.startRepair>;
+  collectRepair: () => ReturnType<typeof ops.collectRepair>;
 }
 
 export const useProfileStore = create<ProfileState>((set, get) => ({
@@ -181,14 +184,20 @@ export const useProfileStore = create<ProfileState>((set, get) => ({
   acceptContract: (contractId) => commit(ops.acceptContract(get().profile, contractId)),
   prepareMission: (loadout) => commit(ops.prepareMission(get().profile, loadout)),
   advanceMission: (telemetry) => {
-    const r = ops.advanceMission(get().profile, telemetry);
-    if (r.events.length === 0) return;
+    const before = get().profile;
+    const r = ops.advanceMission(before, telemetry);
+    // advanceMission returns the same profile reference when neither a mission event nor a
+    // checkpoint interval fired, so this also throttles the periodic-checkpoint persist to the
+    // same cadence (spec item 11) without a separate timer here.
+    if (r.profile === before) return;
     set({ profile: r.profile });
     get().persist();
   },
   settleMission: (telemetry) => commit(ops.settleActive(get().profile, telemetry)),
   abandonMission: (telemetry) => commit(ops.abandonMission(get().profile, telemetry)),
   recoverAircraft: () => commit(ops.recoverAircraft(get().profile)),
+  startRepair: (componentIds) => commit(ops.startRepair(get().profile, componentIds)),
+  collectRepair: () => commit(ops.collectRepair(get().profile)),
 }));
 
 function commit<T extends ops.OpResult<object>>(r: T): T {

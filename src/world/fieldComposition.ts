@@ -75,7 +75,9 @@ export type RoadSurface = 'asphalt' | 'gravel' | 'dirt';
 export type RoadId = 'ROAD_MAIN' | 'ROAD_AIRFIELD' | 'ROAD_VILLAGE' | 'ROAD_PASS' | 'ROAD_SECOND_AIRFIELD' | 'ROAD_LAKE' | 'ROAD_FARM_A' | 'ROAD_FARM_B' | 'ROAD_REMOTE' | 'ROAD_INDUSTRIAL';
 
 export interface RoadDef {
-  id: RoadId;
+  /** Region-unique id. Typed `string` (not the Field-only `RoadId` union) since
+   * regionPlacement.ts is the shared authority and every region supplies its own ids. */
+  id: string;
   surface: RoadSurface;
   widthM: number;
   /** Larger = drawn on top where roads overlap at a junction. */

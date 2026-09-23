@@ -20,6 +20,12 @@ export const VEGETATION_CLASSES: Record<VegetationClass, { heightM: [number, num
   tall: { heightM: [18, 30], collision: 'obstacle' },
 };
 
+/** What structural job a species does in a composed scene. `regionPlacement.ts` asks for a
+ * role ("I need a canopy tree here"); this catalog answers with a region-appropriate species,
+ * which is what makes the same shared placement algorithm produce oaks in The Field and
+ * mesquite in Red Canyon. */
+export type VegetationRole = 'canopy' | 'evergreen' | 'understory';
+
 export interface VegetationSpecies {
   id: string;
   class: VegetationClass;
@@ -27,19 +33,51 @@ export interface VegetationSpecies {
   biomeIds: string[];
   /** Baseline instances per 100m x 100m cell at full density (biome weight 1, no penalties). */
   baseDensityPer100m2: number;
+  /** Art-bible vegetation archetype tags (regionArtBible.ts `vegetationArchetypes`) this
+   * species satisfies — the join between "what this region looks like" and "what to plant". */
+  archetypes: string[];
+  /** Structural role(s) the composer can request this species for. */
+  roles: VegetationRole[];
+  /** Which instanced tree geometry bucket renders it (render/fieldWorld.ts). */
+  renderKind: 'broadleaf' | 'conifer' | 'shrub';
 }
 
 /** MVP catalog, spec §244. */
 export const VEGETATION_SPECIES: VegetationSpecies[] = [
-  { id: 'scrub_sage', class: 'shrub', biomeIds: ['xeric_plain', 'highland_scrub', 'badlands'], baseDensityPer100m2: 6 },
-  { id: 'scrub_creosote', class: 'shrub', biomeIds: ['xeric_plain', 'badlands'], baseDensityPer100m2: 4 },
-  { id: 'grass_bunch', class: 'grass', biomeIds: ['temperate_grassland', 'highland_scrub', 'xeric_plain'], baseDensityPer100m2: 25 },
-  { id: 'grass_meadow', class: 'grass', biomeIds: ['temperate_grassland', 'riparian_corridor'], baseDensityPer100m2: 30 },
-  { id: 'tree_dry_mesquite', class: 'low_tree', biomeIds: ['xeric_plain', 'badlands'], baseDensityPer100m2: 1.5 },
-  { id: 'tree_dry_juniper', class: 'medium', biomeIds: ['highland_scrub', 'rocky_mountain'], baseDensityPer100m2: 1.2 },
-  { id: 'tree_riparian_willow', class: 'medium', biomeIds: ['riparian_corridor'], baseDensityPer100m2: 3 },
-  { id: 'plant_rock_lichenbrush', class: 'grass', biomeIds: ['rocky_mountain', 'badlands'], baseDensityPer100m2: 8 },
+  { id: 'scrub_sage', class: 'shrub', biomeIds: ['xeric_plain', 'highland_scrub', 'badlands'], baseDensityPer100m2: 6, archetypes: ['desert_scrub', 'sagebrush', 'sparse_scrub'], roles: ['understory'], renderKind: 'shrub' },
+  { id: 'scrub_creosote', class: 'shrub', biomeIds: ['xeric_plain', 'badlands'], baseDensityPer100m2: 4, archetypes: ['desert_scrub', 'salt_scrub'], roles: ['understory'], renderKind: 'shrub' },
+  { id: 'grass_bunch', class: 'grass', biomeIds: ['temperate_grassland', 'highland_scrub', 'xeric_plain'], baseDensityPer100m2: 25, archetypes: ['dune_grass', 'pasture_grass', 'sparse_scrub'], roles: ['understory'], renderKind: 'shrub' },
+  { id: 'grass_meadow', class: 'grass', biomeIds: ['temperate_grassland', 'riparian_corridor'], baseDensityPer100m2: 30, archetypes: ['pasture_grass', 'crop_rows'], roles: ['understory'], renderKind: 'shrub' },
+  { id: 'tree_dry_mesquite', class: 'low_tree', biomeIds: ['xeric_plain', 'badlands'], baseDensityPer100m2: 1.5, archetypes: ['desert_scrub', 'cactus'], roles: ['evergreen'], renderKind: 'conifer' },
+  { id: 'tree_dry_juniper', class: 'medium', biomeIds: ['highland_scrub', 'rocky_mountain', 'badlands'], baseDensityPer100m2: 1.2, archetypes: ['alpine_conifer', 'sagebrush', 'lichen_rock'], roles: ['evergreen'], renderKind: 'conifer' },
+  { id: 'tree_riparian_willow', class: 'medium', biomeIds: ['riparian_corridor'], baseDensityPer100m2: 3, archetypes: ['riparian_alder'], roles: ['canopy'], renderKind: 'broadleaf' },
+  { id: 'plant_rock_lichenbrush', class: 'grass', biomeIds: ['rocky_mountain', 'badlands'], baseDensityPer100m2: 8, archetypes: ['lichen_rock', 'ruderal_weed'], roles: ['understory'], renderKind: 'shrub' },
+  // Added when regionPlacement.ts became the single composer: The Field's hedgerow oak and
+  // windbreak spruce, and Red Canyon's wash cottonwood, had no catalog entry before.
+  { id: 'tree_broadleaf_oak', class: 'tall', biomeIds: ['temperate_grassland', 'temperate_woodland'], baseDensityPer100m2: 1.4, archetypes: ['deciduous_hedgerow', 'mixed_canopy', 'isolated_oak'], roles: ['canopy'], renderKind: 'broadleaf' },
+  { id: 'shrub_hawthorn_hedge', class: 'shrub', biomeIds: ['temperate_grassland'], baseDensityPer100m2: 5, archetypes: ['deciduous_hedgerow', 'pasture_grass'], roles: ['understory'], renderKind: 'shrub' },
+  { id: 'tree_conifer_spruce', class: 'tall', biomeIds: ['temperate_grassland', 'temperate_woodland', 'rocky_mountain'], baseDensityPer100m2: 1.6, archetypes: ['dense_conifer', 'alpine_conifer', 'coastal_pine', 'windbreak_poplar'], roles: ['evergreen'], renderKind: 'conifer' },
+  { id: 'tree_canyon_cottonwood', class: 'medium', biomeIds: ['badlands', 'riparian_corridor'], baseDensityPer100m2: 1.1, archetypes: ['canyon_cottonwood'], roles: ['canopy'], renderKind: 'broadleaf' },
+  { id: 'cactus_saguaro', class: 'low_tree', biomeIds: ['badlands', 'xeric_plain'], baseDensityPer100m2: 0.8, archetypes: ['cactus'], roles: ['evergreen'], renderKind: 'conifer' },
+  { id: 'palm_isolated', class: 'medium', biomeIds: ['xeric_plain'], baseDensityPer100m2: 0.4, archetypes: ['isolated_palm'], roles: ['canopy'], renderKind: 'broadleaf' },
+  { id: 'fern_understory', class: 'grass', biomeIds: ['temperate_woodland'], baseDensityPer100m2: 18, archetypes: ['fern_understory'], roles: ['understory'], renderKind: 'shrub' },
 ];
+
+/**
+ * The region -> species join: pick the species that fills `role` for a region described by
+ * `archetypes` (regionArtBible.ts) sitting on `biomeId`. Archetype match wins; a biome match
+ * is the fallback so a region whose art bible has no archetype for that role (The Field has no
+ * conifer archetype, but its windbreaks are spruce) still gets something plausible instead of
+ * nothing. Deterministic: first catalog match, never random.
+ */
+export function pickSpecies(role: VegetationRole, archetypes: readonly string[], biomeId: string): VegetationSpecies {
+  const byRole = VEGETATION_SPECIES.filter((s) => s.roles.includes(role));
+  return (
+    byRole.find((s) => s.archetypes.some((a) => archetypes.includes(a)))
+    ?? byRole.find((s) => s.biomeIds.includes(biomeId))
+    ?? byRole[0]
+  );
+}
 
 export interface VegetationInstance {
   speciesId: string;

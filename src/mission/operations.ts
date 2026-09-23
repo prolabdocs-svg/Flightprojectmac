@@ -17,10 +17,17 @@ import { settleContract, type Settlement } from './settlement';
 import { applyEvent, createSession } from './stateMachine';
 import { observe } from './telemetryEvents';
 import type { ActiveContract, AppliedSettlement, Contract, Loadout, LogKind, MissionEvent, OperationsState, TransitionError } from './types';
+import { applyFlightDamage } from './damageIntegration';
+import { applyNormalWear, estimateRepair, isRepairReady, type RepairOrder } from './maintenance';
+import { evaluateAirworthiness, damageAccumulated, type Airworthiness, type ComponentId } from './aircraftCondition';
 
 const DEBT_CAP_CASH = 500;
 const DEBT_REPAY_SHARE = 0.5;
 const LOG_LIMIT = 200;
+/** In-flight checkpoint cadence (spec item 11): frequent enough that an abrupt close never
+ * refunds more than a few seconds of burned fuel, sparse enough to never write IndexedDB
+ * every physics tick. */
+const CHECKPOINT_INTERVAL_S = 5;
 
 export type OpResult<T> = ({ ok: true; profile: PlayerProfile } & T) | { ok: false; error: string };
 const fail = (error: string): { ok: false; error: string } => ({ ok: false, error });
@@ -71,17 +78,21 @@ export function acceptContract(profile: PlayerProfile, contractId: string): OpRe
   if (!offer.available) return fail(`CONTRACT_LOCKED: ${offer.lockedReason ?? 'unavailable'}`);
   const r = applyEvent(createSession(contractId), { type: 'ACCEPT', difficulty: offer.assessment.difficulty });
   if (!r.ok) return fail(errText(r.error));
-  const active: ActiveContract = { contract: offer.contract, session: r.session, loadout: null, startFuelFraction: null, finalTelemetry: null };
+  const active: ActiveContract = { contract: offer.contract, session: r.session, loadout: null, startFuelFraction: null, finalTelemetry: null, checkpoint: null };
   return { ok: true, profile: withOps(profile, { active }), active };
 }
 
 export function planFor(profile: PlayerProfile, loadout: Loadout): MissionPlan | null {
   const active = profile.operations.active;
   if (!active) return null;
-  return planMission({
+  const plan = planMission({
     build: profile.currentBuild, route: routeContext(active.contract.originId, active.contract.destinationId),
     contract: active.contract, loadout, onboardFuelL: profile.operations.fuelL, homeBase: profile.homeBase,
   });
+  // Airworthiness gate (spec item 7), applied here so the planner shows it live and
+  // prepareMission's PREPARE guard sees the exact same blockers — one source of truth.
+  if (evaluateAirworthiness(profile.operations.aircraftCondition).status !== 'GROUNDED') return plan;
+  return { ...plan, feasible: false, blockers: [...plan.blockers, 'AIRCRAFT_GROUNDED'] };
 }
 
 export function suggestedLoadout(profile: PlayerProfile): Loadout | null {
@@ -102,14 +113,20 @@ export function prepareMission(profile: PlayerProfile, loadout: Loadout): OpResu
   return { ok: true, profile: withOps(profile, { active: next, fuelL: plan.loadout.fuelL }), plan };
 }
 
-/** Feeds a telemetry sample to the active contract. Returns the same profile object if nothing changed. */
+/** Feeds a telemetry sample to the active contract. Returns the same profile object if nothing
+ * changed. Also refreshes the in-flight checkpoint (spec item 11) on an interval, independent of
+ * mission events, so a periodic persist (see state/profileStore.ts) never goes longer than
+ * CHECKPOINT_INTERVAL_S without capturing fuel burned. */
 export function advanceMission(profile: PlayerProfile, telemetry: FlightTelemetry): { profile: PlayerProfile; events: MissionEvent[] } {
   const active = profile.operations.active;
   if (!active) return { profile, events: [] };
   const { session, events } = observe(active.session, telemetry, active.contract);
-  if (events.length === 0) return { profile, events };
+  const checkpointDue = active.session.state === 'ACTIVE'
+    && (active.checkpoint === null || telemetry.elapsedS - active.checkpoint.elapsedS >= CHECKPOINT_INTERVAL_S);
+  if (events.length === 0 && !checkpointDue) return { profile, events };
   const terminal = session.state === 'OBJECTIVE_MET' || session.state === 'FAILED' || session.state === 'ABORTED';
-  let ops = { ...profile.operations, active: { ...active, session, finalTelemetry: terminal ? telemetry : active.finalTelemetry } };
+  const checkpoint = active.session.state === 'ACTIVE' ? { fuelFraction: telemetry.fuelFraction, elapsedS: telemetry.elapsedS } : active.checkpoint;
+  let ops = { ...profile.operations, active: { ...active, session, finalTelemetry: terminal ? telemetry : active.finalTelemetry, checkpoint } };
   for (const e of events) {
     if (e.type === 'ENGINE_STARTED') ops = { ...ops, log: log(ops, 'mission_start', active.contract.id) };
     if (e.type === 'AIRBORNE') ops = { ...ops, log: log(ops, 'takeoff', active.contract.id) };
@@ -181,10 +198,25 @@ export function applySettlement(profile: PlayerProfile, s: Settlement, final: { 
     landings: ops.condition.landings + (landedAtDestination ? 1 : 0),
     hardLandings: ops.condition.hardLandings + (t?.crashOutcome === 'hardLanding' ? 1 : 0),
   };
+
+  // Persistent per-component condition (spec items 1-3): the sim's own output for this flight
+  // (t.partIntegrity et al) folded onto what came in, then ordinary wear for the use this flight
+  // represented. A flight that never left the ground (t === null) touches neither.
+  const conditionBefore = ops.aircraftCondition;
+  const conditionAfterDamage = t ? applyFlightDamage(conditionBefore, t) : conditionBefore;
+  // damagedComponentIds reports damage only, not ordinary wear, so Results doesn't flag a
+  // clean flight as "damaged" over a fraction of a percent of routine use.
+  const damagedComponentIds = (Object.keys(conditionAfterDamage) as ComponentId[]).filter(
+    (id) => damageAccumulated(conditionAfterDamage[id]) > damageAccumulated(conditionBefore[id]) + 1e-6,
+  );
+  const aircraftCondition = t
+    ? applyNormalWear(conditionAfterDamage, { distanceM: t.distanceM, elapsedS: t.elapsedS, landed: landedAtDestination || t.landed })
+    : conditionAfterDamage;
+
   const applied: AppliedSettlement = {
     ...s, title: c.title, originId: c.originId, destinationId: c.destinationId, failure: ops.active?.session.failure, abortReason: ops.active?.session.abortReason,
     cashChange: cash - profile.cash, debtChange: debt - ops.debtCash, cashAfter: cash, debtAfter: debt,
-    discoveredAirfieldId: firstVisit ? c.destinationId : null, revealedAirfieldIds: revealed, fuelRemainingL: remainingL, conditionAfter,
+    discoveredAirfieldId: firstVisit ? c.destinationId : null, revealedAirfieldIds: revealed, fuelRemainingL: remainingL, conditionAfter, damagedComponentIds,
   };
   return {
     ...profile,
@@ -202,6 +234,7 @@ export function applySettlement(profile: PlayerProfile, s: Settlement, final: { 
       settledContractIds: [...ops.settledContractIds, s.contractId],
       contractSeed: ops.contractSeed + 1,
       condition: conditionAfter,
+      aircraftCondition,
       active: nextActive,
       log: log2,
       lastSettlement: applied,
@@ -279,7 +312,12 @@ export function reconcileAfterLoad(profile: PlayerProfile): PlayerProfile {
   if (active.session.state === 'ACTIVE') {
     const r = applyEvent(active.session, { type: 'ABANDON' });
     if (!r.ok) return p;
-    p = withOps(p, { active: { ...active, session: r.session }, log: log(p.operations, 'mission_abandon', active.contract.id, undefined, 'reload') });
+    // A crash / abrupt close mid-flight never had a terminal event to capture finalTelemetry, so
+    // without this the settlement below would see telemetry === null and treat the flight as if
+    // it never left the ground — silently refunding every liter of fuel burned (spec item 11).
+    // Fall back to the last periodic checkpoint instead.
+    const finalTelemetry = active.finalTelemetry ?? (active.checkpoint ? syntheticTelemetryFromCheckpoint(active.checkpoint) : null);
+    p = withOps(p, { active: { ...active, session: r.session, finalTelemetry }, log: log(p.operations, 'mission_abandon', active.contract.id, undefined, 'reload') });
     active = p.operations.active!;
   }
   const s = active.session.state;
@@ -295,4 +333,75 @@ export function findContract(profile: PlayerProfile, id: string | null): Contrac
   if (!id) return null;
   if (profile.operations.active?.contract.id === id) return profile.operations.active.contract;
   return getOffers(profile).find((o) => o.contract.id === id)?.contract ?? null;
+}
+
+/** A minimal, honest telemetry sample for the sole purpose of settling fuel burn against a
+ * checkpoint (see reconcileAfterLoad above) — every other field is a safe "nothing happened"
+ * default since ABORTED settlement never reads them. */
+function syntheticTelemetryFromCheckpoint(checkpoint: NonNullable<ActiveContract['checkpoint']>): FlightTelemetry {
+  return {
+    state: 'stopped', speedMs: 0, altitudeM: 0, aoaDeg: 0, distanceM: 0, maxAltitudeM: 0, maxSpeedMs: 0,
+    fuelFraction: checkpoint.fuelFraction, crashed: false, landed: false, landingQuality: 0, rpm: 0, onGround: true,
+    crashOutcome: 'none', damagedPartIds: [], detachedPartIds: [], landingFailures: [], elapsedS: checkpoint.elapsedS, position: [0, 0, 0],
+    headingDeg: 0, airspeedMs: 0, groundSpeedMs: 0, verticalSpeedMs: 0, pitchDeg: 0, rollDeg: 0, throttle: 0, engineOn: false,
+    outOfFuel: checkpoint.fuelFraction <= 0, stallWarning: false, stalled: false, stallSpeedMs: 0, wheelsOnGround: 3, gForce: 1, lastTouchdownVsMs: null, crashReason: null,
+  };
+}
+
+// --- Airworthiness & maintenance (spec items 6-7) -------------------------------------------------
+
+export function aircraftAirworthiness(profile: PlayerProfile): Airworthiness {
+  return evaluateAirworthiness(profile.operations.aircraftCondition);
+}
+
+export function repairEstimateFor(profile: PlayerProfile, componentIds?: ComponentId[]) {
+  return estimateRepair(profile.operations.aircraftCondition, componentIds);
+}
+
+/** Purchases a repair (spec item 6): charges cash now, resolves later at `order.readyAtMs`. Only
+ * the components actually damaged are billed — nothing here ever pretends a repair happened
+ * before collectRepair() says so. */
+export function startRepair(profile: PlayerProfile, componentIds?: ComponentId[], nowMs = Date.now()): OpResult<{ order: RepairOrder }> {
+  if (profile.operations.pendingRepair) return fail('REPAIR_ALREADY_IN_PROGRESS');
+  const estimate = estimateRepair(profile.operations.aircraftCondition, componentIds);
+  if (estimate.componentIds.length === 0) return fail('NOTHING_TO_REPAIR');
+  // A totalLoss crash can ground the aircraft (engine/propeller INOPERATIVE) with the player at
+  // $0 and no way to earn more without flying. Same debt mechanism settlement already uses
+  // (spec item 8) keeps this from becoming an irreversible soft-lock: what cash can't cover is
+  // borrowed, up to the same cap, before the player has to fall back to a cheaper partial repair.
+  const debtRoom = Math.max(0, DEBT_CAP_CASH - profile.operations.debtCash);
+  if (profile.cash + debtRoom < estimate.costCash) return fail('INSUFFICIENT_FUNDS');
+  const fromCash = Math.min(profile.cash, estimate.costCash);
+  const fromDebt = estimate.costCash - fromCash;
+  const order: RepairOrder = { componentIds: estimate.componentIds, costCash: estimate.costCash, startedAtMs: nowMs, readyAtMs: nowMs + estimate.durationMs };
+  const next: PlayerProfile = { ...profile, cash: profile.cash - fromCash };
+  return {
+    ok: true,
+    profile: withOps(next, {
+      pendingRepair: order,
+      debtCash: profile.operations.debtCash + fromDebt,
+      log: log(profile.operations, 'repair_started', undefined, estimate.costCash, order.componentIds.join(',')),
+    }),
+    order,
+  };
+}
+
+/** Finishes a ready repair, restoring exactly the components it billed for to full integrity.
+ * A no-op (fails cleanly) if nothing is pending or it isn't ready yet — so a screen can call it
+ * optimistically without its own clock math. */
+export function collectRepair(profile: PlayerProfile, nowMs = Date.now()): OpResult<{ componentIds: ComponentId[] }> {
+  const order = profile.operations.pendingRepair;
+  if (!order) return fail('NO_PENDING_REPAIR');
+  if (!isRepairReady(order, nowMs)) return fail('REPAIR_NOT_READY');
+  const condition = { ...profile.operations.aircraftCondition };
+  for (const id of order.componentIds) condition[id] = { integrity: 1 };
+  return {
+    ok: true,
+    profile: withOps(profile, {
+      aircraftCondition: condition,
+      pendingRepair: null,
+      log: log(profile.operations, 'repair_completed', undefined, order.costCash, order.componentIds.join(',')),
+    }),
+    componentIds: order.componentIds,
+  };
 }

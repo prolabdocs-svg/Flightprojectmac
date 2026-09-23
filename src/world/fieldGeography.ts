@@ -113,6 +113,9 @@ function riverNearest(x: number, z: number): { dist: number; floorM: number } {
 
 export const distanceToRiver = (x: number, z: number): number => riverNearest(x, z).dist;
 
+/** Half-width of the river's open water (the rendered ribbon is 32-44 m wide). */
+export const RIVER_WATER_HALF_M = 19;
+
 /** Channel bed depth below the valley floor, and how far the water sits above the bed. */
 export const RIVER_CARVE_M = 6;
 export const RIVER_WATER_ABOVE_BED_M = 0.6;
@@ -154,14 +157,10 @@ function rawElevation(x: number, z: number): number {
   h = lerp(h, Math.min(h, 34 + 40 * smoothstep(3000, 4700, z) + 6 * roll), corridor);
 
   h += fbm(localN, px, pz, 320, 2, 0.3) * 7 * (1 - plain * 0.85) + fbm(microN, x, z, 80, 1) * 0.5;
-
-  // River valley: broad walls blend down to the valley floor, plus a narrow bed.
-  const river = riverNearest(x, z);
-  h = lerp(h, river.floorM, 1 - smoothstep(180, 1000, river.dist));
-  h -= RIVER_CARVE_M * (1 - smoothstep(0, RIVER_CHANNEL_HALF_M, river.dist));
   return h;
 }
 
+// The river is ≥2 km from home, so it never touches the datum sample.
 const DATUM_OFFSET_M = HOME_DATUM_M - rawElevation(0, 0);
 
 /** Natural (ungraded) elevation of The Field at world x/z. The lake bed equals the water level
@@ -169,6 +168,11 @@ const DATUM_OFFSET_M = HOME_DATUM_M - rawElevation(0, 0);
  * into the surrounding terrain outside the footprint. */
 export function fieldElevation(x: number, z: number): number {
   let h = rawElevation(x, z) + DATUM_OFFSET_M;
+  // River valley in WORLD metres (RIVER_CONTROL floors are world heights: lake surface, sea level).
+  // Applying it before the datum offset used to sink the lower valley ~8 m below the sea.
+  const river = riverNearest(x, z);
+  h = lerp(h, river.floorM, 1 - smoothstep(180, 1000, river.dist));
+  h -= RIVER_CARVE_M * (1 - smoothstep(0, RIVER_CHANNEL_HALF_M, river.dist));
   // The map edge sinks into the sea (a coast, never a cut).
   h = lerp(h, SEA_LEVEL_M - 20, smoothstep(EDGE_START_M, EDGE_END_M, Math.max(Math.abs(x), Math.abs(z))));
   const d = Math.hypot(x - FIELD_LAKE.x, z - FIELD_LAKE.z);

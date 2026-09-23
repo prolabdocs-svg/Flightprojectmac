@@ -24,6 +24,10 @@ export interface Settlement {
   contractId: string;
   outcome: 'COMPLETED' | 'FAILED' | 'ABORTED';
   revenue: { base: number; bonuses: number; discovery: number; total: number };
+  /** `damage` is an ESTIMATE only (spec item 6) — what repairing the flagged parts would cost
+   * right now — and is deliberately excluded from `total`/net. Persistent damage (see
+   * mission/aircraftCondition.ts) is billed only when the player actually buys a repair in the
+   * Hangar (mission/operations.ts#startRepair), never automatically at settlement. */
   costs: { fuel: number; damage: number; recovery: number; fees: number; total: number };
   penalties: { late: number; abandonment: number; cargoLoss: number; hardLanding: number; total: number };
   net: number;
@@ -88,7 +92,8 @@ export function settleContract(i: SettlementInput): Settlement {
   }
 
   revenue.total = revenue.base + revenue.bonuses + revenue.discovery;
-  costs.total = sum(costs, 'total');
+  // 'damage' is excluded here on purpose (see the Settlement.costs doc comment above).
+  costs.total = sum(costs, 'total') - costs.damage;
   penalties.total = sum(penalties, 'total');
   return {
     contractId: contract.id, outcome, revenue, costs, penalties,

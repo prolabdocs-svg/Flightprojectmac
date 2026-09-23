@@ -47,6 +47,12 @@ export interface FlightModelOptions {
   wind?: Partial<WindFieldConfig>;
   /** Fuel on board at takeoff (L, default = full tank) and payload mass (kg, default none). */
   load?: { fuelL?: number; payloadKg?: number };
+  /** Persistent condition carried in from the previous flight (mission/aircraftCondition.ts),
+   * so a wing that came back damaged stays damaged instead of resetting to nominal. Undefined
+   * = fresh/nominal (free flight, or a profile with no persistent condition yet). */
+  initialPartIntegrity?: Record<string, number>;
+  /** Combined engine+propeller output multiplier from persistent condition (1 = nominal). */
+  powerMultiplier?: number;
 }
 
 export class FlightModel {
@@ -64,6 +70,7 @@ export class FlightModel {
   private readonly windField: WindField;
   private readonly clMax: number;
   private readonly initialFuelL: number;
+  private readonly initialPartIntegrity?: Record<string, number>;
 
   private state: FlightState = 'prestart';
   private crashed = false;
@@ -125,8 +132,10 @@ export class FlightModel {
     this.sim.physics.fuelL = this.initialFuelL;
     this.sim.physics.refreshMass(true);
     this.clMax = getAirfoilTable(def.aero.airfoils.wing).clMax * 0.96;
-    this.damage = createDamageState(aircraft.aeroSurfaces.map((s) => s.id));
+    this.initialPartIntegrity = opts.initialPartIntegrity;
+    this.damage = this.seededDamageState();
     this.sim.effectiveness = (id) => getAeroEffectivenessMultiplier(this.damage, id);
+    this.sim.powerMultiplier = Math.max(0, opts.powerMultiplier ?? 1);
     this.sim.placeOnGround(this.spawnXZ[0], this.spawnXZ[1], this.spawnHeadingDeg);
     this.groundY = terrain.getElevation(spawnPos.x, spawnPos.z);
   }
@@ -162,7 +171,22 @@ export class FlightModel {
     this.touchdown = null;
     this.lastTouchdownVsMs = null;
     this.touchdownClass.value = null;
-    this.damage = createDamageState(this.aircraft.aeroSurfaces.map((s) => s.id));
+    this.damage = this.seededDamageState();
+  }
+
+  /** Fresh nominal damage state, with any part the caller carried in from a persistent
+   * AircraftCondition (mission/aircraftCondition.ts) starting at its prior integrity instead
+   * of 1 — this is what makes damage survive between flights (task item 3). */
+  private seededDamageState(): DamageState {
+    const fresh = createDamageState(this.aircraft.aeroSurfaces.map((s) => s.id));
+    const carried = this.initialPartIntegrity;
+    if (!carried) return fresh;
+    const parts: DamageState['parts'] = {};
+    for (const [id, part] of Object.entries(fresh.parts)) {
+      const integrity = carried[id] ?? part.integrity;
+      parts[id] = { ...part, integrity, detached: integrity <= 0 };
+    }
+    return { parts, outcome: 'none' };
   }
 
   /** Advances one fixed physics tick. `meanWind` is the region's mean+gust wind (world, m/s). */
@@ -347,6 +371,7 @@ export class FlightModel {
       crashOutcome: this.damage.outcome,
       damagedPartIds: this.damagedIds,
       detachedPartIds: this.detachedIds,
+      partIntegrity: this.partIntegritySnapshot(),
       landingFailures: this.landingFailures,
       elapsedS: this.elapsedS,
       position: [t.x, t.y, t.z],
@@ -375,6 +400,12 @@ export class FlightModel {
     this.cachedDamage = this.damage;
     this.damagedIds = listDamagedPartIds(this.damage);
     this.detachedIds = listDetachedPartIds(this.damage);
+  }
+
+  private partIntegritySnapshot(): Record<string, number> {
+    const out: Record<string, number> = {};
+    for (const [id, part] of Object.entries(this.damage.parts)) out[id] = part.detached ? 0 : part.integrity;
+    return out;
   }
 
   private completeLanding(groundSpeed: number): void {

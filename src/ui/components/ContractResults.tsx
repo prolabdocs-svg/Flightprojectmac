@@ -4,6 +4,7 @@ import { useProfileStore } from '../../state/profileStore';
 import { audioService } from '../../audio/audioService';
 import { getAirfield } from '../../world/airfields';
 import { CRASH_REASON_LABEL, STATE_LABEL } from '../../mission/labels';
+import { COMPONENT_LABEL } from '../../mission/aircraftCondition';
 import { UiIcon } from './UiIcon';
 
 /** Results of a settled contract. Read-only: the settlement was applied exactly once by the domain (ledger);
@@ -35,7 +36,6 @@ export function ContractResults() {
     ['Bonos', s.revenue.bonuses, 'pos', 'revenue-bonus'],
     ['Descubrimiento', s.revenue.discovery, 'pos', 'revenue-discovery'],
     ['Combustible', s.costs.fuel, 'neg', 'cost-fuel'],
-    ['Daños / reparación', s.costs.damage, 'neg', 'cost-damage'],
     ['Recuperación', s.costs.recovery, 'neg', 'cost-recovery'],
     ['Tasas de aterrizaje', s.costs.fees, 'neg', 'cost-fees'],
     ['Penalización: entrega tardía', s.penalties.late, 'neg', 'pen-late'],
@@ -74,6 +74,12 @@ export function ContractResults() {
               <div className="tile"><b data-testid="fuel-left">{s.fuelRemainingL.toFixed(1)}<small>L</small></b><span>Combustible a bordo</span></div>
             </div>
             <p className="results-note" data-testid="condition">Condición: {s.conditionAfter.flights} vuelos · {s.conditionAfter.landings} aterrizajes · {s.conditionAfter.hardLandings} duros</p>
+            {s.damagedComponentIds.length > 0 && (
+              <p className="results-caution" data-testid="flight-damage">
+                Daño este vuelo (sin reparar): {s.damagedComponentIds.map((id) => COMPONENT_LABEL[id]).join(', ')}
+                {s.costs.damage > 0 ? ` · reparación estimada $${s.costs.damage}` : ''}
+              </p>
+            )}
             {needsRecovery && <p className="results-caution" data-testid="needs-recovery">Contrato {active ? STATE_LABEL[active.session.state].toLowerCase() : ''}: recupera la aeronave para volver a volar.</p>}
           </section>
         </div>

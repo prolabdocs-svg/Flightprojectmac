@@ -1,9 +1,10 @@
 import type { RegionDefinition } from '../core/types';
 import { buildAirportOverrides, findAirportOverrideAt } from './airfieldTerrain';
 import { fieldElevation } from './fieldGeography';
+import { canyonElevation } from './canyonGeography';
 import { computeBiomeWeights, type BiomeWeights } from './biomeWeights';
 import { GROUND_SURFACES, type GroundSurfaceId } from './surfaces';
-import { buildWaterBodies, findWaterBodyAt } from './waterBodies';
+import { buildWaterBodies, findWaterBodyAt, REGION_SEA_LEVEL_M, riverDepthAt, type WaterBody } from './waterBodies';
 
 /**
  * Single source of truth for ground elevation.
@@ -107,12 +108,9 @@ export const NATURAL_ELEVATION_PROFILES: Record<RegionDefinition['environment'][
     const bench = Math.floor(benchCyclePos / 55) * 9;
     return base + bench;
   },
-  // Corridor/valley floor with rising walls that flatten into mesas away from the axis.
-  canyon: (x, y) => {
-    const wallProfile = 55 * Math.tanh(Math.abs(x) / 220);
-    const floorRipple = Math.sin(y * 0.004) * 6 + Math.cos(x * 0.01) * 3;
-    return wallProfile + floorRipple - 10;
-  },
+  // Red Canyon: authored geography (layered mesas, sheer dry wash, side canyons) — see
+  // canyonGeography.ts. Same wiring as `meadow`/fieldElevation above.
+  canyon: (x, y) => canyonElevation(x, -y),
   // Glacial rolling hills (higher frequency/amplitude than meadow) with lake-basin lows.
   forest: (x, y) => Math.sin(x * 0.006) * 14 + Math.cos(y * 0.007) * 12 + Math.sin((x - y) * 0.003) * 8,
   // Coastal plain that drops via a smooth bluff/cliff into the sea as world +z advances
@@ -145,9 +143,20 @@ function createNaturalElevationFn(region: RegionDefinition): (x: number, z: numb
   return (worldX: number, worldZ: number): number => profile(worldX, -worldZ);
 }
 
+/** Optional overrides for `createTerrainQueryService`. */
+export interface TerrainQueryOptions {
+  /** Replaces the region's analytic relief with another RAW (ungraded) elevation function in the same region-local frame
+   * (used by the master-world adapter: master elevation translated into the region frame). Graded pads, water bodies,
+   * surfaces and biomes are layered on top exactly as before. */
+  natural?: (x: number, z: number) => number;
+  /** Replaces the region's authored water. The master-world adapter passes `false`: master relief carries its own
+   * sea/lakes/rivers, and the legacy seeds (authored against the analytic relief) would land on dry slopes there. */
+  legacyWater?: boolean;
+}
+
 /** Creates the shared terrain query service for a given region. Deterministic, no RNG. */
-export function createTerrainQueryService(region: RegionDefinition): TerrainQueryService {
-  const natural = createNaturalElevationFn(region);
+export function createTerrainQueryService(region: RegionDefinition, options: TerrainQueryOptions = {}): TerrainQueryService {
+  const natural = options.natural ?? createNaturalElevationFn(region);
   const { surfaceId, biomeId } = TERRAIN_SURFACE_AND_BIOME[region.environment.terrain];
 
   // WLD-02 airport terrain override (world spec section 72): every airfield in this region
@@ -164,7 +173,17 @@ export function createTerrainQueryService(region: RegionDefinition): TerrainQuer
   // grading above, so a lake surface never has multiple elevations (spec section 222 QA).
   // Water bodies are never placed inside an airfield's graded radius (see waterBodies.ts
   // QA test), so override precedence between the two doesn't matter in practice.
-  const waterBodies = buildWaterBodies(region.id, natural);
+  const legacyWater = options.legacyWater ?? true;
+  const waterBodies: WaterBody[] = legacyWater ? buildWaterBodies(region.id, natural) : [];
+  const seaLevelM = legacyWater ? REGION_SEA_LEVEL_M[region.id] ?? -Infinity : -Infinity;
+  /** Standing water (lake or sea) surface over a point whose natural ground is `bed`, or null on land. */
+  const standingWaterSurface = (x: number, z: number, bed: number): number | null =>
+    findWaterBodyAt(waterBodies, x, z)?.surfaceElevationM ?? (bed < seaLevelM ? seaLevelM : null);
+  const waterDepthAt = (x: number, z: number): number => {
+    const bed = natural(x, z), surface = standingWaterSurface(x, z, bed);
+    if (surface !== null) return Math.max(0, surface - bed);
+    return legacyWater ? riverDepthAt(region.id, x, z) : 0;
+  };
 
   // getElevation returns the WATER SURFACE height inside a water body's footprint, not the
   // lakebed: an aircraft's altitude-above-ground (ditching/near-ground logic) needs to be
@@ -175,8 +194,8 @@ export function createTerrainQueryService(region: RegionDefinition): TerrainQuer
   const elevation = (x: number, z: number): number => {
     const override = findAirportOverrideAt(overrides, x, z);
     if (override) return gradedElevationByAirfieldId.get(override.airfieldId)!;
-    const water = findWaterBodyAt(waterBodies, x, z);
-    const ground = water ? water.surfaceElevationM : natural(x, z);
+    const bed = natural(x, z);
+    const ground = standingWaterSurface(x, z, bed) ?? bed;
     // Shoulder: ease from the graded pad into the natural terrain instead of a hard step.
     for (const o of overrides) {
       const d = Math.hypot(x - o.center[0], z - o.center[1]) - o.radiusM;
@@ -258,18 +277,13 @@ export function createTerrainQueryService(region: RegionDefinition): TerrainQuer
     getElevation: elevation,
     getSlopeDeg,
     getSurfaceId,
-    getWaterDepth(x: number, z: number): number {
-      const water = findWaterBodyAt(waterBodies, x, z);
-      if (!water) return 0;
-      return Math.max(0, water.surfaceElevationM - natural(x, z));
-    },
+    getWaterDepth: waterDepthAt,
     isOnGradedRunway: (x: number, z: number) => findAirportOverrideAt(overrides, x, z) !== undefined,
     getBiomeWeights,
     sample(x: number, z: number): TerrainSample {
       const slopeDeg = getSlopeDeg(x, z);
       const pointSurfaceId = getSurfaceId(x, z);
-      const water = findWaterBodyAt(waterBodies, x, z);
-      const waterDepthM = water ? Math.max(0, water.surfaceElevationM - natural(x, z)) : 0;
+      const waterDepthM = waterDepthAt(x, z);
       const biomeWeights = getBiomeWeights(x, z);
       const dominantBiomeId = Object.entries(biomeWeights).sort((a, b) => b[1] - a[1])[0][0];
       // Flatness falls off to 0 by 45 degrees slope; combined with surface roughness (a

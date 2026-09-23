@@ -1,4 +1,4 @@
-import { ROADS, WORLD_ANCHORS, type RoadDef, type Vec2 } from './fieldComposition';
+import { ROADS, WORLD_ANCHORS, type Anchor, type RoadDef, type Vec2 } from './fieldComposition';
 import type { TerrainGridSampler } from './terrainHeightfield';
 
 /** Pure road geometry for The Field: Catmull-Rom the authored control points, drape them on
@@ -50,7 +50,7 @@ export function catmullRom(pts: ReadonlyArray<Vec2>, stepM: number): Array<[numb
   return out;
 }
 
-export function buildRoadPath(def: RoadDef, terrain: TerrainGridSampler): RoadPath {
+export function buildRoadPath(def: RoadDef, terrain: TerrainGridSampler, anchors: Record<string, Anchor> = WORLD_ANCHORS): RoadPath {
   const raw = catmullRom(def.points, ROAD_STEP_M);
   const points: RoadPoint[] = [];
   let s = 0;
@@ -63,7 +63,7 @@ export function buildRoadPath(def: RoadDef, terrain: TerrainGridSampler): RoadPa
   });
 
   if (def.bridge) {
-    const anchor = WORLD_ANCHORS[def.bridge.anchor];
+    const anchor = anchors[def.bridge.anchor];
     const half = def.bridge.halfSpanM;
     let center = 0, best = Infinity;
     points.forEach((p, i) => { const d = Math.hypot(p.x - anchor.x, p.z - anchor.z); if (d < best) { best = d; center = i; } });
@@ -124,4 +124,4 @@ export function createRoadDistance(paths: ReadonlyArray<RoadPath>, cellM = 64): 
   };
 }
 
-export const allRoadPaths = (terrain: TerrainGridSampler): RoadPath[] => ROADS.map((def) => buildRoadPath(def, terrain));
+export const allRoadPaths = (terrain: TerrainGridSampler, roads: ReadonlyArray<RoadDef> = ROADS, anchors: Record<string, Anchor> = WORLD_ANCHORS): RoadPath[] => roads.map((def) => buildRoadPath(def, terrain, anchors));

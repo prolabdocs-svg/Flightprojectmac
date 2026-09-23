@@ -60,3 +60,19 @@ describe('buildWaterBodies', () => {
     });
   }
 });
+
+describe('The Field sea and river', () => {
+  const terrain = createTerrainQueryService(getRegion('the_field'));
+
+  it('river valley stays above the sea until the estuary (no inland flooding)', () => {
+    // River centreline at z≈-800 and -1600 (well inland) must be land-level water, not sea.
+    for (const [x, z] of [[1900, -800], [1547, -1594], [1000, -2300]]) expect(terrain.getElevation(x, z)).toBeGreaterThan(-24);
+  });
+
+  it('sea and river are gameplay water; the sea is a flat collidable surface', () => {
+    expect(terrain.getElevation(-7950, 0)).toBe(-24);
+    expect(terrain.getWaterDepth(-7950, 0)).toBeGreaterThan(0.3); // ditching here crashes
+    expect(terrain.getWaterDepth(1900, -800)).toBeGreaterThan(0.3); // river channel
+    expect(terrain.getWaterDepth(0, 0)).toBe(0);
+  });
+});

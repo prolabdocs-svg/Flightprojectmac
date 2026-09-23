@@ -53,6 +53,22 @@ const LANDMARKS: LandmarkDefinition[] = [
     navigationPriority: 0.8,
     discoveryState: 'hidden',
   },
+  // Red Canyon's VFR anchor: a sandstone pinnacle on the mesa rim. regionPlacement.ts's
+  // placeLandmarkFormations() builds the actual rock formation here, so the map entry and the
+  // thing you see out of the window are the same object.
+  {
+    id: 'red_canyon_pinnacle',
+    regionId: 'red_canyon',
+    type: 'natural',
+    // y = rim ground (~203 m, canyonGeography.ts) + formation height, so LOS targets the top.
+    worldPosition: [700, 245, 1050],
+    recognitionRadiusM: 2600,
+    silhouetteScore: 0.9,
+    contrastScore: 0.8,
+    uniquenessScore: 0.9,
+    navigationPriority: 0.9,
+    discoveryState: 'known',
+  },
   {
     id: 'backcountry_lake',
     regionId: 'backcountry',

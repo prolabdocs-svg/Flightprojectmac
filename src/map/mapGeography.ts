@@ -6,6 +6,7 @@ import { catmullRom } from '../world/fieldRoads';
 import { getRegionRoadNodes, getRegionRoadSegments, getRegionTowns } from '../world/landUse';
 import { createTerrainQueryService } from '../world/terrainQuery';
 import type { WorldRect } from './mapProjection';
+import { MASTER_MAP_ID, buildMasterRegionMap } from './masterMapGeography';
 
 /**
  * Cartographic model of a region, built ONLY from world data: terrain elevation/water come from
@@ -69,8 +70,8 @@ function ramp(e: number): [number, number, number] {
 function buildRaster(regionId: string, rect: WorldRect): RegionMap['raster'] {
   const N = RASTER_SIZE;
   const terrain = createTerrainQueryService(getRegion(regionId));
-  // Only the drowned map edge is sea; the river valley floor (-14..-24 m) must stay land.
-  const seaM = regionId === 'the_field' ? SEA_LEVEL_M - 6 : -Infinity;
+  // terrainQuery flattens the sea to its surface, so "at sea level" is exactly the 3D sea.
+  const seaM = regionId === 'the_field' ? SEA_LEVEL_M : -Infinity;
   const cellM = (rect.maxX - rect.minX) / N;
   const elevation = new Float32Array(N * N), lake = new Float32Array(N * N);
   for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
@@ -92,8 +93,8 @@ function buildRaster(regionId: string, rect: WorldRect): RegionMap['raster'] {
   for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
     const k = j * N + i, e = elevation[k];
     let c: readonly number[];
-    if (lake[k] > 0) c = mix(LAKE_SHALLOW, LAKE_DEEP, Math.min(1, lake[k] / 24));
-    else if (e <= seaM) c = SEA;
+    if (e <= seaM) c = SEA;
+    else if (lake[k] > 1) c = mix(LAKE_SHALLOW, LAKE_DEEP, Math.min(1, lake[k] / 24)); // > 1 m: rivers are drawn as vectors
     else {
       c = ramp((e - shift) * gain);
       // Slope from central differences (m/m); east = +i, north = -j.
@@ -159,6 +160,7 @@ const cache = new Map<string, RegionMap>();
 
 export function getRegionMap(regionId: string): RegionMap {
   let m = cache.get(regionId);
+  if (!m && regionId === MASTER_MAP_ID) { m = buildMasterRegionMap(); cache.set(regionId, m); }
   if (!m) {
     const rect = getRegionRect(regionId);
     m = { regionId, rect, raster: buildRaster(regionId, rect), ...(regionId === 'the_field' ? fieldLayers() : genericLayers(regionId)) };

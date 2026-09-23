@@ -5,6 +5,8 @@ import type { MissionDefinition, Vec3 } from '../core/types';
 import type { FlightTelemetry } from '../flight/flightTypes';
 import type { Settlement } from './settlement';
 import type { MissionAirfieldLinks } from '../content/missions';
+import type { AircraftCondition, ComponentId } from './aircraftCondition';
+import type { RepairOrder } from './maintenance';
 
 export type ArchetypeId = 'cargo' | 'passenger' | 'urgent' | 'ferry' | 'exploration';
 
@@ -129,6 +131,15 @@ export interface ActiveContract {
   /** Last telemetry sample, captured when the session reached OBJECTIVE_MET / FAILED / ABORTED, so an
    * unsettled flight can still be paid exactly once after a reload or a screen change. */
   finalTelemetry: FlightTelemetry | null;
+  /** Periodic in-flight checkpoint (spec item 11), refreshed on an interval + key events, never
+   * every physics tick. Lets a reload mid-ACTIVE-flight settle against real fuel burned instead of
+   * silently refunding it (see operations.ts#reconcileAfterLoad). */
+  checkpoint: FlightCheckpoint | null;
+}
+
+export interface FlightCheckpoint {
+  fuelFraction: number;
+  elapsedS: number;
 }
 
 /** A settlement as it hit the wallet: what the Results screen shows, and what survives a reload. */
@@ -147,11 +158,15 @@ export interface AppliedSettlement extends Settlement {
   revealedAirfieldIds: string[];
   fuelRemainingL: number;
   conditionAfter: OperationsState['condition'];
+  /** Components that took damage (or worse) THIS flight, for Results — never implies they were
+   * repaired; see mission/aircraftCondition.ts for what "damaged" means. */
+  damagedComponentIds: ComponentId[];
 }
 
 export type LogKind =
   | 'mission_start' | 'takeoff' | 'landing' | 'crash' | 'mission_complete' | 'mission_abandon'
-  | 'fuel_used' | 'damage' | 'upgrade_purchased' | 'destination_discovered';
+  | 'fuel_used' | 'damage' | 'upgrade_purchased' | 'destination_discovered'
+  | 'repair_started' | 'repair_completed';
 
 export interface OperationsLogEntry {
   kind: LogKind;
@@ -162,6 +177,10 @@ export interface OperationsLogEntry {
 
 export interface OperationsState {
   version: number;
+  /** Persistent per-component aircraft condition (mission/aircraftCondition.ts, spec item 1). */
+  aircraftCondition: AircraftCondition;
+  /** A repair currently being worked on, if any (mission/maintenance.ts, spec item 6). */
+  pendingRepair: RepairOrder | null;
   /** Airfield where the aircraft is parked. New contracts depart from here. */
   locationId: string;
   /** Fuel in the tank right now, litres. Persisted between flights. */

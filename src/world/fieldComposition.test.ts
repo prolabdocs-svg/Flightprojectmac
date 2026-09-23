@@ -26,7 +26,7 @@ describe('Field composition', () => {
     for (const road of layout.roads) {
       const maxSlope = road.def.surface === 'asphalt' ? 9 : 13;
       for (const p of road.points) {
-        expect(terrain.getWaterDepth(p.x, p.z), `${road.def.id} wet @${p.x | 0},${p.z | 0}`).toBe(0);
+        if (!p.onBridge) expect(terrain.getWaterDepth(p.x, p.z), `${road.def.id} wet @${p.x | 0},${p.z | 0}`).toBe(0);
         expect(Math.hypot(p.x - FIELD_LAKE.x, p.z - FIELD_LAKE.z)).toBeGreaterThan(FIELD_LAKE.radiusM + 40);
         if (!p.onBridge && road.def.id !== 'ROAD_MAIN') expect(distanceToRiver(p.x, p.z)).toBeGreaterThan(60);
         expect(grid.slopeDeg(p.x, p.z), `${road.def.id} slope`).toBeLessThan(maxSlope);

@@ -1,4 +1,4 @@
-import { FIELD_LAKE } from './fieldGeography';
+import { distanceToRiver, FIELD_LAKE, RIVER_WATER_ABOVE_BED_M, RIVER_WATER_HALF_M, SEA_LEVEL_M } from './fieldGeography';
 /**
  * WLD-03 hydrology (spec §19-24, §217, §240, §249). Deliberately minimal per spec §266
  * non-goals: no flow accumulation, no watershed graph, no polyline rivers — a water body
@@ -61,4 +61,13 @@ export function buildWaterBodies(
  * simple distance check — no spatial index needed at this scale (a handful of bodies per region). */
 export function findWaterBodyAt(bodies: WaterBody[], x: number, z: number): WaterBody | undefined {
   return bodies.find((b) => Math.hypot(x - b.center[0], z - b.center[1]) <= b.radiusM);
+}
+
+/** Open sea: natural ground below this level is sea, with a flat surface at it. Only The Field's
+ * drowned map edge (and its estuary) qualifies; other regions' water comes from the master map. */
+export const REGION_SEA_LEVEL_M: Readonly<Record<string, number>> = { the_field: SEA_LEVEL_M };
+
+/** Depth of a non-collidable river channel at x/z (0 outside it). Only The Field has one. */
+export function riverDepthAt(regionId: string, x: number, z: number): number {
+  return regionId === 'the_field' && distanceToRiver(x, z) <= RIVER_WATER_HALF_M ? RIVER_WATER_ABOVE_BED_M : 0;
 }

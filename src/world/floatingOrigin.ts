@@ -8,8 +8,11 @@ export class FloatingOrigin {
   private readonly registered = new Set<THREE.Object3D>();
 
   private readonly rebaseThresholdM: number;
+  private readonly gridSnapM: number;
 
-  constructor(rebaseThresholdM = 5000) { this.rebaseThresholdM = rebaseThresholdM; }
+  /** `gridSnapM` > 0 quantises every rebase to a multiple of that size (the master world uses its 512 m chunk lattice), so the
+   * origin always sits on a chunk corner and chunk-local vertex data never has to be recomputed after a rebase. 0 = exact (legacy). */
+  constructor(rebaseThresholdM = 5000, gridSnapM = 0) { this.rebaseThresholdM = rebaseThresholdM; this.gridSnapM = gridSnapM; }
 
   register(object: THREE.Object3D) { this.registered.add(object); }
   unregister(object: THREE.Object3D) { this.registered.delete(object); }
@@ -28,6 +31,10 @@ export class FloatingOrigin {
     const local = this.toLocal(globalAircraftPos);
     if (local.length() < this.rebaseThresholdM) return null;
 
+    if (this.gridSnapM > 0) {
+      const g = this.gridSnapM;
+      local.set(Math.round((this.origin.x + local.x) / g) * g - this.origin.x, local.y, Math.round((this.origin.z + local.z) / g) * g - this.origin.z);
+    }
     this.origin.add(local);
     for (const object of this.registered) object.position.sub(local);
     return local;

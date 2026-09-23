@@ -12,7 +12,7 @@ import { defaultBuild, resolveAircraft } from '../content/assembly';
 import { createOperations, OPERATIONS_VERSION } from '../mission/operationsState';
 import { GAME_VERSION } from '../buildInfo';
 
-export const SAVE_SCHEMA_VERSION = 4;
+export const SAVE_SCHEMA_VERSION = 5;
 const DB_NAME = 'project-flight';
 const DB_VERSION = 1;
 const STORE_NAME = 'profile';
@@ -107,13 +107,24 @@ function migrate(raw: PlayerProfile): PlayerProfile {
     // v4: contract operations (location, fuel on board, discoveries, active contract, settlement ledger).
     profile = { ...profile, schemaVersion: 4 };
   }
+  if (profile.schemaVersion < 5) {
+    // v5 (Slice 4A): per-component aircraftCondition + pendingRepair replace the old aggregate
+    // operations.condition counters (which stay, for their own stats). A profile that predates
+    // this has no data to infer real component wear from, so it comes back healthy rather than
+    // guessing — the spread below (createOperations() first, saved fields second) already does
+    // this for any field the old save simply doesn't have, so this bump only documents the change.
+    profile = { ...profile, schemaVersion: 5 };
+  }
   profile = { ...profile, ownedFrameIds: profile.ownedFrameIds?.length ? profile.ownedFrameIds : ['frame_zero'] };
   if (!profile.operations || profile.operations.version === undefined) {
     const fresh = createOperations();
     const build = sanitizeBuildSafe(profile);
     profile = { ...profile, operations: { ...fresh, fuelL: resolveAircraft(build).fuelCapacityL } };
   } else {
-    // Forward-compatible backfill for fields added after OPERATIONS_VERSION 1.
+    // Forward-compatible backfill for fields added after OPERATIONS_VERSION 1, including
+    // aircraftCondition/pendingRepair (v5): a save missing those keys gets createOperations()'s
+    // healthy defaults since spreading `profile.operations` after it can't overwrite a key it
+    // doesn't own.
     profile = { ...profile, operations: { ...createOperations(), ...profile.operations, version: OPERATIONS_VERSION } };
   }
   profile = { ...profile, homeBase: { ...DEFAULT_HOME_BASE, ...profile.homeBase } };

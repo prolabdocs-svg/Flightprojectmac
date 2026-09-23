@@ -1,10 +1,12 @@
+import { useEffect, useState } from 'react';
 import { useGameStore } from '../../state/gameStore';
 import { useProfileStore } from '../../state/profileStore';
 import { resolveAircraft } from '../../content/assembly';
 import { getAirfield } from '../../world/airfields';
 import { getPart } from '../../content/parts';
-import { getDestinationStatuses } from '../../mission/operations';
+import { getDestinationStatuses, aircraftAirworthiness, repairEstimateFor } from '../../mission/operations';
 import { STATE_LABEL } from '../../mission/labels';
+import { componentTopology, COMPONENT_LABEL, componentSeverity } from '../../mission/aircraftCondition';
 import { BrandMark } from '../components/BrandMark';
 import { MenuNavigation } from '../components/MenuNavigation';
 import { ResourceBar } from '../components/ScreenHeader';
@@ -24,6 +26,8 @@ export function HangarScreen() {
   const upgradeHomeBase = useProfileStore((s) => s.upgradeHomeBase);
   const abandonMission = useProfileStore((s) => s.abandonMission);
   const recoverAircraft = useProfileStore((s) => s.recoverAircraft);
+  const startRepair = useProfileStore((s) => s.startRepair);
+  const collectRepair = useProfileStore((s) => s.collectRepair);
   const aircraft = resolveAircraft(profile.currentBuild);
   const homeBaseBenefits = getHomeBaseBenefits(profile.homeBase);
   const pilotRank = getPilotRank(profile.reputation);
@@ -46,6 +50,19 @@ export function HangarScreen() {
     }
     goTo('map');
   };
+
+  const airworthiness = aircraftAirworthiness(profile);
+  const repairEstimate = repairEstimateFor(profile);
+  const pendingRepair = ops.pendingRepair;
+  // Date.now() only runs inside the effect (never during render) so the "ready" flag can tick
+  // forward while a repair is in progress without calling an impure function on every render.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!pendingRepair) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [pendingRepair]);
+  const repairReady = pendingRepair ? now >= pendingRepair.readyAtMs : false;
 
   const paint = PAINT_PRESETS.find((x) => x.id === profile.selectedPaintId);
   const facilities = [
@@ -91,6 +108,38 @@ export function HangarScreen() {
                 {(ops.active.session.state === 'ACCEPTED' || ops.active.session.state === 'PREPARED' || ops.active.session.state === 'ACTIVE') && <button className="secondary-btn" onClick={() => abandonMission()}>Cancelar contrato</button>}
                 {(ops.active.session.state === 'FAILED' || ops.active.session.state === 'ABORTED') && <button className="secondary-btn" onClick={() => recoverAircraft()}>Recuperar aeronave</button>}
               </div>
+            )}
+          </section>
+
+          <section className="panel maintenance-panel" data-testid="maintenance-panel">
+            <div><span className="panel-kicker">MANTENIMIENTO</span><h3>Condición por componente</h3></div>
+            <p className="results-note" data-testid="airworthiness">
+              Aeronavegabilidad: <b>{airworthiness.status}</b>
+              {airworthiness.reasons.length > 0 && ` — ${airworthiness.reasons.map((r) => `${COMPONENT_LABEL[r.componentId]} (${r.severity})`).join(', ')}`}
+            </p>
+            <div className="tile-row">
+              {componentTopology().map((id) => (
+                <div key={id} className="tile" data-testid={`component-${id}`}>
+                  <b>{Math.round(ops.aircraftCondition[id].integrity * 100)}%</b>
+                  <span>{COMPONENT_LABEL[id]} · {componentSeverity(ops.aircraftCondition[id])}</span>
+                </div>
+              ))}
+            </div>
+            {pendingRepair ? (
+              repairReady ? (
+                <button className="secondary-btn" data-testid="collect-repair" onClick={() => collectRepair()}>Recoger reparación (${pendingRepair.costCash})</button>
+              ) : (
+                <p className="results-note" data-testid="repair-in-progress">Reparación en curso: lista {new Date(pendingRepair.readyAtMs).toLocaleTimeString()}</p>
+              )
+            ) : (
+              <button
+                className="secondary-btn"
+                data-testid="start-repair"
+                disabled={repairEstimate.componentIds.length === 0 || profile.cash < repairEstimate.costCash}
+                onClick={() => startRepair()}
+              >
+                {repairEstimate.componentIds.length === 0 ? 'Sin daño pendiente' : `Reparar todo ($${repairEstimate.costCash})`}
+              </button>
             )}
           </section>
 

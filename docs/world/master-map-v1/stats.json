@@ -1,0 +1,316 @@
+{
+  "seed": "project-flight-master-map-v1",
+  "gridN": 1000,
+  "cellM": 48,
+  "extentKm": 48,
+  "totalKm2": 2304,
+  "landKm2": 1286.309376,
+  "landPct": 55.8294,
+  "oceanPct": 44.1706,
+  "maxElevM": 2846.587158203125,
+  "maxElevAtKm": [
+    -9.432,
+    14.568
+  ],
+  "maxSeaDepthM": 664.1564331054688,
+  "elevationBandsPctOfLand": {
+    "Playa 0–8 m": 1.66,
+    "Llanura costera 8–80 m": 8.59,
+    "Valle 80–350 m": 37.17,
+    "Meseta 350–900 m": 31.2,
+    "Sierra 900–1,800 m": 12.47,
+    "Alta montaña 1,800–2,700 m": 8.67,
+    "Cumbres >2,700 m": 0.25
+  },
+  "landComponentsKm2": {
+    "islet_6": 2.07,
+    "islet_5": 2.37,
+    "islet_3": 3.4,
+    "mainland": 1191.22,
+    "islet_16": 0,
+    "islet_17": 0,
+    "islet_18": 0,
+    "islet_9": 0.53,
+    "islet_19": 0,
+    "islet_20": 0,
+    "islet_13": 0.02,
+    "islet_14": 0.01,
+    "islet_12": 0.03,
+    "islet_21": 0,
+    "islet_15": 0,
+    "islet_22": 0,
+    "islet_23": 0,
+    "islet_7": 1.87,
+    "islet_24": 0,
+    "islet_11": 0.04,
+    "islet_4": 2.44,
+    "islet_25": 0,
+    "islet_26": 0,
+    "islet_8": 1.3,
+    "islet_10": 0.06,
+    "eastern_island": 80.93
+  },
+  "islandCount": 25,
+  "straitMinKm": 6.6,
+  "regionAreaKm2": {
+    "Starter Basin": 154.7,
+    "Central Valley": 131,
+    "Northern Mountains": 320.4,
+    "Western Badlands": 245.6,
+    "Southern Greenbelt": 138,
+    "South Coast": 109.4,
+    "Eastern Island": 80.9,
+    "Southern Archipelago": 14.2,
+    "Eastern Highlands": 92.1
+  },
+  "regionElevationM": {
+    "Starter Basin": {
+      "min": 176,
+      "mean": 416,
+      "max": 1130
+    },
+    "Central Valley": {
+      "min": 147,
+      "mean": 374,
+      "max": 1784
+    },
+    "Northern Mountains": {
+      "min": 0,
+      "mean": 1259,
+      "max": 2847
+    },
+    "Western Badlands": {
+      "min": 0,
+      "mean": 409,
+      "max": 1067
+    },
+    "Southern Greenbelt": {
+      "min": 0,
+      "mean": 229,
+      "max": 646
+    },
+    "South Coast": {
+      "min": 0,
+      "mean": 91,
+      "max": 584
+    },
+    "Eastern Island": {
+      "min": 0,
+      "mean": 424,
+      "max": 1499
+    },
+    "Southern Archipelago": {
+      "min": 0,
+      "mean": 61,
+      "max": 287
+    },
+    "Eastern Highlands": {
+      "min": 0,
+      "mean": 1111,
+      "max": 2482
+    }
+  },
+  "rivers": [
+    {
+      "id": "rio_principal",
+      "name": "Río Principal",
+      "kind": "perennial",
+      "parent": null,
+      "lengthKm": 34.92,
+      "sourceM": 1592.6013870239249,
+      "mouthM": -30.849190995228383,
+      "floorViolations": 0,
+      "d8ReachesSea": true,
+      "d8RiseM": 0
+    },
+    {
+      "id": "rio_del_paso",
+      "name": "Río del Paso",
+      "kind": "perennial",
+      "parent": "rio_principal",
+      "lengthKm": 10.709999999999999,
+      "sourceM": 1498.6424519604311,
+      "mouthM": 839.2164791257348,
+      "floorViolations": 0,
+      "d8ReachesSea": true,
+      "d8RiseM": 0
+    },
+    {
+      "id": "rio_alto",
+      "name": "Río Alto",
+      "kind": "perennial",
+      "parent": "rio_principal",
+      "lengthKm": 8.64,
+      "sourceM": 2103.476413302947,
+      "mouthM": 251.21709455736638,
+      "floorViolations": 0,
+      "d8ReachesSea": true,
+      "d8RiseM": 0
+    },
+    {
+      "id": "rio_cumbre",
+      "name": "Río Cumbre",
+      "kind": "perennial",
+      "parent": "rio_principal",
+      "lengthKm": 6.93,
+      "sourceM": 2374.3387179904503,
+      "mouthM": 626.7348591171761,
+      "floorViolations": 0,
+      "d8ReachesSea": true,
+      "d8RiseM": 0
+    },
+    {
+      "id": "rio_canada",
+      "name": "Río Cañada",
+      "kind": "perennial",
+      "parent": "rio_principal",
+      "lengthKm": 9.719999999999999,
+      "sourceM": 1187.6328983537046,
+      "mouthM": 146.4317767740708,
+      "floorViolations": 0,
+      "d8ReachesSea": true,
+      "d8RiseM": 0
+    },
+    {
+      "id": "rio_sur",
+      "name": "Río Sur",
+      "kind": "perennial",
+      "parent": "rio_principal",
+      "lengthKm": 13.139999999999999,
+      "sourceM": 306.9726901584201,
+      "mouthM": 108.11289950932326,
+      "floorViolations": 0,
+      "d8ReachesSea": true,
+      "d8RiseM": 0
+    },
+    {
+      "id": "rio_field",
+      "name": "Río del Campo (Starter Basin)",
+      "kind": "perennial",
+      "parent": "rio_principal",
+      "lengthKm": 15.75,
+      "sourceM": 291.85849999999965,
+      "mouthM": 190.13781946010735,
+      "floorViolations": 0,
+      "d8ReachesSea": true,
+      "d8RiseM": 0
+    },
+    {
+      "id": "rio_norte",
+      "name": "Río Norte",
+      "kind": "perennial",
+      "parent": null,
+      "lengthKm": 5.9399999999999995,
+      "sourceM": 1136.0556288083978,
+      "mouthM": -95.25916735331211,
+      "floorViolations": 0,
+      "d8ReachesSea": true,
+      "d8RiseM": 0
+    },
+    {
+      "id": "rio_bahia_norte",
+      "name": "Río de la Bahía",
+      "kind": "perennial",
+      "parent": null,
+      "lengthKm": 3.5999999999999996,
+      "sourceM": 2282.205627441407,
+      "mouthM": -55.2490397606484,
+      "floorViolations": 0,
+      "d8ReachesSea": true,
+      "d8RiseM": 0
+    },
+    {
+      "id": "rio_isla_oeste",
+      "name": "Río de la Isla (oeste)",
+      "kind": "perennial",
+      "parent": null,
+      "lengthKm": 2.52,
+      "sourceM": 815.0312907081882,
+      "mouthM": -41.50797838161464,
+      "floorViolations": 0,
+      "d8ReachesSea": true,
+      "d8RiseM": 0
+    },
+    {
+      "id": "rio_isla_este",
+      "name": "Río de la Isla (este)",
+      "kind": "perennial",
+      "parent": null,
+      "lengthKm": 3.2399999999999998,
+      "sourceM": 694.1809895833337,
+      "mouthM": -37.478663164498144,
+      "floorViolations": 0,
+      "d8ReachesSea": true,
+      "d8RiseM": 0
+    },
+    {
+      "id": "arroyo_norte",
+      "name": "Arroyo Seco Norte",
+      "kind": "dry",
+      "parent": null,
+      "lengthKm": 3.51,
+      "sourceM": 684.1978060537756,
+      "mouthM": -186.59878492355347,
+      "floorViolations": 0,
+      "d8ReachesSea": true,
+      "d8RiseM": 0
+    },
+    {
+      "id": "arroyo_centro",
+      "name": "Arroyo Seco Central",
+      "kind": "dry",
+      "parent": null,
+      "lengthKm": 5.22,
+      "sourceM": 91.85493818918866,
+      "mouthM": -102.99184872602203,
+      "floorViolations": 0,
+      "d8ReachesSea": true,
+      "d8RiseM": 0
+    },
+    {
+      "id": "arroyo_sur",
+      "name": "Arroyo Seco Sur",
+      "kind": "dry",
+      "parent": null,
+      "lengthKm": 5.67,
+      "sourceM": 351.8805236816405,
+      "mouthM": -148.0175774892171,
+      "floorViolations": 0,
+      "d8ReachesSea": true,
+      "d8RiseM": 0
+    }
+  ],
+  "perennialRivers": 11,
+  "tributariesOfMainRiver": 6,
+  "mainBasinKm2": 371.5,
+  "riverCellsKm2Catchment": 21.3,
+  "lakes": [
+    {
+      "areaKm2": 2.61,
+      "levelM": 437
+    },
+    {
+      "areaKm2": 2.17,
+      "levelM": 220
+    },
+    {
+      "areaKm2": 0.88,
+      "levelM": 1589
+    }
+  ],
+  "fieldCoreMicroPits": {
+    "cells": 5429,
+    "maxDepthM": 28.97
+  },
+  "strayDepressions": {
+    "cells": 0,
+    "areaKm2": 0,
+    "maxDepthM": 0,
+    "volumeM3": 0
+  },
+  "standingWaterCells": 7895,
+  "slope": {
+    "landPctOver30deg": 17.08,
+    "landPctUnder8deg": 37.33
+  }
+}

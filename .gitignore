@@ -30,3 +30,8 @@ assets-source/*
 !assets-source/_licenses
 assets-work/*
 !assets-work/.gitkeep
+
+# Master Geographic Map V1 full-resolution validation artifacts (regenerable; ~35 MB of PNGs).
+# Regenerate with: node scripts/world/run.mjs /scripts/world/renderMasterMap.ts docs/world/master-map-v1
+# Only docs/world/master-map-v1/previews/ (small JPEGs) and stats.json are committed.
+/docs/world/master-map-v1/*.png

@@ -150,6 +150,12 @@ export function FlightHud({ telemetry, mission, freeFlightRegionName, freeFlight
         {!contractState && telemetry.landed && !telemetry.crashed && <span className={missionProgress?.state === 'completed' ? 'banner-landed' : 'banner-objective-missed'}>
           {missionProgress?.state === 'completed' ? 'CONTRATO COMPLETADO' : 'ATERRIZAJE FUERA DE OBJETIVO'} — calidad {(telemetry.landingQuality * 100).toFixed(0)}%
         </span>}
+        {/* Detached parts change handling drastically and stay relevant for the rest of the
+            flight — worth a persistent warning. Merely "damaged" (still attached) parts are
+            not: the impact shake/stinger (FlightScreen) already covers that moment. */}
+        {!telemetry.crashed && telemetry.detachedPartIds.length > 0 && (
+          <span className="banner-objective-missed" data-testid="hud-detached-warning">PIEZA DESPRENDIDA — control degradado</span>
+        )}
       </div>
 
       <div className="hud-secondary-controls">

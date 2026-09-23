@@ -31,7 +31,9 @@ const MIN_CLIMB_MS = 0.8;
 export type Blocker =
   | 'FUEL_OVER_CAPACITY' | 'FUEL_NOT_AVAILABLE' | 'PAYLOAD_OUT_OF_BOUNDS' | 'OVERWEIGHT'
   | 'INSUFFICIENT_RANGE' | 'TAKEOFF_RUNWAY_TOO_SHORT' | 'LANDING_RUNWAY_TOO_SHORT'
-  | 'CANNOT_CLIMB' | 'CRUISE_NOT_HOLDABLE' | 'CROSSWIND_LIMIT';
+  | 'CANNOT_CLIMB' | 'CRUISE_NOT_HOLDABLE' | 'CROSSWIND_LIMIT'
+  /** Airworthiness gate (mission/aircraftCondition.ts, spec item 7) — not a performance limit. */
+  | 'AIRCRAFT_GROUNDED';
 
 export type UtilizationKey = 'range' | 'takeoff' | 'landing' | 'mass' | 'crosswind';
 
