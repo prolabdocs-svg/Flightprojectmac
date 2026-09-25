@@ -15,15 +15,22 @@ export type Screen =
   | 'builder'
   | 'techtree'
   | 'paint'
+  | 'aircraft'
+  | 'career'
+  | 'pilot'
   | 'settings'
   | 'run'
   | 'results';
+
+let selectedWorldStartId: string | null = null;
 
 interface GameState {
   screen: Screen;
   selectedMissionId: string | null;
   /** Region used when launching the sandbox rather than a contract. */
   selectedFreeFlightRegionId: string;
+  /** Optional globally charted aerodrome used as the free-flight start. */
+  selectedWorldStartId: string | null;
   /** Last viewed campaign region, preserved when returning from a flight/result. */
   selectedMapRegionId: string;
   /** Map camera per region + the selected map target, kept across screens (spec: don't reset on every visit). */
@@ -40,6 +47,7 @@ interface GameState {
   goTo: (screen: Screen) => void;
   selectMission: (missionId: string | null) => void;
   selectFreeFlight: (regionId: string) => void;
+  selectWorldStart: (airfieldId: string, regionId: string) => void;
   selectMapRegion: (regionId: string) => void;
   setMapView: (regionId: string, view: MapView) => void;
   setMapSelection: (id: string | null) => void;
@@ -47,12 +55,14 @@ interface GameState {
   setLastOutcome: (o: 'contract' | 'legacy' | null) => void;
   setFlightTelemetry: (t: FlightTelemetry | null) => void;
   setPaused: (p: boolean) => void;
+  /** Drops every progress-derived runtime cache (Reset Progress). Keeps the current screen. */
+  resetRuntime: () => void;
 }
 
-export const useGameStore = create<GameState>((set) => ({
-  screen: 'boot',
+const RUNTIME_DEFAULTS = {
   selectedMissionId: null,
   selectedFreeFlightRegionId: 'the_field',
+  selectedWorldStartId,
   selectedMapRegionId: 'the_field',
   mapViews: {},
   mapSelectionId: null,
@@ -60,6 +70,11 @@ export const useGameStore = create<GameState>((set) => ({
   lastOutcome: null,
   flightTelemetry: null,
   paused: false,
+} satisfies Partial<GameState>;
+
+export const useGameStore = create<GameState>((set) => ({
+  screen: 'boot',
+  ...RUNTIME_DEFAULTS,
   flightSession: 0,
   goTo: (screen) =>
     set((state) => ({
@@ -67,8 +82,9 @@ export const useGameStore = create<GameState>((set) => ({
       paused: false,
       flightSession: screen === 'run' ? state.flightSession + 1 : state.flightSession,
     })),
-  selectMission: (missionId) => set({ selectedMissionId: missionId }),
-  selectFreeFlight: (regionId) => set({ selectedMissionId: null, selectedFreeFlightRegionId: regionId, selectedMapRegionId: regionId }),
+  selectMission: (missionId) => { selectedWorldStartId = null; set({ selectedMissionId: missionId, selectedWorldStartId: null }); },
+  selectFreeFlight: (regionId) => { selectedWorldStartId = null; set({ selectedMissionId: null, selectedFreeFlightRegionId: regionId, selectedWorldStartId: null, selectedMapRegionId: 'master' }); },
+  selectWorldStart: (airfieldId, regionId) => { selectedWorldStartId = airfieldId; set({ selectedMissionId: null, selectedFreeFlightRegionId: regionId, selectedWorldStartId: airfieldId, selectedMapRegionId: 'master' }); },
   selectMapRegion: (regionId) => set({ selectedMapRegionId: regionId, mapSelectionId: null }),
   setMapView: (regionId, view) => set((s) => ({ mapViews: { ...s.mapViews, [regionId]: view } })),
   setMapSelection: (id) => set({ mapSelectionId: id }),
@@ -76,4 +92,5 @@ export const useGameStore = create<GameState>((set) => ({
   setLastOutcome: (o) => set({ lastOutcome: o }),
   setFlightTelemetry: (t) => set({ flightTelemetry: t }),
   setPaused: (p) => set({ paused: p }),
+  resetRuntime: () => { selectedWorldStartId = null; set(RUNTIME_DEFAULTS); },
 }));

@@ -1,6 +1,7 @@
 // Rebuilds public/assets/models/pf_aircraft_ultralight.glb from the fused, single-material sculpt in
-// tools/a0/source/: splits out the four control surfaces and the propeller (hinged pivots baked at the
-// real hinge lines), assigns the A0 material family + livery atlas, adds the pilot. Silhouette unchanged.
+// tools/a0/source/: separates the airframe into semantic wing, tail, control, drivetrain,
+// cable, wheel and propeller assemblies with pivots at their working axes; applies the A0 livery
+// and pilot. The source sculpt still defines the aircraft's silhouette.
 //   node tools/a0/split_a0.mjs
 import fs from 'node:fs';
 import path from 'node:path';
@@ -8,13 +9,15 @@ import { fileURLToPath } from 'node:url';
 import { Document, NodeIO } from '@gltf-transform/core';
 import { clip, volume, isCap } from './clip.mjs';
 import { triangleData, thickness } from './mesh.mjs';
-import { classify, PROP_HUB } from './classify.mjs';
+import { classify, PROP_HUB, WHEELS, AXLE_Y } from './classify.mjs';
 import { renderAtlas, encodePng, uvFor, SURF, G, SIZE } from './livery.mjs';
 import { buildPilot } from './pilot.mjs';
+import { buildEngine, buildWheel, buildMainGear, buildNoseFork, buildPropHub } from './hardware.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SRC = path.join(HERE, 'source/pf_aircraft_ultralight.source.glb');
-const OUT = path.join(HERE, '../../public/assets/models/pf_aircraft_ultralight.glb');
+const OUT = path.join(HERE, '../../public/assets/models/airframes/aerofox_kestrel2.glb');
+const LEGACY_OUT = path.join(HERE, '../../public/assets/models/pf_aircraft_ultralight.glb');
 
 // ---------- load the fused sculpt ----------
 const io = new NodeIO();
@@ -133,7 +136,7 @@ if (probe) {
 if (process.argv.includes('--dry')) process.exit(0);
 
 // ---------- materials ----------
-const MAT_OF = { wing: 'fabric', tail: 'fabric', fin: 'fabric', frame: 'frame', pant: 'frame', wire: 'mech', mech: 'mech', hub: 'mech', cap: 'mech', engine: 'engine', tire: 'rubber', seat: 'seat', prop: 'prop' };
+const MAT_OF = { wing: 'fabric', tail: 'fabric', fin: 'fabric', frame: 'frame', pant: 'frame', wire: 'wire', mech: 'mech', hub: 'mech', cap: 'mech', engine: 'engine', exhaust: 'exhaust', tire: 'rubber', seat: 'seat', prop: 'prop' };
 const doc = new Document();
 const buffer = doc.createBuffer();
 const atlas = doc.createTexture('a0_livery').setImage(encodePng(renderAtlas())).setMimeType('image/png');
@@ -142,8 +145,10 @@ const hex = (s) => [1, 3, 5].map((i) => parseInt(s.slice(i, i + 2), 16));
 const MATS = {
   fabric: doc.createMaterial('A0_FABRIC').setBaseColorFactor([1, 1, 1, 1]).setBaseColorTexture(atlas).setRoughnessFactor(0.84).setMetallicFactor(0),
   frame: mk('A0_FRAME', hex('#f06a2a'), 0.6, 0.05),
+  wire: mk('A0_CONTROL_CABLE', hex('#6a747b'), 0.78, 0.12),
   mech: mk('A0_MECHANICAL', hex('#8a929a'), 0.5, 0.35),
   engine: mk('A0_ENGINE_DARK', hex('#2a2e32'), 0.55, 0.3),
+  exhaust: mk('A0_EXHAUST', hex('#5b4a3e'), 0.7, 0.4),
   rubber: mk('A0_RUBBER', hex('#16181a'), 0.92, 0),
   seat: mk('A0_SEAT', hex('#3b342e'), 0.8, 0),
   pilot: doc.createMaterial('A0_PILOT').setBaseColorFactor([1, 1, 1, 1]).setRoughnessFactor(0.75).setMetallicFactor(0),
@@ -160,15 +165,15 @@ function atlasRegion(cls, nx, ny) {
 
 function rotZ(v, a) { const c = Math.cos(a), s = Math.sin(a); return [v[0] * c - v[1] * s, v[0] * s + v[1] * c, v[2]]; }
 
-/** Distance-weighted normal smoothing of the skin faces (the sculpt's noise shows as streaks on flat fabric). */
-function smoothSkinNormals(list, radius = 0.03) {
+/** Distance-weighted normal smoothing (the sculpt's noise shows as streaks on fabric and crumpled tubes up close in FPV).
+ *  skinOnly: top/bottom of wing+tail, sides of the fin. Faces >60° apart never blend, so hard edges survive. */
+function smoothNormals(list, radius = 0.03, skinOnly = true) {
   const cell = radius, hash = new Map();
   const verts = [];
   for (const { t } of list) for (let k = 0; k < 3; k++) {
     const v = { p: t.subarray(k * 6, k * 6 + 3), n: t.subarray(k * 6 + 3, k * 6 + 6), out: null };
     // skin faces only: top/bottom of wing+tail, sides of the fin
-    const skin = Math.abs(v.n[1]) > 0.6 || Math.abs(v.n[0]) > 0.6;
-    if (!skin) continue;
+    if (skinOnly && !(Math.abs(v.n[1]) > 0.6 || Math.abs(v.n[0]) > 0.6)) continue;
     verts.push(v);
     const key = `${Math.floor(v.p[0] / cell)},${Math.floor(v.p[1] / cell)},${Math.floor(v.p[2] / cell)}`;
     (hash.get(key) ?? hash.set(key, []).get(key)).push(v);
@@ -189,7 +194,23 @@ function smoothSkinNormals(list, radius = 0.03) {
 }
 
 function buildMesh(name, entries, pivot) {
-  smoothSkinNormals(entries.filter((e) => MAT_OF[e.cls] === 'fabric'));
+  // Clipping a shell can leave zero-area faces at exact seam vertices. They are
+  // invisible in game but trigger validator noise and can break collision baking.
+  entries = entries.filter(({ t }) => {
+    // Match the actual Float32 vertex payload: sub-millimetre triangles can
+    // collapse only after export even when their Float64 source is non-zero.
+    const p = [0, 1, 2].map((i) => Math.fround(t[i]));
+    const q = [0, 1, 2].map((i) => Math.fround(t[6 + i]));
+    const r = [0, 1, 2].map((i) => Math.fround(t[12 + i]));
+    const ax = q[0] - p[0], ay = q[1] - p[1], az = q[2] - p[2];
+    const bx = r[0] - p[0], by = r[1] - p[1], bz = r[2] - p[2];
+    const cx = ay * bz - az * by, cy = az * bx - ax * bz, cz = ax * by - ay * bx;
+    return cx * cx + cy * cy + cz * cz > 1e-16;
+  });
+  const fabric = entries.filter((e) => MAT_OF[e.cls] === 'fabric');
+  smoothNormals(fabric);
+  smoothNormals(fabric, 0.012, false); // leading edges / rims
+  smoothNormals(entries.filter((e) => ['frame', 'mech', 'engine', 'seat'].includes(MAT_OF[e.cls]) && e.cls !== 'cap'), 0.012, false);
   const groups = {};
   for (const { t, cls } of entries) {
     const m = MAT_OF[cls] ?? 'mech';
@@ -209,7 +230,7 @@ function buildMesh(name, entries, pivot) {
           const r = atlasRegion(cls, nw[0], nw[1]);
           u = r.startsWith('fin') ? uvFor(r, w[2], w[1]) : uvFor(r, w[0], w[2]);
         }
-        const key = `${p.map((v) => v.toFixed(5))}|${n.map((v) => v.toFixed(2))}|${u ? u.map((v) => v.toFixed(5)) : ''}`;
+        const key = `${p.map((v) => v.toFixed(7))}|${n.map((v) => v.toFixed(2))}|${u ? u.map((v) => v.toFixed(5)) : ''}`;
         let i = seen.get(key);
         if (i === undefined) { i = pos.length / 3; seen.set(key, i); pos.push(...p); nor.push(...n); if (u) uv.push(...u); }
         idx.push(i);
@@ -227,15 +248,79 @@ function buildMesh(name, entries, pivot) {
 
 const scene = doc.createScene('A0');
 const root = doc.createNode('A0'); scene.addChild(root);
+const requiredEntries = (name, entries, min = 1) => {
+  if (!entries || entries.length < min) throw new Error(`A0 mesh split failed: ${name} has ${entries?.length ?? 0} triangles (need ${min})`);
+  return entries;
+};
 const byPart = {};
 for (const e of flat) (byPart[e.name] ??= []).push(e);
 
-root.addChild(doc.createNode('a0_body').setMesh(buildMesh('a0_body', byPart.main)));
+// Keep the original closed shell as independently addressable airframe sections.
+// This preserves the sculpted topology and livery while enabling true per-side damage.
+const mainEntries = byPart.main ?? [];
+const centre = (entry, axis) => (entry.t[axis] + entry.t[6 + axis] + entry.t[12 + axis]) / 3;
+const coreEntries = [];
+const cableEntries = new Map([['L', []], ['R', []]]);
+// The sculpt's balloon tyres, wheel pants and engine blob are replaced by tools/a0/hardware.mjs.
+// Airframe tubes (frame/wire) that pass through the old tyre volume are kept.
+const inSculptWheel = (e) => e.cls !== 'frame' && e.cls !== 'wire' && WHEELS.some((w) => Math.abs(centre(e, 0) - w.x) < 0.046 && Math.hypot(centre(e, 1) - AXLE_Y, centre(e, 2) - w.z) < 0.086);
+for (const e of mainEntries) {
+  if (e.cls === 'tire' || e.cls === 'hub' || e.cls === 'pant' || e.cls === 'engine' || inSculptWheel(e)) continue;
+  if (e.cls === 'wire') { cableEntries.get(centre(e, 0) >= 0 ? 'L' : 'R').push(e); continue; }
+  if (e.cls === 'wing' || e.cls === 'tail' || e.cls === 'fin') continue;
+  coreEntries.push(e);
+}
+root.addChild(doc.createNode('a0_body').setMesh(buildMesh('a0_body', requiredEntries('a0_body', coreEntries))));
+for (const cls of ['wing', 'tail']) {
+  for (const s of [1, -1]) {
+    const side = s > 0 ? 'L' : 'R';
+    const entries = mainEntries.filter((e) => e.cls === cls && centre(e, 0) * s >= -0.0001);
+    if (cls === 'wing') {
+      const tip = entries.filter((e) => Math.abs(centre(e, 0)) >= 0.79);
+      const panel = entries.filter((e) => Math.abs(centre(e, 0)) < 0.79);
+      root.addChild(doc.createNode(`wing_panel_${side}`).setMesh(buildMesh(`wing_panel_${side}`, requiredEntries(`wing_panel_${side}`, panel, 100))));
+      root.addChild(doc.createNode(`wingtip_${side}`).setMesh(buildMesh(`wingtip_${side}`, requiredEntries(`wingtip_${side}`, tip, 10))));
+    } else {
+      const name = `horizontal_tail_${side}`;
+      root.addChild(doc.createNode(name).setMesh(buildMesh(name, requiredEntries(name, entries, 20))));
+    }
+  }
+}
+const finEntries = mainEntries.filter((e) => e.cls === 'fin');
+root.addChild(doc.createNode('vertical_tail').setMesh(buildMesh('vertical_tail', requiredEntries('vertical_tail', finEntries, 20))));
+const engineOrigin = [0, 0.37, 0.16];
+const engineMount = doc.createNode('engine_mount').setTranslation(engineOrigin);
+engineMount.addChild(doc.createNode('engine').setMesh(buildMesh('engine', buildEngine(), { origin: engineOrigin, rotZ: 0 })));
+root.addChild(engineMount);
+for (const side of ['L', 'R']) {
+  const origin = [side === 'L' ? 0.2 : -0.2, 0.25, 0];
+  const cableMount = doc.createNode(`cables_${side}_mount`).setTranslation(origin);
+  cableMount.addChild(doc.createNode(`cables_${side}`).setMesh(buildMesh(`cables_${side}`, requiredEntries(`cables_${side}`, cableEntries.get(side), 20), { origin, rotZ: 0 })));
+  root.addChild(cableMount);
+}
+// Gear: <strut node, moved by the rig with the simulated compression> -> <wheel pivot, spins about X>.
+// The nose strut is also the steering node (turns about Y with the fork).
+for (const wheel of WHEELS) {
+  const side = wheel.id === 'mainL' ? 'L' : wheel.id === 'mainR' ? 'R' : 'nose';
+  const axle = [wheel.x, AXLE_Y, wheel.z];
+  const at = { origin: axle, rotZ: 0 };
+  const strut = doc.createNode(side === 'nose' ? 'nose_steer' : `wheel_${side}_strut`).setTranslation(axle);
+  if (side === 'nose') strut.setMesh(buildMesh('nose_fork', buildNoseFork(), at));
+  else {
+    const leg = buildMainGear(wheel.id);
+    strut.setMesh(buildMesh(`gear_leg_${side}`, leg.moving, at));
+    root.addChild(doc.createNode(`gear_sleeve_${side}`).setMesh(buildMesh(`gear_sleeve_${side}`, leg.fixed)));
+  }
+  const node = doc.createNode(`wheel_${side}_pivot`);
+  node.addChild(doc.createNode(`wheel_${side}`).setMesh(buildMesh(`wheel_${side}`, buildWheel(wheel.id), at)));
+  strut.addChild(node);
+  root.addChild(strut);
+}
 const PIVOTS = { ...Object.fromEntries(['aileron_L', 'aileron_R', 'elevator', 'rudder'].map((k) => [k, parts[k].pivot])), propeller: { origin: PROP_HUB, rotZ: 0 } };
 for (const [name, pv] of Object.entries(PIVOTS)) {
   const node = doc.createNode(`${name}_pivot`).setTranslation(pv.origin)
     .setRotation([0, 0, Math.sin(pv.rotZ / 2), Math.cos(pv.rotZ / 2)]);
-  node.addChild(doc.createNode(name).setMesh(buildMesh(name, byPart[name], pv)));
+  node.addChild(doc.createNode(name).setMesh(buildMesh(name, name === 'propeller' ? [...byPart[name], ...buildPropHub()] : byPart[name], pv)));
   root.addChild(node);
 }
 const pilotEntries = buildPilot();
@@ -254,4 +339,5 @@ function buildPilotMesh(entries) {
 }
 
 await io.write(OUT, doc);
-console.log('wrote', OUT, (fs.statSync(OUT).size / 1e6).toFixed(2), 'MB; atlas', SIZE);
+await io.write(LEGACY_OUT, doc);
+console.log('wrote', OUT, (fs.statSync(OUT).size / 1e6).toFixed(2), 'MB; legacy alias', LEGACY_OUT, '; atlas', SIZE);

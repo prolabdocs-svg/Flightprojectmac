@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
 import { defaultBuild } from '../../content/assembly';
 import { buildAircraftDefinition } from '../aircraft/quicksilver';
-import { createAirframeRig, holdAttitude, keepRunway, type RigSample } from './rig';
+import { createAirframeRig, holdAttitude, keepRunway, headingError, type RigSample } from './rig';
 import { classifyTouchdown } from '../ground/touchdown';
 import { DEG } from '../core/constants';
 
@@ -204,5 +204,24 @@ describe('ground effect', () => {
     expect(low.downwash).toBeLessThan(high.downwash);
     expect(mid.lift).toBeGreaterThan(high.lift * 0.999);
     expect(mid.lift).toBeLessThan(low.lift);
+  });
+});
+
+describe('takeoff yaw budget (telemetry for FLIGHT_MODEL_V2 audit)', () => {
+  it('hands-off full-power roll swings LEFT from physical prop effects only, and only a few degrees', async () => {
+    const run = async (mut: (d: ReturnType<typeof buildAircraftDefinition>) => void) => {
+      const d = buildAircraftDefinition(defaultBuild());
+      mut(d);
+      const rig = await createAirframeRig(d, { onGround: true });
+      rig.run(2, { engineOn: true, throttle: 0 });
+      let s = rig.log.at(-1)!;
+      for (let i = 0; i < 2000 && s.wheels > 0; i++) s = rig.run(0.01, { engineOn: true, throttle: 1 });
+      return headingError(0, s.headingDeg) * -1; // + = nose right
+    };
+    const all = await run(() => {});
+    const noProp = await run((d) => { d.propeller!.rotation = 0; d.propeller!.swirlGain = 0; d.propeller!.pFactor = 0; });
+    expect(all).toBeLessThan(-0.5); // left, as a clockwise-from-cockpit prop should
+    expect(all).toBeGreaterThan(-8); // correctable with rudder, not a runaway
+    expect(Math.abs(noProp)).toBeLessThan(0.3); // gear/CG/colliders are symmetric
   });
 });

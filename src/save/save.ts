@@ -8,11 +8,13 @@
 // (the previous implementation) into IndexedDB and then clears the legacy key.
 
 import type { HomeBaseState, PlayerProfile } from '../core/types';
-import { defaultBuild, resolveAircraft } from '../content/assembly';
+import { buildForFrame, defaultBuild, resolveAircraft } from '../content/assembly';
+import { FRAME_NIGHTJAR } from '../content/parts';
 import { createOperations, OPERATIONS_VERSION } from '../mission/operationsState';
 import { GAME_VERSION } from '../buildInfo';
+import { DEFAULT_APPEARANCE, sanitizeAppearance } from '../avatar/appearance';
 
-export const SAVE_SCHEMA_VERSION = 5;
+export const SAVE_SCHEMA_VERSION = 6;
 const DB_NAME = 'project-flight';
 const DB_VERSION = 1;
 const STORE_NAME = 'profile';
@@ -42,7 +44,7 @@ export function createDefaultProfile(): PlayerProfile {
     researchPoints: 0,
     salvage: 0,
     reputation: 0,
-    ownedParts: ['engine_small', 'wing_a_basic', 'tank_8', 'gear_light'],
+    ownedParts: ['engine_small', 'wing_a_basic', 'wing_quicksilver_mxii', 'tank_8', 'gear_light'],
     ownedFrameIds: ['frame_zero'],
     unlockedMissions: ['field_distance_01'],
     unlockedTech: [],
@@ -52,28 +54,33 @@ export function createDefaultProfile(): PlayerProfile {
     currentBuild: defaultBuild(),
     homeBase: { runwayLevel: 0, hangarLevel: 0 },
     operations: createOperations(),
+    avatar: { ...DEFAULT_APPEARANCE },
     settings: {
       controlPreset: 'normal',
-      assistMode: 'assisted',
+      assistMode: 'standard',
       invertPitch: false,
       stickSize: 1,
       musicVolume: 0.7,
       sfxVolume: 0.8,
+      engineVolume: 0.8,
       colorblindMode: false,
       reduceMotion: false,
       textSize: 'normal',
       handedness: 'right',
       hasSeenOnboarding: false,
+      navGuidance: 'standard',
     },
   };
 }
 
 const DEFAULT_ACCESSIBILITY_SETTINGS = {
+  engineVolume: 0.8,
   colorblindMode: false,
   reduceMotion: false,
   textSize: 'normal' as const,
   handedness: 'right' as const,
   hasSeenOnboarding: false,
+  navGuidance: 'standard' as const,
 };
 
 const DEFAULT_HOME_BASE: HomeBaseState = { runwayLevel: 0, hangarLevel: 0 };
@@ -95,6 +102,9 @@ function migrate(raw: PlayerProfile): PlayerProfile {
   // Backfill accessibility settings added after the first save-format saves were written,
   // so older profiles loaded from IndexedDB/localStorage don't crash on missing fields.
   profile = { ...profile, settings: { ...DEFAULT_ACCESSIBILITY_SETTINGS, ...profile.settings } };
+  if (!['assisted', 'standard', 'minimal', 'off'].includes(profile.settings.navGuidance)) {
+    profile = { ...profile, settings: { ...profile.settings, navGuidance: 'standard' } };
+  }
   if (profile.schemaVersion < 2) {
     // Backfill home base progression (runway/hangar levels) added in schema v2, so older
     // saves that predate it don't crash on missing fields.
@@ -116,6 +126,10 @@ function migrate(raw: PlayerProfile): PlayerProfile {
     profile = { ...profile, schemaVersion: 5 };
   }
   profile = { ...profile, ownedFrameIds: profile.ownedFrameIds?.length ? profile.ownedFrameIds : ['frame_zero'] };
+  // The RANS S-12XL blockout became the fictional Ridgeway RW-12 Nightjar: carry ownership, research and the active build over.
+  const alias = (id: string) => id === 'frame_rans_s12xl' ? 'frame_nightjar' : id === 'airframe_rans_s12xl' ? 'airframe_nightjar' : id;
+  profile = { ...profile, ownedFrameIds: [...new Set(profile.ownedFrameIds.map(alias))], unlockedTech: (profile.unlockedTech ?? []).map(alias) };
+  if (profile.currentBuild?.frameId === 'frame_rans_s12xl') profile = { ...profile, currentBuild: buildForFrame(FRAME_NIGHTJAR) };
   if (!profile.operations || profile.operations.version === undefined) {
     const fresh = createOperations();
     const build = sanitizeBuildSafe(profile);
@@ -127,7 +141,11 @@ function migrate(raw: PlayerProfile): PlayerProfile {
     // doesn't own.
     profile = { ...profile, operations: { ...createOperations(), ...profile.operations, version: OPERATIONS_VERSION } };
   }
-  profile = { ...profile, homeBase: { ...DEFAULT_HOME_BASE, ...profile.homeBase } };
+  if (profile.schemaVersion < 6) {
+    // v6: player avatar. Older saves get the default look (sanitize below fills it in).
+    profile = { ...profile, schemaVersion: 6 };
+  }
+  profile = { ...profile, homeBase: { ...DEFAULT_HOME_BASE, ...profile.homeBase }, avatar: sanitizeAppearance(profile.avatar) };
   return profile;
 }
 

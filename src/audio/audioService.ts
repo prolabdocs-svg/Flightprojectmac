@@ -20,6 +20,35 @@ import {
   windFilterCutoffHz,
   windGain,
 } from './flightAudioMappings';
+import { MusicDirector, type BaseMusicState, type MusicEvent } from './musicDirector';
+
+/** PLACEHOLDER music: every cue is a procedurally synthesized pad (chord of detuned
+ * sines through a low-pass), NOT a licensed or final track. To ship real music set
+ * `src` to a file under public/assets/audio/music/ (only with a verified licence);
+ * the player decodes and loops it instead of the pad, with the same crossfades. */
+interface MusicCue { chordHz: number[]; src?: string }
+const MUSIC_CUES: Record<string, MusicCue> = {
+  menu_a: { chordHz: [130.81, 196, 329.63] }, // C3 G3 E4
+  menu_b: { chordHz: [110, 164.81, 277.18] }, // A2 E3 C#4
+  hangar_a: { chordHz: [146.83, 220, 369.99] },
+  hangar_b: { chordHz: [98, 146.83, 246.94] },
+  calm_a: { chordHz: [130.81, 196, 293.66, 392] },
+  calm_b: { chordHz: [116.54, 174.61, 293.66] },
+  calm_c: { chordHz: [87.31, 130.81, 220, 329.63] },
+  mission_a: { chordHz: [110, 164.81, 246.94] },
+  mission_b: { chordHz: [123.47, 185, 293.66] },
+  explore_a: { chordHz: [146.83, 220, 329.63, 440] },
+  explore_b: { chordHz: [164.81, 246.94, 369.99] },
+  discovery_a: { chordHz: [261.63, 392, 523.25, 659.25] },
+  discovery_b: { chordHz: [293.66, 440, 587.33] },
+  danger_a: { chordHz: [73.42, 77.78, 110] }, // tense minor-second cluster
+  danger_b: { chordHz: [65.41, 69.3, 98] },
+  victory_a: { chordHz: [196, 293.66, 392, 493.88] },
+  aftermath_a: { chordHz: [82.41, 123.47, 196] },
+};
+/** Music sits well under the flight mix (engine/wind/stall horn stay readable). */
+const MUSIC_PEAK_GAIN = 0.16;
+const MUSIC_TICK_S = 0.25;
 
 type Bus = 'music' | 'sfx' | 'engine';
 
@@ -33,7 +62,11 @@ export type FlightAudioEvent =
   | 'missionFailed'
   | 'engineStart'
   | 'engineStop'
-  | 'stallBreak';
+  | 'stallBreak'
+  | 'waypoint'
+  | 'approach'
+  | 'final'
+  | 'goAround';
 
 export interface FlightAudioState {
   rpm: number;
@@ -46,6 +79,9 @@ export interface FlightAudioState {
   stallWarning: boolean;
   engineOn: boolean;
   paused: boolean;
+  /** The installed engine's voice (content/engines.ts EngineCharacter.sound): combustion events per rev
+   * and timbre brightness. Omitted = single-cylinder, neutral timbre. */
+  voice?: { firingPerRev: number; brightness: number; osc2Ratio: number; gain: number };
 }
 
 /** Old two-oscillator engine drone, kept driveable by both the legacy
@@ -92,7 +128,14 @@ class AudioService {
   private ctx: AudioContext | null = null;
   private masterGain: GainNode | null = null;
   private busGains: Partial<Record<Bus, GainNode>> = {};
-  private volumes: { master: number; music: number; sfx: number } = { master: 1, music: 0.7, sfx: 0.8 };
+  private volumes: Record<'master' | Bus, number> = { master: 1, music: 0.7, sfx: 0.8, engine: 0.8 };
+  /** Between the music bus and master: ducks music under warnings/impacts, independent of the user's volume. */
+  private musicDuck: GainNode | null = null;
+  private lastMusicDuck = 1;
+  private musicVoice: { gain: GainNode; stop: (at: number) => void } | null = null;
+  private musicBuffers = new Map<string, AudioBuffer>();
+  private musicTimer: ReturnType<typeof setInterval> | null = null;
+  readonly music = new MusicDirector();
   private flightGraph: FlightGraph | null = null;
   private noiseBuffer: AudioBuffer | null = null;
   private unlockCleanup: (() => void) | null = null;
@@ -112,8 +155,11 @@ class AudioService {
 
     (['music', 'sfx', 'engine'] as Bus[]).forEach((name) => {
       const g = ctx.createGain();
-      g.gain.value = name === 'music' ? this.volumes.music : this.volumes.sfx;
-      g.connect(master);
+      g.gain.value = this.volumes[name];
+      if (name === 'music') {
+        this.musicDuck = ctx.createGain();
+        g.connect(this.musicDuck).connect(master);
+      } else g.connect(master);
       this.busGains[name] = g;
     });
 
@@ -134,6 +180,7 @@ class AudioService {
         ctx.resume().catch(() => {});
       }
       if (ctx.state === 'running') {
+        this.startMusic();
         cleanup();
       }
     };
@@ -146,13 +193,13 @@ class AudioService {
   }
 
   setVolume(bus: 'master' | Bus, value: number): void {
-    const v = Math.max(0, Math.min(1, value));
+    const v = Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 1;
     if (bus === 'master') {
       this.volumes.master = v;
       if (this.masterGain) this.masterGain.gain.value = v;
       return;
     }
-    if (bus === 'music' || bus === 'sfx') this.volumes[bus] = v;
+    this.volumes[bus] = v;
     const g = this.busGains[bus];
     if (g) g.gain.value = v;
   }
@@ -345,11 +392,12 @@ class AudioService {
     // asymmetric time constant gives a natural spin-down with no extra state.
     const engineTau = state.engineOn ? 0.06 : 1.1;
 
-    const fundamentalHz = engineFundamentalHz(state.rpm);
+    const voice = state.voice;
+    const fundamentalHz = engineFundamentalHz(state.rpm) * (voice?.firingPerRev ?? 1);
     g.osc1.frequency.setTargetAtTime(fundamentalHz, t, engineTau);
-    g.osc2.frequency.setTargetAtTime(fundamentalHz * 2.01, t, engineTau);
-    g.filter.frequency.setTargetAtTime(engineFilterCutoffHz(rpmFrac), t, 0.1);
-    const eGain = engineGain(state.throttle, state.engineOn);
+    g.osc2.frequency.setTargetAtTime(fundamentalHz * (voice?.osc2Ratio ?? 2.01), t, engineTau);
+    g.filter.frequency.setTargetAtTime(engineFilterCutoffHz(rpmFrac) * (voice?.brightness ?? 1), t, 0.1);
+    const eGain = engineGain(state.throttle, state.engineOn) * (voice?.gain ?? 1);
     g.gain1.gain.setTargetAtTime(eGain, t, engineTau);
     g.gain2.gain.setTargetAtTime(eGain * 0.55, t, engineTau);
 
@@ -362,6 +410,9 @@ class AudioService {
     g.rumbleGain.gain.setTargetAtTime(rumbleGain(state.onGround, state.groundSpeedMs), t, 0.15);
 
     g.stallGain.gain.setTargetAtTime(stallHornGain(state.stallWarning, t), t, 0.02);
+    // Stall horn must never compete with music.
+    const duck = state.stallWarning ? 0.25 : 1;
+    if (duck !== this.lastMusicDuck) this.duckMusic((this.lastMusicDuck = duck));
 
     this.lastPaused = state.paused;
     this.applyDuck();
@@ -424,6 +475,13 @@ class AudioService {
     if (!ctx || !bus || ctx.state !== 'running') return;
     const amt = Math.max(0, Math.min(1, intensity));
     const t = ctx.currentTime;
+    if (this.musicDuck && (event === 'crash' || event === 'hardLanding')) {
+      // Impacts punch through: dip music, then let it recover slowly.
+      const d = this.musicDuck.gain;
+      d.cancelScheduledValues(t);
+      d.setValueAtTime(0.1, t);
+      d.setTargetAtTime(this.lastMusicDuck, t + 1.5, 1);
+    }
 
     switch (event) {
       case 'missionComplete':
@@ -447,6 +505,18 @@ class AudioService {
       case 'stallBreak':
         this.playNoiseBurst(ctx, bus, t, 0.1 + amt * 0.2, 350, 0.35);
         return;
+      case 'waypoint':
+        this.playSoftNavTone(ctx, bus, t, [660, 880], 0.12 + amt * 0.08);
+        return;
+      case 'approach':
+        this.playSoftNavTone(ctx, bus, t, [523, 659], 0.14 + amt * 0.08);
+        return;
+      case 'final':
+        this.playSoftNavTone(ctx, bus, t, [587, 784], 0.15 + amt * 0.08);
+        return;
+      case 'goAround':
+        this.playSoftNavTone(ctx, bus, t, [392, 294, 392], 0.24 + amt * 0.1);
+        return;
       case 'engineStart':
         this.playEngineCough(ctx, bus, t);
         return;
@@ -454,6 +524,97 @@ class AudioService {
         this.playNoiseBurst(ctx, bus, t, 0.08, 250, 0.15); // mechanical clunk tail
         return;
     }
+  }
+
+  private playSoftNavTone(ctx: AudioContext, bus: GainNode, t: number, freqs: number[], duration: number): void {
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(0.08, t + 0.025);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + duration);
+    gain.connect(bus);
+    freqs.forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      osc.type = 'sine'; osc.frequency.value = freq;
+      osc.connect(gain); osc.start(t + i * 0.075); osc.stop(t + duration);
+    });
+  }
+
+  /** Screen/flight context for the music director (see musicDirector.ts). */
+  setMusicContext(state: BaseMusicState, clearOverlay = false): void {
+    if (clearOverlay) this.music.clearOverlay();
+    this.music.setBase(state);
+  }
+
+  musicEvent(event: MusicEvent): void {
+    this.music.trigger(event);
+  }
+
+  /** Ducks music (0..1 of its level) — e.g. under the stall horn. Smooth, never a hard cut. */
+  duckMusic(level: number): void {
+    const ctx = this.ctx;
+    if (ctx && this.musicDuck) this.musicDuck.gain.setTargetAtTime(level, ctx.currentTime, level < 1 ? 0.15 : 1.2);
+  }
+
+  private startMusic(): void {
+    if (this.musicTimer) return;
+    let current: string | null = null;
+    this.musicTimer = setInterval(() => {
+      const out = this.music.update(MUSIC_TICK_S);
+      if (out.cue === current) return;
+      current = out.cue;
+      this.crossfadeTo(out.cue, out.fadeS);
+    }, MUSIC_TICK_S * 1000);
+  }
+
+  private crossfadeTo(cueId: string | null, fadeS: number): void {
+    const ctx = this.ctx;
+    const bus = this.busGains.music;
+    if (!ctx || !bus) return;
+    const t = ctx.currentTime;
+    const tau = Math.max(0.05, fadeS / 4); // setTargetAtTime reaches ~98% after 4 tau
+    if (this.musicVoice) {
+      const old = this.musicVoice;
+      old.gain.gain.cancelScheduledValues(t);
+      old.gain.gain.setTargetAtTime(0, t, tau);
+      old.stop(t + fadeS + 0.5);
+      this.musicVoice = null;
+    }
+    const cue = cueId ? MUSIC_CUES[cueId] : undefined;
+    if (!cue) return;
+    const gain = ctx.createGain();
+    gain.gain.value = 0;
+    gain.gain.setTargetAtTime(MUSIC_PEAK_GAIN, t, tau);
+    gain.connect(bus);
+    const buffer = cue.src ? this.musicBuffers.get(cue.src) : undefined;
+    if (cue.src && !buffer) {
+      fetch(cue.src).then((r) => r.arrayBuffer()).then((b) => ctx.decodeAudioData(b)).then((b) => this.musicBuffers.set(cue.src!, b)).catch(() => {});
+    }
+    let sources: AudioScheduledSourceNode[];
+    if (buffer) {
+      const src = ctx.createBufferSource();
+      src.buffer = buffer;
+      src.loop = true;
+      src.connect(gain);
+      sources = [src];
+    } else {
+      // Placeholder pad (also the fallback while a real file is still decoding).
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.value = 900;
+      filter.connect(gain);
+      sources = cue.chordHz.flatMap((hz, i) => [-4, 4].map((cents) => {
+        const osc = ctx.createOscillator();
+        osc.type = i === 0 ? 'triangle' : 'sine';
+        osc.frequency.value = hz;
+        osc.detune.value = cents;
+        const g = ctx.createGain();
+        g.gain.value = 0.5 / cue.chordHz.length;
+        osc.connect(g).connect(filter);
+        return osc;
+      }));
+    }
+    sources.forEach((s) => s.start(t));
+    this.musicVoice = { gain, stop: (at) => sources.forEach((s) => s.stop(at)) };
   }
 
   /** Silences and releases all flight loops (flight exit). Safe to call

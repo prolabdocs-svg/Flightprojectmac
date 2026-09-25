@@ -41,7 +41,7 @@ export function applyFlightDamage(prev: AircraftCondition, telemetry: FlightTele
     let stabH = 1;
     let stabV = 1;
     for (const [id, value] of Object.entries(integrity)) {
-      if (id === gearPartId()) continue;
+      if (id === gearPartId() || id === 'nose' || id === 'engine' || id === 'propeller' || id === 'fuselage') continue;
       if (id === 'elevator') { stabH = Math.min(stabH, value); continue; }
       if (id === 'rudder') { stabV = Math.min(stabV, value); continue; }
       if (isTailSurface(id)) continue; // unknown tail id: no side info, skip rather than guess
@@ -56,7 +56,12 @@ export function applyFlightDamage(prev: AircraftCondition, telemetry: FlightTele
     const gear = integrity[gearPartId()] ?? 1;
     next.gearLeft = { integrity: gear };
     next.gearRight = { integrity: gear };
-    next.gearNose = { integrity: gear };
+    next.gearNose = { integrity: Math.min(gear, integrity.nose ?? 1) };
+    for (const id of ['engine', 'propeller', 'fuselage'] as const) {
+      if (integrity[id] !== undefined) next[id] = { integrity: integrity[id] };
+    }
+    // V2 sim tracks the powertrain/airframe directly; the proxy below is only for old telemetry.
+    if (integrity.engine !== undefined) return next;
   }
 
   // Powertrain/airframe proxy: a hard landing stresses the engine/prop (possible prop strike);
@@ -84,6 +89,13 @@ export function conditionToPartIntegrity(condition: AircraftCondition, aeroSurfa
     const s = side(id);
     out[id] = s === 'left' ? condition.wingLeft.integrity : s === 'right' ? condition.wingRight.integrity : Math.min(condition.wingLeft.integrity, condition.wingRight.integrity);
   }
+  out.wing_l = condition.wingLeft.integrity;
+  out.wing_r = condition.wingRight.integrity;
+  out.tail = Math.min(condition.stabHorizontal.integrity, condition.stabVertical.integrity);
+  out.nose = condition.gearNose.integrity;
+  out.engine = condition.engine.integrity;
+  out.propeller = condition.propeller.integrity;
+  out.fuselage = condition.fuselage.integrity;
   out[gearPartId()] = Math.min(condition.gearLeft.integrity, condition.gearRight.integrity, condition.gearNose.integrity);
   return out;
 }

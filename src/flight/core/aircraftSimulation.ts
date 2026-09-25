@@ -35,7 +35,7 @@ export class AircraftSimulation {
   readonly controls: FlightControls;
   readonly assistance = new FlightAssistance();
   /** The command actually sent to the mixer after assistance (for telemetry). */
-  readonly assisted: PilotCommand = { pitch: 0, roll: 0, yaw: 0, throttle: 0, brake: 0 };
+  readonly assisted: PilotCommand = { pitch: 0, roll: 0, yaw: 0, throttle: 0, brake: 0, flaps: false };
   readonly propulsion: Propulsion | null;
   readonly gear: LandingGear;
   readonly structure: StructuralContacts;
@@ -90,7 +90,7 @@ export class AircraftSimulation {
       bankRad: att.rollRad, pitchRad: att.pitchRad, p: phys.wBody.z, q: -phys.wBody.x, r: -phys.wBody.y,
       betaRad: phys.betaRad, airspeedMs: phys.airspeedMs, stallMarginRad: phys.stallMarginRad, onGround: this.gear.summary.wheelsOnGround > 0,
     }, this.dt, this.assisted);
-    const surf = this.controls.step(this.assisted, this.dt);
+    const surf = this.controls.step({ ...this.assisted, flaps: cmd.flaps }, this.dt);
 
     let slip = null;
     let gyro: THREE.Vector3 | null = null;

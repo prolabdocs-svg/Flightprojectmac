@@ -10,10 +10,13 @@ import { updateWater } from './waterMaterial';
 import { PostProcessing } from './postProcessing';
 import { createSeededRandom, type SeededRandom } from '../core/seededRandom';
 import { assetLibrary } from './assetLibrary';
-import { ACTIVE_REGION_ASSETS, FRAME_ASSET_IDS, type WorldAssetPlacement } from './assetManifest';
+import { ACTIVE_REGION_ASSETS, AIRFRAME_VISUALS, UNPAINTED_MATERIAL, FRAME_ASSET_IDS, type WorldAssetPlacement } from './assetManifest';
 import { getSettlementPlacements } from '../world/settlementLayout';
 import { ChaseCamera, type ChaseCameraInput } from './ChaseCamera';
-import { getFreeFlightAirfield, type AirfieldDefinition, type RunwaySurface } from '../world/airfields';
+import { InstrumentPod } from './InstrumentPod';
+import type { EngineLimits } from './cockpit/instrumentModel';
+import type { FlightTelemetry } from '../flight/flightTypes';
+import { getFreeFlightAirfield, getRegionAirfields, type AirfieldDefinition, type RunwaySurface } from '../world/airfields';
 import { buildTerrainFollowingMesh, getRunwaySafeZone, layoutRoadTiles } from './fieldAirfieldLayout';
 import { getRegionRoadNetwork } from './regionRoadNetworks';
 import { buildRegionLayout } from '../world/regionPlacement';
@@ -25,7 +28,10 @@ import { buildRoadPath } from '../world/fieldRoads';
 import { buildWaterBodies } from '../world/waterBodies';
 import { buildTreeClusterInstancedMesh, type TreeClusterPlacement } from './vegetation';
 import { orientWorldProp } from './blenderAxisFix';
-import { AircraftRig } from './aircraftRig';
+import { A0_PLACEMENT, AircraftRig, type GearPose } from './aircraftRig';
+import { applyLowPolyStyle } from './lowPolyStyle';
+import { PilotAvatar, PILOT_HEAD_LAYER, seatAvatar, seatEye, type PilotDrive, type Seat } from './pilotAvatar';
+import { DEFAULT_APPEARANCE, type AvatarAppearance } from '../avatar/appearance';
 import type { SurfaceDeflections } from '../flight/core/aircraftPhysics';
 import type { TerrainQueryService } from '../world/terrainQuery';
 
@@ -40,20 +46,30 @@ export class FlightScene {
   private targetMarker: THREE.Group | null = null;
   private targetPulseMaterials: THREE.MeshBasicMaterial[] = [];
   private readonly chase = new ChaseCamera();
+  private readonly instruments = new InstrumentPod();
+  private fpv = false;
   private readonly environment: WorldEnvironment;
   private readonly atmosphere: Atmosphere;
   private readonly clouds: CloudLayer;
   private lastEnvS = 0;
   private readonly post: PostProcessing | null;
+  private styleSweepFrame = 0;
 
   // Damage-system hooks (src/sim/damageSystem.ts via FlightController): named refs to the
   // placeholder meshes that stand in for "wing" and "tail" so a detach/damage event can
   // hide or re-tint them without the damage system knowing anything about Three.js.
   private wingMesh: THREE.Mesh | null = null;
   private tailMeshes: THREE.Mesh[] = [];
+  private readonly damageMarks = new Map<string, THREE.Group>();
+  private readonly bursts: { points: THREE.Points; vel: Float32Array; ageS: number }[] = [];
+  private readonly debris: Array<{ mesh: THREE.Object3D; velocity: THREE.Vector3; spin: THREE.Vector3; ageS: number }> = [];
   private propellerMeshes: THREE.Mesh[] = [];
   /** Hinged control surfaces + propeller of the A0 hero asset; null for other airframes. */
-  private rig: AircraftRig | null = null;
+  private rigs: AircraftRig[] = [];
+  private pilot: PilotAvatar | null = null;
+  private pilotSeat: Seat | null = null;
+  private pilotAppearance: AvatarAppearance = DEFAULT_APPEARANCE;
+  private loadedAircraft: { object: THREE.Object3D; id: string } | null = null;
   // Deterministic PRNG for procedural landmark placement (trees, scrap piles), seeded
   // from the region id so the same region always generates the same layout across
   // sessions (see src/core/seededRandom.ts).
@@ -70,7 +86,11 @@ export class FlightScene {
     /** Phase 2C: when the caller (FlightScreen) is driving this region from the master-world streamer, it supplies the
      * master-backed TerrainQueryService and asks WorldEnvironment to skip its own static ground plane, so
      * MasterRenderStreamer's tiles are the only terrain drawn (single terrain authority — see masterWorldAdapter.ts). */
-    worldEnvOptions?: { terrainQuery?: TerrainQueryService; skipTerrainMesh?: boolean },
+    worldEnvOptions?: {
+      terrainQuery?: TerrainQueryService;
+      skipTerrainMesh?: boolean;
+      remoteDestination?: { airfield: AirfieldDefinition; position: readonly [number, number, number] };
+    },
   ) {
     this.worldRng = createSeededRandom('flight-scene-landmarks', region.id);
     const lowPowerMobile = window.matchMedia('(pointer: coarse)').matches && navigator.hardwareConcurrency <= 4;
@@ -85,12 +105,21 @@ export class FlightScene {
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
 
     this.camera = this.chase.camera;
+    this.camera.layers.enable(PILOT_HEAD_LAYER);
+    // Free-look: drag on the 3D view to turn the camera; it eases back on release.
+    canvas.style.touchAction = 'none';
+    canvas.addEventListener('pointerdown', (e) => { this.chase.dragging = true; canvas.setPointerCapture(e.pointerId); });
+    canvas.addEventListener('pointermove', (e) => { if (this.chase.dragging) this.chase.drag(e.movementX, e.movementY); });
+    const endDrag = () => { this.chase.dragging = false; };
+    canvas.addEventListener('pointerup', endDrag);
+    canvas.addEventListener('pointercancel', endDrag);
 
     // Sky, sun, height fog, IBL and cloud shadows: one atmosphere (atmosphere.ts / clouds.ts).
     const wide = getRegionComposition(region.id) !== undefined;
     // Near plane 0.5 m: the 24-bit depth buffer resolves ground decals (roads/parcels) at range.
     this.camera.far = wide ? 30000 : 16000; this.camera.near = 0.5; this.camera.updateProjectionMatrix();
     this.atmosphere = new Atmosphere(this.scene, this.renderer, region, { lowPower: lowPowerMobile });
+    this.atmosphere.sun.shadow.camera.layers.enable(PILOT_HEAD_LAYER); // pilot head keeps its shadow in the cockpit view
     this.post = lowPowerMobile ? null : new PostProcessing(this.renderer, this.scene, this.camera);
     this.environment = new WorldEnvironment(region, worldEnvOptions);
     this.scene.add(this.environment.root);
@@ -119,33 +148,16 @@ export class FlightScene {
     // The visual runway must occupy the same graded airport pad as physics and spawn
     // logic. The previous fixed y=0 strip was buried by the terrain in the first
     // playable region, leaving players to begin on an apparently random field.
+    // Every airfield in the region gets a visible strip: destination fields already had a
+    // graded pad in physics but rendered as an empty clearing.
     const airfield = getFreeFlightAirfield(region.id);
-    const runwayCenter: [number, number] = airfield ? [airfield.position[0], airfield.position[2]] : [0, 0];
-    const runwayWidth = airfield?.runwayWidthM ?? 24;
-    const runwayLength = airfield?.runwayLengthM ?? 220;
-    const runwayY = this.environment.terrainQuery.getElevation(...runwayCenter);
-    const runwayGeo = new THREE.PlaneGeometry(runwayWidth, runwayLength, Math.max(4, Math.round(runwayWidth / 3)), Math.max(8, Math.round(runwayLength / 6)));
-    this.roughenRunwayGeometry(runwayGeo, airfield?.surface, this.worldRng);
-    // Grass gets its own full-length map (tracks, stripes, ragged fringe); the repeating
-    // speckle map read as giant dark discs on grass from the chase camera.
-    const grass = airfield?.surface === 'grass';
-    const runwayMat = new THREE.MeshStandardMaterial({
-      color: grass ? '#ffffff' : this.runwayColor(airfield?.surface),
-      map: grass
-        ? this.buildGrassStripTexture(runwayWidth, runwayLength, createSeededRandom('runway-grass', airfield!.id))
-        : this.buildRunwaySurfaceTexture(airfield?.surface, this.worldRng),
-      // The fringe is cut out of the map's alpha, so the strip's edge is uneven instead of a ruled line.
-      alphaTest: grass ? 0.5 : 0,
-      roughness: 0.9,
-      metalness: 0.03,
-    });
-    const runway = new THREE.Mesh(runwayGeo, runwayMat);
-    runway.rotation.x = -Math.PI / 2;
-    // Clear of the ±3 cm roughening: at +2.5 cm the pad's terrain poked through as green blots.
-    runway.position.set(runwayCenter[0], runwayY + 0.06, runwayCenter[1]);
-    runway.receiveShadow = true;
-    this.scene.add(runway);
-    this.addRunwayDressings(runwayCenter, runwayY, runwayWidth, runwayLength, airfield?.surface);
+    const regionAirfields = getRegionAirfields(region.id);
+    if (regionAirfields.length === 0) this.buildRunway(undefined);
+    for (const field of regionAirfields) this.buildRunway(field);
+    if (worldEnvOptions?.remoteDestination) {
+      const { airfield: destination, position } = worldEnvOptions.remoteDestination;
+      this.buildRunway({ ...destination, position: [...position] as [number, number, number] });
+    }
 
     // Landmarks: region-specific, so the world isn't a flat void (spec 12.2/12.3).
     if (region.environment.terrain === 'quarry') {
@@ -204,17 +216,29 @@ export class FlightScene {
   /** Replaces the loading proxy with the authored, mobile-ready starter airframe. */
   private async hydrateAircraft(id: string, paint?: { fabricColor: string; tubeColor: string }) {
     try {
-      const aircraft = await assetLibrary.load('airframe', id);
-      // Blender exports Z-up while this flight scene uses Three's Y-up / +Z-forward
-      // convention. The authored airframe was therefore arriving with its fuselage
-      // upright like a mast. One root correction preserves the Blender asset's axes
-      // without baking a duplicate or touching its named child meshes.
+      const loaded = await assetLibrary.load('airframe', id);
+      let aircraft: THREE.Object3D = loaded;
+      // Blender's exporter converts the source file's Z-up convention to glTF Y-up.
+      // The RANS generator starts in game +Z-forward axes and maps those axes once
+      // before export, so the scene root stays identity just like the existing roster.
       aircraft.rotation.x = 0;
-      aircraft.scale.setScalar(6);
+      const visual = AIRFRAME_VISUALS[id];
+      const rigs: AircraftRig[] = [];
+      if (visual?.lods) {
+        const lod = new THREE.LOD();
+        lod.addLevel(loaded, 0);
+        for (const [uri, distance] of visual.lods) lod.addLevel(await assetLibrary.loadUri(uri), distance);
+        aircraft = lod;
+      }
       // The A0 ships its own finished livery and hinged surfaces; every other airframe keeps the
       // name-based paint tint. A missing A0 pivot throws here, before the proxy is replaced.
       const isA0 = id === FRAME_ASSET_IDS.frame_zero;
-      const rig = isA0 ? AircraftRig.attach(aircraft) : null;
+      aircraft.scale.setScalar(visual ? 1 : isA0 ? A0_PLACEMENT.scale : 6);
+      // Seat the A0's drawn tyres on the physics contact points (body datum is the CG, not the ground).
+      if (isA0) aircraft.position.copy(A0_PLACEMENT.offset);
+      if (isA0) rigs.push(AircraftRig.attach(aircraft));
+      else if (visual?.rig) for (const level of aircraft instanceof THREE.LOD ? aircraft.levels.map((l) => l.object) : [aircraft]) rigs.push(AircraftRig.attach(level, visual.rig));
+      if (visual?.eye) this.chase.eye.set(...visual.eye);
       aircraft.traverse((object) => {
         const mesh = object as THREE.Mesh;
         if (mesh.isMesh) {
@@ -228,16 +252,17 @@ export class FlightScene {
           if (color) {
             for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
               const standard = material as THREE.MeshStandardMaterial;
-              if (standard.color) standard.color.set(color);
+              if (standard.color && !UNPAINTED_MATERIAL.test(standard.name)) standard.color.set(color);
             }
           }
         }
       });
       this.aircraftGroup.clear();
+      this.damageMarks.clear();
       this.wingMesh = null;
       this.tailMeshes = [];
       this.propellerMeshes = [];
-      this.rig = rig;
+      this.rigs = rigs;
       aircraft.traverse((object) => {
         const mesh = object as THREE.Mesh;
         if (!mesh.isMesh || isA0) return;
@@ -246,11 +271,15 @@ export class FlightScene {
         if (mesh.name.includes('propeller') || mesh.name.includes('prop_blade')) this.propellerMeshes.push(mesh);
       });
       this.aircraftGroup.add(aircraft);
+      this.loadedAircraft = { object: aircraft, id };
+      this.seatPilot();
       this.aircraftGroup.visible = true;
+      this.setFpv(this.fpv);
     } catch (err) {
       // The proxy remains a resilient offline fallback for a failed asset request,
       // but the failure itself must stay visible for diagnosis rather than vanish.
       console.error(`FlightScene: failed to load airframe asset "${id}"`, err);
+      this.rigs = [];
       this.aircraftGroup.visible = true;
     }
   }
@@ -316,14 +345,19 @@ export class FlightScene {
       // (coastal_cliff_landmark, coastal_port); palms remain the only procedural piece,
       // giving the shoreline scale/vegetation cheaply via instancing. A trunk without a
       // crown reads as a broken black pole from the runway, so both layers are instanced.
-      const palms = new THREE.InstancedMesh(new THREE.CylinderGeometry(.24, .42, 1, 6), new THREE.MeshStandardMaterial({ color: '#6f5335', roughness: 1 }), 22);
-      const crowns = new THREE.InstancedMesh(new THREE.DodecahedronGeometry(1, 0), new THREE.MeshStandardMaterial({ color: '#35613d', roughness: .95, flatShading: true }), 22);
-      const matrix = new THREE.Matrix4();
+      // Palm silhouette = leaning trunk + radiating drooping fronds (a flattened blob read as a mushroom from the ground).
+      const palms = new THREE.InstancedMesh(new THREE.CylinderGeometry(.2, .38, 1, 6).translate(0, .5, 0), new THREE.MeshStandardMaterial({ color: '#6f5335', roughness: 1 }), 22);
+      const crowns = new THREE.InstancedMesh(palmCrownGeometry(), new THREE.MeshStandardMaterial({ color: '#3f6b3a', roughness: .95, side: THREE.DoubleSide }), 22);
+      const matrix = new THREE.Matrix4(), rng = this.worldRng, top = new THREE.Vector3();
       for (let i = 0; i < 22; i++) {
-        const x = -90 + i * 16, z = 180 + (i % 4) * 95, h = 9 + (i % 3) * 3;
-        matrix.compose(new THREE.Vector3(x, ground(x, z) + h / 2, z), new THREE.Quaternion(), new THREE.Vector3(1, h, 1));
+        // Loose beach-line groves (seeded jitter), not a surveyed grid.
+        const x = -90 + i * 16 + rng.range(-6, 6), z = 180 + (i % 4) * 95 + rng.range(-25, 25), h = rng.range(8, 14);
+        const lean = new THREE.Quaternion().setFromEuler(new THREE.Euler(rng.range(-.18, .18), 0, rng.range(-.18, .18)));
+        matrix.compose(new THREE.Vector3(x, ground(x, z), z), lean, new THREE.Vector3(1, h, 1));
         palms.setMatrixAt(i, matrix);
-        matrix.compose(new THREE.Vector3(x, ground(x, z) + h + 1.2, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, i * 1.7, .12)), new THREE.Vector3(4.8, 1.35, 4.8));
+        top.set(0, h, 0).applyQuaternion(lean).add(new THREE.Vector3(x, ground(x, z), z));
+        const s = rng.range(3.6, 4.8);
+        matrix.compose(top, new THREE.Quaternion().setFromEuler(new THREE.Euler(0, rng.next() * Math.PI * 2, 0)), new THREE.Vector3(s, s, s));
         crowns.setMatrixAt(i, matrix);
       }
       palms.instanceMatrix.needsUpdate = true;
@@ -904,6 +938,56 @@ export class FlightScene {
     }
   }
 
+  private buildRunway(airfield: AirfieldDefinition | undefined): void {
+    const runwayCenter: [number, number] = airfield ? [airfield.position[0], airfield.position[2]] : [0, 0];
+    const runwayWidth = airfield?.runwayWidthM ?? 24;
+    const runwayLength = airfield?.runwayLengthM ?? 220;
+    const runwayY = this.environment.terrainQuery.getElevation(...runwayCenter);
+    const runwayGeo = new THREE.PlaneGeometry(runwayWidth, runwayLength, Math.max(4, Math.round(runwayWidth / 3)), Math.max(8, Math.round(runwayLength / 6)));
+    this.roughenRunwayGeometry(runwayGeo, airfield?.surface, this.worldRng);
+    // Grass gets its own full-length map (tracks, stripes, ragged fringe); the repeating
+    // speckle map read as giant dark discs on grass from the chase camera.
+    const grass = airfield?.surface === 'grass';
+    const runwayMat = new THREE.MeshStandardMaterial({
+      color: grass ? '#ffffff' : this.runwayColor(airfield?.surface),
+      map: grass
+        ? this.buildGrassStripTexture(runwayWidth, runwayLength, createSeededRandom('runway-grass', airfield!.id))
+        : this.buildRunwaySurfaceTexture(airfield?.surface, this.worldRng),
+      // The fringe is cut out of the map's alpha, so the strip's edge is uneven instead of a ruled line.
+      alphaTest: grass ? 0.5 : 0,
+      roughness: 0.9,
+      metalness: 0.03,
+    });
+    const runway = new THREE.Mesh(runwayGeo, runwayMat);
+    runway.rotation.x = -Math.PI / 2;
+    // Clear of the ±3 cm roughening: at +2.5 cm the pad's terrain poked through as green blots.
+    runway.position.set(runwayCenter[0], runwayY + 0.06, runwayCenter[1]);
+    runway.receiveShadow = true;
+    this.scene.add(runway);
+    this.addRunwayDressings(runwayCenter, runwayY, runwayWidth, runwayLength, airfield?.surface);
+    if (airfield) this.addWindsock(runwayCenter, runwayWidth, runwayLength);
+  }
+
+  /** Pole + orange/white sock beside the threshold: the one prop every real strip has. */
+  private addWindsock(center: readonly [number, number], width: number, length: number): void {
+    const x = center[0] + width / 2 + 9, z = center[1] - length / 2 + 25;
+    const y = this.environment.terrainQuery.getElevation(x, z);
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(.06, .08, 6, 6), new THREE.MeshStandardMaterial({ color: '#d8d6cf', roughness: .6, metalness: .4 }));
+    pole.position.set(x, y + 3, z);
+    pole.castShadow = true;
+    this.scene.add(pole);
+    for (let i = 0; i < 4; i++) {
+      const seg = new THREE.Mesh(
+        new THREE.CylinderGeometry(.42 - i * .07, .35 - i * .07, .7, 10, 1, true),
+        new THREE.MeshStandardMaterial({ color: i % 2 ? '#f2eee4' : '#e0692c', roughness: .8, side: THREE.DoubleSide }),
+      );
+      seg.rotation.z = Math.PI / 2 - .12; // slight droop in a light breeze
+      seg.position.set(x + .45 + i * .7, y + 5.8 - i * .08, z);
+      seg.castShadow = true;
+      this.scene.add(seg);
+    }
+  }
+
   private addRunwayDressings(center: readonly [number, number], runwayY: number, width: number, length: number, surface?: RunwaySurface) {
     const markingMat = new THREE.MeshBasicMaterial({ color: '#e9e2ca' });
     const shouldMark = surface === 'tarmac' || surface === 'salt';
@@ -966,34 +1050,365 @@ export class FlightScene {
     this.scene.add(marker);
   }
 
+  /** Floating-origin rebase: the chase camera's smoothed state isn't a scene child, so shift it explicitly. */
+  shiftOrigin(dx: number, dz: number) { this.chase.shift(dx, dz); this.originX += dx; this.originZ += dz; }
+  private originX = 0;
+  private originZ = 0;
+
+  /** Cockpit view: hide the airframe so the eye point never clips through its own mesh. */
+  setFpv(on: boolean) {
+    this.fpv = on;
+    this.chase.fpv = on;
+    // Eye sits inside the avatar's head: drop only the head layer (it still casts its shadow),
+    // so the cockpit view keeps the pilot's own arms, hands on the controls and knees.
+    if (on) this.camera.layers.disable(PILOT_HEAD_LAYER); else this.camera.layers.enable(PILOT_HEAD_LAYER);
+    if (this.pilotSeat) {
+      seatEye(this.pilotSeat, this.chase.eye);
+      const p = this.pilot;
+      p?.root.updateMatrix();
+      this.instruments.mount(this.chase.eye, p ? { stick: p.stickGrip.clone().applyMatrix4(p.root.matrix), throttle: p.throttleGrip.clone().applyMatrix4(p.root.matrix), scale: this.pilotSeat.scale } : undefined);
+      this.aircraftGroup.add(this.instruments.group, this.instruments.controls); // re-add: airframe loads clear() the group
+    }
+    // Tubes and panel are centimetres from the eye; the chase near plane would clip them away.
+    this.camera.near = on ? 0.03 : 0.5;
+    this.camera.updateProjectionMatrix();
+  }
+
+  /** Physical cockpit gauges; cheap no-op between redraws. */
+  updateInstruments(t: FlightTelemetry, dtS: number, fit?: { engine: EngineLimits | null; hasFlaps: boolean }) {
+    if (fit) this.instruments.configure(fit.engine, fit.hasFlaps);
+    this.instruments.update(t, dtS);
+  }
+
+  private guidanceCue: THREE.Group | null = null;
+  /** Optional world cue at the active route point (scene frame x/z, and a min altitude to show as a
+   * gate). A slim, pale survey pole + halo — reads like field survey tape, not an arcade ring. */
+  setGuidanceCue(cue: { x: number; z: number; minAltM?: number; kind?: string; runway?: { elevationM: number; headingDeg: number; glideAngleDeg: number; thresholdX: number; thresholdZ: number } } | null, navDeltaDeg: number | null) {
+    this.instruments.navDeltaDeg = navDeltaDeg;
+    if (!cue) { if (this.guidanceCue) this.guidanceCue.visible = false; return; }
+    if (!this.guidanceCue) {
+      const g = new THREE.Group();
+      const mat = new THREE.MeshBasicMaterial({ color: '#f4efe2', transparent: true, opacity: 0.35, depthWrite: false, fog: true });
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.6, 1, 6, 1, true), mat);
+      pole.name = 'pole';
+      const halo = new THREE.Mesh(new THREE.TorusGeometry(40, 0.8, 6, 48), new THREE.MeshBasicMaterial({ color: '#6fd3f0', transparent: true, opacity: 0.45, depthWrite: false, fog: true }));
+      halo.name = 'halo';
+      const gates = new THREE.Group(); gates.name = 'approach_gates';
+      const gateMat = new THREE.MeshBasicMaterial({ color: '#e9dfc4', transparent: true, opacity: 0.16, depthWrite: false, side: THREE.DoubleSide });
+      for (let i = 0; i < 4; i++) {
+        const gate = new THREE.Mesh(new THREE.TorusGeometry(34 - i * 4, 0.8, 5, 32), gateMat.clone());
+        gate.name = `gate_${i}`;
+        gates.add(gate);
+      }
+      g.add(pole, halo, gates);
+      g.name = 'guidance_cue';
+      this.scene.add(g);
+      this.guidanceCue = g;
+    }
+    const g = this.guidanceCue;
+    const ground = this.environment.terrainQuery.getElevation(cue.x + this.originX, cue.z + this.originZ);
+    const top = Math.max(ground + 120, cue.minAltM ?? 0);
+    const pole = g.getObjectByName('pole')!, halo = g.getObjectByName('halo')!;
+    pole.scale.y = top - ground; pole.position.y = (top - ground) / 2;
+    halo.position.y = top - ground; halo.rotation.x = Math.PI / 2;
+    halo.visible = cue.minAltM !== undefined; // the gate only exists where the plan sets a crossing altitude
+    g.position.set(cue.x, ground, cue.z);
+    const gates = g.getObjectByName('approach_gates');
+    if (gates && cue.runway && ['approach', 'final', 'threshold'].includes(cue.kind ?? '')) {
+      const dx = cue.runway.thresholdX - cue.x, dz = cue.runway.thresholdZ - cue.z;
+      const distance = Math.hypot(dx, dz), count = 4;
+      for (let i = 0; i < count; i++) {
+        const gate = gates.children[i] as THREE.Mesh;
+        const t = (i + 1) / (count + 1);
+        gate.position.set(dx * t, Math.max(0, distance * t * Math.tan(cue.runway.glideAngleDeg * Math.PI / 180)), dz * t);
+        gate.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), new THREE.Vector3(dx, 0, dz).normalize());
+        const size = THREE.MathUtils.clamp(0.72 + distance / 6000, 0.72, 1.2);
+        gate.scale.setScalar(size);
+      }
+      gates.visible = true;
+    } else if (gates) gates.visible = false;
+    g.visible = true;
+  }
+
   syncAircraft(position: THREE.Vector3, quaternion: THREE.Quaternion, dtS: number, cam: ChaseCameraInput) {
     this.aircraftGroup.position.copy(position);
     this.aircraftGroup.quaternion.copy(quaternion);
-    for (const propeller of this.propellerMeshes) propeller.rotation.z += dtS * (42 + cam.speedMs * 9);
     this.chase.update(position, quaternion, dtS, cam);
+    this.updateDebris(dtS);
+    this.updateBursts(dtS);
+    // Keep the chase camera above the terrain (free-look can swing it below the ground).
+    if (!this.chase.fpv) {
+      const p = this.camera.position;
+      const floor = this.environment.terrainQuery.getElevation(p.x + this.originX, p.z + this.originZ) + 1.2;
+      if (p.y < floor) p.y = floor;
+    }
   }
 
   /** Drives the A0's hinged surfaces and propeller from the flight model's control target and engine rpm. */
-  animateAircraft(target: SurfaceDeflections, rpm: number, dtS: number) {
-    this.rig?.update(target, rpm, dtS);
+  animateAircraft(target: SurfaceDeflections, rpm: number, dtS: number, groundSpeedMs = 0, onGround = false, gearRatio = 2.3, gear?: GearPose) {
+    this.instruments.flaps = target.flaps ?? 0;
+    if (this.rigs.length) for (const rig of this.rigs) rig.update(target, rpm, dtS, groundSpeedMs, onGround, gearRatio, gear);
+    else {
+      // Non-A0 propellers use the same engine-RPM-to-shaft-speed mapping; camera speed
+      // never drives aircraft animation.
+      const omega = (Math.max(0, rpm) / Math.max(1, gearRatio)) * Math.PI * 2 / 60;
+      for (const propeller of this.propellerMeshes) propeller.rotation.z = (propeller.rotation.z + omega * Math.max(0, Math.min(0.1, dtS))) % (Math.PI * 2);
+    }
+  }
+
+  /** Player avatar look; re-seats immediately if an airframe is already loaded. */
+  setPilotAppearance(appearance: AvatarAppearance) {
+    this.pilotAppearance = appearance;
+    if (this.loadedAircraft) { this.seatPilot(); this.setFpv(this.fpv); }
+  }
+
+  private seatPilot() {
+    this.pilot?.dispose();
+    this.pilot = null;
+    this.pilotSeat = null;
+    if (!this.loadedAircraft) return;
+    this.pilot = new PilotAvatar(this.pilotAppearance);
+    this.pilotSeat = seatAvatar(this.pilot, this.aircraftGroup, this.loadedAircraft.object, this.loadedAircraft.id, this.chase.eye);
+  }
+
+  /** Pilot body: hands follow the stick/throttle, feet the pedals, torso the load factor. */
+  animatePilot(drive: PilotDrive, dtS: number) {
+    this.instruments.setControls(drive, dtS);
+    this.pilot?.update({ ...drive, lookYaw: this.fpv ? 0 : THREE.MathUtils.clamp(this.chase.lookYaw * 0.6, -1, 1) }, dtS);
   }
 
   /** Short decaying camera-shake burst for impacts. */
   triggerImpactShake(magnitude: number, durationS = 0.4): void {
     this.chase.triggerShake(magnitude, durationS);
+    this.pilot?.jolt(magnitude * 2);
   }
 
   /** Damage-system visual hook (src/sim/damageSystem.ts): tints a damaged part and hides
    * it once detached. `role` maps loosely onto the placeholder mesh set — 'wing' is the
    * single wing box, 'tail' is the horizontal+vertical stabilizer pair. */
   setPartVisualState(role: 'wing' | 'tail', damaged: boolean, detached: boolean): void {
-    const meshes = role === 'wing' ? (this.wingMesh ? [this.wingMesh] : []) : this.tailMeshes;
+    const meshes = new Set<THREE.Mesh>(role === 'wing' ? (this.wingMesh ? [this.wingMesh] : []) : this.tailMeshes);
+    // The A0 hero model has named component meshes but bypasses the proxy refs above.
+    // Tint those real surfaces too, so damage remains visible on the shipped aircraft.
+    this.aircraftGroup.traverse((object) => {
+      const mesh = object as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const name = mesh.name.toLowerCase();
+      const matches = role === 'wing'
+        ? name.includes('wing') || name.includes('aileron')
+        : name.includes('tail') || name.includes('stabilizer') || name.includes('elevator') || name.includes('rudder');
+      if (matches) meshes.add(mesh);
+    });
     for (const mesh of meshes) {
-      mesh.visible = !detached;
-      const mat = mesh.material as THREE.MeshStandardMaterial;
-      if (!mat) continue;
-      mat.emissive = new THREE.Color(damaged && !detached ? '#3a0e0e' : '#000000');
-      mat.emissiveIntensity = damaged && !detached ? 0.6 : 0;
+      // Only hide a specific movable surface when the whole mapped role has failed;
+      // retain the main lifting surface so a localized failure cannot erase a wing.
+      const movable = /aileron|elevator|rudder/i.test(mesh.name);
+      if (detached && movable) mesh.visible = false;
+      else if (!detached && movable) mesh.visible = true;
+      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      for (const material of mats) {
+        const mat = material as THREE.MeshStandardMaterial;
+        if (!mat?.emissive) continue;
+        mat.emissive.set(damaged && !detached ? '#6f2517' : '#000000');
+        mat.emissiveIntensity = damaged && !detached ? 0.34 : 0;
+        if (damaged && !detached) mat.roughness = Math.max(mat.roughness, 0.82);
+      }
+    }
+  }
+
+  /** Builds a visible, localized tear at the latest damaged hard point and removes
+   * only the actual failed control surface meshes from the A0 model. */
+  setImpactDamage(zone: string | null | undefined, detachedIds: string[] = [], impactSpeedMs = 0, integrity: Record<string, number> = {}): void {
+    const controlNames: Record<string, string[]> = {
+      aileron_l: ['aileron_L'], aileron_r: ['aileron_R'], elevator: ['elevator'], rudder: ['rudder'], tail: ['elevator', 'rudder'],
+    };
+    // Critical-but-attached control surfaces hang bent off their hinge (wrong orientation).
+    for (const [id, names] of Object.entries(controlNames)) {
+      if ((integrity[id] ?? 1) >= 0.4 || detachedIds.includes(id)) continue;
+      for (const name of names) {
+        const part = this.aircraftGroup.getObjectByName(name);
+        if (!part || part.userData.bent) continue;
+        part.userData.bent = true;
+        part.rotation.x += 0.35;
+        part.rotation.z += name === 'rudder' ? 0.3 : 0.12;
+      }
+    }
+    if (detachedIds.includes('propeller')) {
+      for (const prop of this.propellerMeshes.splice(0)) {
+        if (!prop.userData.releasedAsDebris) this.releasePart(prop, new THREE.Vector3(0.4, 0.8, 1), impactSpeedMs);
+      }
+    }
+    for (const id of detachedIds) {
+      for (const name of controlNames[id] ?? []) {
+        const part = this.aircraftGroup.getObjectByName(name);
+        if (part && !part.userData.releasedAsDebris) this.releasePart(part, new THREE.Vector3(0.15, 0.7, -0.3), impactSpeedMs);
+      }
+    }
+    if (detachedIds.includes('__gear__')) {
+      for (const name of ['wheel_nose', 'wheel_L', 'wheel_R']) {
+        const wheel = this.aircraftGroup.getObjectByName(name);
+        if (wheel && !wheel.userData.releasedAsDebris) this.releasePart(wheel, new THREE.Vector3(0, 0.25, -1), impactSpeedMs);
+      }
+    }
+    if (!zone) return;
+    const at = this.impactMarkPosition(zone);
+    const onWing = zone === 'wingtipL' || zone === 'wingtipR';
+    const size = (onWing ? 0.58 : zone === 'nose' || zone === 'tail' ? 0.4 : 0.48) * (1 + Math.min(0.8, Math.max(0, impactSpeedMs) / 20));
+    const detachedAtZone = onWing
+      ? detachedIds.some((id) => id.includes('wing') || id.includes('aileron'))
+      : zone === 'tail' || zone === 'canopy'
+        ? detachedIds.some((id) => id === 'elevator' || id === 'rudder' || id.startsWith('tail'))
+        : detachedIds.some((id) => id === '__gear__' || id === 'gear');
+    const detachWingtip = (target: THREE.Group): boolean => {
+      if (!onWing) return false;
+      if (target.userData.hasDetachedMesh) return true;
+      const wingtip = this.aircraftGroup.getObjectByName(`wingtip_${zone === 'wingtipL' ? 'L' : 'R'}`);
+      if (!wingtip || wingtip.userData.releasedAsDebris) return false;
+      const side = zone === 'wingtipL' ? 1 : -1;
+      this.releasePart(wingtip, new THREE.Vector3(side, 0.42, -0.15), impactSpeedMs);
+      target.userData.hasDetachedMesh = true;
+      return true;
+    };
+    const addShard = (target: THREE.Group) => {
+      const shardShape = new THREE.Shape();
+      shardShape.moveTo(-size * .42, -size * .2); shardShape.lineTo(-size * .08, -size * .27);
+      shardShape.lineTo(size * .03, -size * .06); shardShape.lineTo(size * .46, -size * .1);
+      shardShape.lineTo(size * .27, size * .04); shardShape.lineTo(size * .48, size * .22);
+      shardShape.lineTo(size * .05, size * .15); shardShape.lineTo(-size * .16, size * .32); shardShape.closePath();
+      const shardGeometry = new THREE.ExtrudeGeometry(shardShape, { depth: .035, bevelEnabled: true, bevelSize: .012, bevelThickness: .012, bevelSegments: 1 });
+      shardGeometry.rotateX(-Math.PI / 2);
+      const shard = new THREE.Mesh(shardGeometry, new THREE.MeshStandardMaterial({ color: '#b9a98b', roughness: 0.88, side: THREE.DoubleSide }));
+      shard.position.set(onWing ? (zone === 'wingtipL' ? size * .75 : -size * .75) : size * .55, 0.11, -size * .18);
+      shard.rotation.set(0.22, 0, zone === 'wingtipL' ? 0.16 : -0.16);
+      target.add(shard);
+    };
+    const existingMark = this.damageMarks.get(zone);
+    if (existingMark) {
+      if (detachedAtZone && !detachWingtip(existingMark) && !existingMark.userData.hasDetachedShard) {
+        addShard(existingMark);
+        existingMark.userData.hasDetachedShard = true;
+      }
+      return;
+    }
+    const mark = new THREE.Group();
+    mark.name = `fracture_${zone}`;
+    mark.position.copy(at);
+    // Irregular split seam pressed onto the aircraft skin, with a dark open gap and
+    // bright exposed spar edge. This reads as a torn structure instead of a color tint.
+    const shape = new THREE.Shape();
+    shape.moveTo(-size, -size * 0.22); shape.lineTo(-size * 0.38, -size * 0.08);
+    shape.lineTo(-size * 0.16, -size * 0.34); shape.lineTo(size * 0.1, -size * 0.04);
+    shape.lineTo(size * 0.48, -size * 0.3); shape.lineTo(size, 0);
+    shape.lineTo(size * 0.36, size * 0.08); shape.lineTo(size * 0.12, size * 0.37);
+    shape.lineTo(-size * 0.1, size * 0.12); shape.lineTo(-size * 0.55, size * 0.32); shape.closePath();
+    const tear = new THREE.Mesh(new THREE.ShapeGeometry(shape), new THREE.MeshBasicMaterial({ color: '#161719', side: THREE.DoubleSide, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }));
+    tear.rotation.x = -Math.PI / 2;
+    tear.position.y = 0.018;
+    mark.add(tear);
+    const spar = new THREE.Mesh(new THREE.BoxGeometry(size * 1.7, 0.035, 0.08), new THREE.MeshStandardMaterial({ color: '#b65d38', metalness: 0.35, roughness: 0.72 }));
+    spar.position.set(0, 0.035, 0);
+    spar.rotation.z = (zone === 'wingtipL' ? 1 : -1) * 0.3;
+    mark.add(spar);
+    if (detachedAtZone) {
+      if (!detachWingtip(mark)) {
+        addShard(mark);
+        mark.userData.hasDetachedShard = true;
+      }
+    }
+    this.aircraftGroup.add(mark);
+    this.damageMarks.set(zone, mark);
+  }
+
+  private releasePart(mesh: THREE.Object3D, localDirection: THREE.Vector3, impactSpeedMs: number): void {
+    this.scene.updateMatrixWorld(true);
+    mesh.updateMatrixWorld(true);
+    this.scene.attach(mesh);
+    mesh.userData.releasedAsDebris = true;
+    const direction = localDirection.normalize().applyQuaternion(this.aircraftGroup.quaternion).normalize();
+    const kick = Math.min(13, 2.5 + Math.max(0, impactSpeedMs) * 0.42);
+    this.debris.push({
+      mesh,
+      velocity: direction.multiplyScalar(kick).add(new THREE.Vector3(0, 1.5, 0)),
+      spin: new THREE.Vector3(1.8, 2.4, 1.2).multiplyScalar(Math.min(1.7, 0.55 + impactSpeedMs * 0.035)),
+      ageS: 0,
+    });
+  }
+
+  /** Low-poly impact particles at a hard point: tan dust for ground/soft hits, bright sparks
+   * for fast metal-on-ground scrapes. Additive points, aged out in ~1 s. */
+  spawnImpactBurst(zone: string, kind: 'dust' | 'sparks', intensity: number): void {
+    const n = Math.round(12 + 40 * Math.min(1, intensity));
+    const pos = new Float32Array(n * 3);
+    const vel = new Float32Array(n * 3);
+    const origin = this.aircraftGroup.localToWorld(this.impactMarkPosition(zone));
+    const spread = kind === 'sparks' ? 7 : 2.5;
+    for (let i = 0; i < n; i++) {
+      pos.set([origin.x, origin.y, origin.z], i * 3);
+      vel.set([(Math.random() - 0.5) * spread, Math.random() * spread * 0.7 + 0.5, (Math.random() - 0.5) * spread], i * 3);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    const mat = new THREE.PointsMaterial({
+      color: kind === 'sparks' ? '#ffc46b' : '#b8a27c', size: kind === 'sparks' ? 0.09 : 0.45,
+      transparent: true, opacity: kind === 'sparks' ? 1 : 0.55, depthWrite: false,
+      blending: kind === 'sparks' ? THREE.AdditiveBlending : THREE.NormalBlending,
+    });
+    const points = new THREE.Points(geo, mat);
+    this.scene.add(points);
+    this.bursts.push({ points, vel, ageS: 0 });
+  }
+
+  private updateBursts(dtS: number): void {
+    const dt = Math.max(0, Math.min(0.1, Number.isFinite(dtS) ? dtS : 0));
+    for (let i = this.bursts.length - 1; i >= 0; i--) {
+      const b = this.bursts[i];
+      b.ageS += dt;
+      const attr = b.points.geometry.getAttribute('position') as THREE.BufferAttribute;
+      const p = attr.array as Float32Array;
+      for (let j = 0; j < p.length; j += 3) {
+        b.vel[j + 1] -= 3 * dt;
+        p[j] += b.vel[j] * dt; p[j + 1] += b.vel[j + 1] * dt; p[j + 2] += b.vel[j + 2] * dt;
+      }
+      attr.needsUpdate = true;
+      const mat = b.points.material as THREE.PointsMaterial;
+      mat.opacity *= 1 - Math.min(1, dt * 2.2);
+      if (b.ageS > 1.4) {
+        this.scene.remove(b.points);
+        b.points.geometry.dispose();
+        mat.dispose();
+        this.bursts.splice(i, 1);
+      }
+    }
+  }
+
+  private updateDebris(dtS: number): void {
+    const dt = Math.max(0, Math.min(0.1, Number.isFinite(dtS) ? dtS : 0));
+    for (let i = this.debris.length - 1; i >= 0; i--) {
+      const piece = this.debris[i];
+      piece.ageS += dt;
+      piece.velocity.y -= 9.81 * dt;
+      piece.mesh.position.addScaledVector(piece.velocity, dt);
+      piece.mesh.rotation.x += piece.spin.x * dt;
+      piece.mesh.rotation.y += piece.spin.y * dt;
+      piece.mesh.rotation.z += piece.spin.z * dt;
+      if (piece.ageS >= 5 || piece.mesh.position.y < -20) {
+        this.scene.remove(piece.mesh);
+        this.debris.splice(i, 1);
+      }
+    }
+  }
+
+  private impactMarkPosition(zone: string): THREE.Vector3 {
+    switch (zone) {
+      case 'wingtipL': return new THREE.Vector3(5.15, 2.28, 0.28);
+      case 'wingtipR': return new THREE.Vector3(-5.15, 2.28, 0.28);
+      case 'nose': return new THREE.Vector3(0, 1.15, 3.05);
+      case 'tail': return new THREE.Vector3(0, 1.65, -3.15);
+      case 'canopy': return new THREE.Vector3(0, 2.8, -0.6);
+      case 'bellyFront': return new THREE.Vector3(0, 0.42, 1.25);
+      case 'bellyRear': return new THREE.Vector3(0, 0.55, -1.45);
+      case 'gear': return new THREE.Vector3(0, 0.55, -0.35);
+      default: return new THREE.Vector3(0, 1.4, 0);
     }
   }
 
@@ -1004,6 +1419,8 @@ export class FlightScene {
   }
 
   render() {
+    // ponytail: periodic sweep catches async-hydrated props/tiles; styled materials are memoised so it is a cheap walk.
+    if (this.styleSweepFrame++ % 120 === 0) applyLowPolyStyle(this.scene, this.aircraftGroup);
     this.fieldWorld?.update(this.camera.position);
     this.atmosphere.update(this.aircraftGroup.visible ? this.aircraftGroup.position : this.camera.position);
     if (this.post) this.post.render(); else this.renderer.render(this.scene, this.camera);
@@ -1025,6 +1442,7 @@ export class FlightScene {
   }
 
   dispose() {
+    this.instruments.dispose();
     this.fieldWorld?.dispose();
     this.atmosphere.dispose();
     this.clouds.dispose();
@@ -1051,4 +1469,21 @@ export class FlightScene {
     this.renderer.renderLists.dispose();
     this.renderer.dispose();
   }
+}
+
+/** Low-poly palm crown: 7 drooping fronds (two triangles each) radiating from the top, unit radius. */
+function palmCrownGeometry(): THREE.BufferGeometry {
+  const pos: number[] = [], fronds = 7;
+  for (let i = 0; i < fronds; i++) {
+    const a = (i / fronds) * Math.PI * 2 + (i % 2) * 0.2, w = 0.16;
+    const dir = (r: number, off: number): [number, number] => [Math.cos(a + off) * r, Math.sin(a + off) * r];
+    const [mx, mz] = dir(0.55, 0), [lx, lz] = dir(0.5, w), [rx, rz] = dir(0.5, -w), [tx, tz] = dir(1, 0);
+    // centre -> mid ridge (raised) -> drooping tip, widened at mid
+    pos.push(0, 0.1, 0, lx, 0.12, lz, mx, 0.2, mz, 0, 0.1, 0, mx, 0.2, mz, rx, 0.12, rz);
+    pos.push(lx, 0.12, lz, tx, -0.35, tz, mx, 0.2, mz, mx, 0.2, mz, tx, -0.35, tz, rx, 0.12, rz);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.computeVertexNormals();
+  return g;
 }

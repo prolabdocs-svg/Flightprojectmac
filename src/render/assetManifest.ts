@@ -20,13 +20,30 @@ export function assetUrl(domain: AssetDomain, id: string): string {
 /** Maps each FrameDefinition id (src/content/parts.ts#FRAMES) to its shipped GLB id.
  * Tier-matched against the canonical roster (public/assets/models/README.md, 70
  * airframes keyed by tier prefix): frame_yardbird/trailblazer/bush_king are tier 1/2/3,
- * so they take the first roster variant from the matching l1, a2, g3 tier family. */
+ * so they take the first roster variant from the matching l1, a2, g3 tier family.
+ * The starter is the Aerofox Kestrel 2, built from the authored open-frame source (tools/a0). */
 export const FRAME_ASSET_IDS: Record<string, string> = {
-  frame_zero: 'hero_ultralight',
+  frame_zero: 'aerofox_kestrel2',
   frame_yardbird: 'l1_01',
   frame_trailblazer: 'a2_01',
   frame_bush_king: 'g3_01',
+  frame_nightjar: 'nightjar_rw12',
+  frame_zenith_ch701: 'zenith_ch701',
 };
+
+/** Per-airframe presentation beyond the GLB itself: distance LODs (each rigged), which rig mode drives its
+ * pivots, and the default cockpit eye (aircraft metres). Airframes not listed render as a static roster GLB. */
+export const AIRFRAME_VISUALS: Record<string, { rig?: 'nightjar' | 'zenith'; lods?: Array<[uri: string, distanceM: number]>; eye?: [number, number, number] }> = {
+  nightjar_rw12: {
+    rig: 'nightjar',
+    lods: [['/assets/models/airframes/nightjar_rw12_lod1.glb', 40], ['/assets/models/airframes/nightjar_rw12_lod2.glb', 110]],
+    eye: [0.255, 1.62, -0.02],
+  },
+  zenith_ch701: { rig: 'zenith', eye: [0, 2.35, 0.8] },
+};
+
+/** Livery accents, glass, rubber, bare metal and lights keep their authored colour under a paint scheme. */
+export const UNPAINTED_MATERIAL = /yellow|glazing|rubber|alumin|NAV_|STROBE/i;
 
 export interface WorldAssetPlacement {
   id: string;

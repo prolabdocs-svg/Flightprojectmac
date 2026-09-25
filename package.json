@@ -23,7 +23,8 @@
     "desktop:package:win": "npm run build && electron-builder --win --x64 --dir",
     "desktop:package:linux": "npm run build && electron-builder --linux --x64 --dir",
     "asset:validate": "node scripts/assets/validate.ts",
-    "asset:ledger": "node scripts/assets/ledger.ts"
+    "asset:ledger": "node scripts/assets/ledger.ts",
+    "aircraft:kestrel:build": "node tools/a0/split_a0.mjs && node tools/a0/optimize_exports.mjs"
   },
   "build": {
     "appId": "com.projectflight.game",

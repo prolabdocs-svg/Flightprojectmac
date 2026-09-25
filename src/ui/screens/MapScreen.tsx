@@ -1,7 +1,8 @@
+import { routeContext, routeFlightPlan } from '../../mission/route';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useGameStore } from '../../state/gameStore';
 import { useProfileStore } from '../../state/profileStore';
-import { REGIONS, isRegionUnlocked } from '../../content/regions';
+import { REGIONS } from '../../content/regions';
 import { isMissionAvailableToProfile } from '../../content/missions';
 import { estimatePerformance } from '../../sim/performance';
 import { getDestinationStatuses, getOffers, operationsRegionId } from '../../mission/operations';
@@ -9,8 +10,14 @@ import { ROUTE_FACTOR } from '../../mission/planning';
 import { archetypeLabel } from '../../mission/labels';
 import { resolveAircraft } from '../../content/assembly';
 import { OpsDestinationPanel, type OpsPanelPlan } from '../components/OpsDestinationPanel';
-import { classifyRange, COMFORTABLE_FRACTION, contractsForAirfield, flightTimeS, getMapTargets, getOrigin, getRegionAirRoutes, regionTerrain, routeTags, sampleRouteProfile, usableRangeKm, formatDistance, type MapTarget } from '../../map/mapPlan';
+import { classifyRange, COMFORTABLE_FRACTION, contractsForAirfield, flightTimeS, getMapTargets, getMasterAirRoutes, getMasterMapTargets, getOrigin, getRegionAirRoutes, regionTerrain, routeTags, sampleRouteProfile, usableRangeKm, formatDistance, type MapTarget } from '../../map/mapPlan';
 import { distanceM, type Insets } from '../../map/mapProjection';
+import { buildFlightPlan } from '../../nav/flightPlan';
+import { getAirfield } from '../../world/airfields';
+import { airfieldKnowledge, chartedFog } from '../../world/exploration';
+import { getMasterTerrain } from '../../world/master/masterRuntime';
+import { MASTER_MAP_ID } from '../../map/masterMapGeography';
+import type { TerrainQueryService } from '../../world/terrainQuery';
 import { MenuNavigation } from '../components/MenuNavigation';
 import { UiIcon } from '../components/UiIcon';
 import { WorldMapCanvas, type WorldMapHandle } from '../components/WorldMapCanvas';
@@ -19,53 +26,84 @@ import './Screens.css';
 import './MapScreen.css';
 
 const NO_INSETS: Insets = { left: 0, right: 0, top: 0, bottom: 0 };
+const worldTerrain: TerrainQueryService = {
+  getElevation: (x, z) => getMasterTerrain().groundAt(x, z),
+  getSlopeDeg: (x, z) => getMasterTerrain().slopeDegAt(x, z),
+  getSurfaceId: (x, z) => getMasterTerrain().surfaceAt(x, z),
+  getWaterDepth: (x, z) => getMasterTerrain().waterAt(x, z)?.depthM ?? 0,
+  isOnGradedRunway: () => false,
+  getBiomeWeights: () => ({ temperate_grassland: 1 }),
+  sample: (x, z) => {
+    const w = getMasterTerrain();
+    const elevationM = w.groundAt(x, z), slopeDeg = w.slopeDegAt(x, z), surfaceId = w.surfaceAt(x, z), waterDepthM = w.waterAt(x, z)?.depthM ?? 0;
+    const biomeWeights = { temperate_grassland: 1 };
+    return { elevationM, slopeDeg, surfaceId, waterDepthM, dominantBiomeId: 'temperate_grassland', biomeWeights, emergencyLandingSuitability: waterDepthM > 0 ? 0 : Math.max(0, 1 - slopeDeg / 45) };
+  },
+};
+const createWorldTerrain = () => worldTerrain;
 
 // The map is the interface: geography + range + destination panel. Contracts hang off destinations.
 export function MapScreen() {
   const goTo = useGameStore((s) => s.goTo);
   const selectMission = useGameStore((s) => s.selectMission);
-  const selectFreeFlight = useGameStore((s) => s.selectFreeFlight);
-  const selectedRegionId = useGameStore((s) => s.selectedMapRegionId);
-  const selectMapRegion = useGameStore((s) => s.selectMapRegion);
-  const mapView = useGameStore((s) => s.mapViews[s.selectedMapRegionId]);
+  const selectWorldStart = useGameStore((s) => s.selectWorldStart);
+  const savedMapView = useGameStore((s) => s.mapViews.master);
   const setMapView = useGameStore((s) => s.setMapView);
   const selectionId = useGameStore((s) => s.mapSelectionId);
   const setSelection = useGameStore((s) => s.setMapSelection);
   const profile = useProfileStore((s) => s.profile);
   const abandonMission = useProfileStore((s) => s.abandonMission);
 
-  const region = REGIONS.find((r) => r.id === selectedRegionId) ?? REGIONS[0];
+  // The map is one continuous world chart. Keep the old store field as a view-state adapter
+  // while older saves/UI state migrate.
+  const isWorldMap = true;
+  const region = REGIONS[0];
   const mapRef = useRef<WorldMapHandle>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLElement>(null);
   const [insets, setInsets] = useState<Insets>(NO_INSETS);
   const [contractId, setContractId] = useState<string | null>(null);
+  const mapView = savedMapView;
 
   // Operations region = where the aircraft is parked. There the mission domain is the ONLY authority for
   // range, availability and contracts; other regions keep the legacy campaign view until the world graph spans them.
-  const isOps = region.id === operationsRegionId(profile);
+  const isOps = !isWorldMap && region.id === operationsRegionId(profile);
   const ops = profile.operations;
   const statuses = useMemo(() => (isOps ? getDestinationStatuses(profile) : []), [profile, isOps]);
   const offers = useMemo(() => (isOps ? getOffers(profile) : []), [profile, isOps]);
   const perf = useMemo(() => estimatePerformance(profile.currentBuild), [profile.currentBuild]);
   const legacyUsableKm = usableRangeKm(perf.rangeKm);
   const statusFor = (id: string) => statuses.find((s) => s.airfieldId === id) ?? null;
-  const rawTargets = useMemo(() => getMapTargets(region.id), [region.id]);
+  const rawTargets = useMemo(() => isWorldMap ? getMasterMapTargets() : getMapTargets(region.id), [region.id, isWorldMap]);
   // Knowledge comes from the save: known = visible on the map, visited = landed there (marked with a check).
-  const targets = useMemo(() => (isOps
-    ? rawTargets.map((t) => (t.kind === 'airfield' ? { ...t, revealed: ops.knownAirfieldIds.includes(t.id), name: ops.visitedAirfieldIds.includes(t.id) && t.id !== ops.locationId ? `${t.name} ✓` : t.name } : t))
-    : rawTargets), [rawTargets, isOps, ops.knownAirfieldIds, ops.visitedAirfieldIds, ops.locationId]);
-  const origin = useMemo(() => targets.find((t) => t.id === (isOps ? ops.locationId : getOrigin(region.id)?.id)) ?? null, [targets, region.id, isOps, ops.locationId]);
+  // World chart = Fog of Discovery: UNKNOWN fields are not drawn, SIGHTED ones are an unnamed strip,
+  // DISCOVERED ones carry their name, VISITED ones a check.
+  const fog = useMemo(() => (isWorldMap ? chartedFog(ops.exploration, ops) : null), [isWorldMap, ops]);
+  const targets = useMemo(() => {
+    if (isWorldMap) return rawTargets.flatMap((t) => {
+      const k = airfieldKnowledge(t.id, ops.exploration, ops);
+      if (k === 'UNKNOWN') return [];
+      return [{ ...t, revealed: k !== 'SIGHTED', name: k === 'VISITED' && t.id !== ops.locationId ? `${t.name} ✓` : t.name }];
+    });
+    return isOps
+      ? rawTargets.map((t) => (t.kind === 'airfield' ? { ...t, revealed: ops.knownAirfieldIds.includes(t.id), name: ops.visitedAirfieldIds.includes(t.id) && t.id !== ops.locationId ? `${t.name} ✓` : t.name } : t))
+      : rawTargets;
+  }, [rawTargets, isOps, isWorldMap, ops]);
+  const originId = ops.locationId || getOrigin('the_field')?.id;
+  const origin = useMemo(() => {
+    const parked = rawTargets.find((t) => t.id === originId) ?? rawTargets.find((t) => t.id === getOrigin('the_field')?.id);
+    return parked ? { ...parked, revealed: true } : null;
+  }, [rawTargets, originId]);
   const selectedForRange = statusFor(selectionId ?? '');
   // Range ring: the planner's usable range for the selected route (or the first known one), as straight-line metres.
   const usableKm = isOps
     ? ((selectedForRange ?? statuses[0])?.assessment.plan.range.usableKm ?? 0) / ROUTE_FACTOR
     : legacyUsableKm;
   const range = useMemo(() => ({ usableM: usableKm * 1000, comfortableM: usableKm * 1000 * COMFORTABLE_FRACTION }), [usableKm]);
-  const routes = useMemo(() => getRegionAirRoutes(region.id).flatMap((r) => {
+  const routes = useMemo(() => (isWorldMap ? getMasterAirRoutes() : getRegionAirRoutes(region.id)).flatMap((r) => {
     const from = targets.find((t) => t.id === r.fromId), to = targets.find((t) => t.id === r.toId);
     return from && to ? [{ from, to }] : [];
-  }), [targets, region.id]);
+  }), [targets, region.id, isWorldMap]);
 
   const statusOf = (t: MapTarget) => {
     if (!origin || t.id === origin.id) return null;
@@ -77,20 +115,21 @@ export function MapScreen() {
     return classifyRange(distanceM(origin.x, origin.z, t.x, t.z) / 1000, legacyUsableKm);
   };
   const selected = targets.find((t) => t.id === selectionId) ?? null;
+  const worldSelected = isWorldMap ? selected : null;
 
   const plan = useMemo<PanelPlan | null>(() => {
     if (!selected || isOps) return null;
-    const terrain = regionTerrain(region.id);
+    const terrain = isWorldMap ? createWorldTerrain() : regionTerrain(region.id);
     const dM = origin ? distanceM(origin.x, origin.z, selected.x, selected.z) : 0;
     const profileLine = origin && selected.id !== origin.id ? sampleRouteProfile(terrain, [origin.x, origin.z], [selected.x, selected.z]) : null;
     return {
       target: selected, origin, distanceM: dM, timeS: flightTimeS(dM, perf.cruiseSpeedKmh), elevationM: terrain.getElevation(selected.x, selected.z),
       status: origin && selected.id !== origin.id ? statusOf(selected) : null, usableKm: legacyUsableKm, profile: profileLine,
       tags: profileLine ? routeTags(profileLine, selected, terrain) : selected.airfield ? routeTags(sampleRouteProfile(terrain, [selected.x, selected.z], [selected.x, selected.z], 2), selected, terrain) : [],
-      contracts: selected.airfield ? contractsForAirfield(region.id, selected.airfield.id) : [],
+      contracts: selected.airfield && !isWorldMap ? contractsForAirfield(region.id, selected.airfield.id) : [],
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected, origin, perf, legacyUsableKm, region.id, isOps]);
+  }, [selected, origin, perf, legacyUsableKm, region.id, isOps, isWorldMap]);
 
   const opsPlan = useMemo<OpsPanelPlan | null>(() => {
     if (!selected || !isOps) return null;
@@ -116,7 +155,28 @@ export function MapScreen() {
   useEffect(() => { setContractId(plan?.contracts.find((m) => isMissionAvailableToProfile(m, profile))?.id ?? null); }, [plan?.target.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const contract = plan?.contracts.find((m) => m.id === contractId);
   const shownContract = isOps ? opsContract?.mission : contract;
+  // Same FlightPlan the flight will fly: only charted (revealed) destinations get a planned route.
+  const via = useMemo(() => {
+    if (!isOps || !origin || !selected?.airfield || !selected.revealed || selected.id === origin.id) return undefined;
+    return routeFlightPlan(routeContext(origin.id, selected.id), ops.knownAirfieldIds).points.slice(1, -1);
+  }, [isOps, origin, selected, ops.knownAirfieldIds]);
   const contractTarget = shownContract?.targetPoint ? { x: shownContract.targetPoint[0], z: shownContract.targetPoint[2], radiusM: shownContract.targetRadiusM ?? 20 } : null;
+  const missionVia = useMemo(() => {
+    if (!shownContract?.targetPoint) return undefined;
+    const destinationAirfieldId = 'destinationAirfieldId' in shownContract && typeof shownContract.destinationAirfieldId === 'string' ? shownContract.destinationAirfieldId : undefined;
+    const destinationField = destinationAirfieldId ? getAirfield(destinationAirfieldId) : undefined;
+    const destinationKnown = destinationField ? ops.knownAirfieldIds.includes(destinationField.id) || destinationField.discoveryState === 'known' : true;
+    const routePlan = buildFlightPlan(
+      { id: origin?.id ?? 'origin', label: origin?.name ?? 'Salida', known: true, x: origin?.x ?? shownContract.spawnPoint[0], z: origin?.z ?? shownContract.spawnPoint[2] },
+      { id: destinationField?.id ?? shownContract.id, label: destinationField?.name ?? shownContract.name, known: destinationKnown, x: shownContract.targetPoint[0], z: shownContract.targetPoint[2] },
+      { elevationAt: (x, z) => regionTerrain(shownContract.regionId).getElevation(x, z), runway: destinationField ? {
+        id: destinationField.id, label: destinationField.name, x: shownContract.targetPoint![0], z: shownContract.targetPoint![2],
+        elevationM: regionTerrain(shownContract.regionId).getElevation(shownContract.targetPoint![0], shownContract.targetPoint![2]),
+        lengthM: destinationField.runwayLengthM, widthM: destinationField.runwayWidthM, headingDeg: 0,
+      } : undefined },
+    );
+    return routePlan.points.slice(1, -1);
+  }, [shownContract, origin, ops.knownAirfieldIds]);
 
   // Tell the canvas how much of the stage the panel hides, so routes stay visible beside/above it.
   useLayoutEffect(() => {
@@ -132,39 +192,28 @@ export function MapScreen() {
     const ro = new ResizeObserver(measure);
     ro.observe(panel); ro.observe(stage);
     return () => ro.disconnect();
-  }, [plan?.target.id, opsPlan?.target.id]);
+  }, [plan?.target.id, opsPlan?.target.id, worldSelected?.id]);
 
   return (
     <div className="screen map-screen">
       <header className="map-topbar">
         <button className="back-btn" onClick={() => goTo('hangar')}>← Taller</button>
         <div className="map-title">
-          <h2>{region.name}</h2>
-          <p title={region.description}>{region.description}</p>
+          <h2>{isWorldMap ? 'Mapa mundial' : region.name}</h2>
+          <p title={isWorldMap ? 'Lo no volado sigue bajo las nubes' : region.description}>{isWorldMap ? 'Carta de exploración · lo no volado sigue bajo las nubes' : region.description}</p>
         </div>
-        {REGIONS.length > 1 && (
-          <div className="region-tabs" role="tablist" aria-label="Regiones">
-            {REGIONS.map((r) => {
-              const unlocked = isRegionUnlocked(r, profile);
-              return (
-                <button key={r.id} role="tab" aria-selected={r.id === selectedRegionId} className={`region-tab${r.id === selectedRegionId ? ' region-tab-active' : ''}`}
-                  disabled={!unlocked} onClick={() => selectMapRegion(r.id)}>
-                  {r.name}{!unlocked && ' 🔒'}
-                </button>
-              );
-            })}
-          </div>
-        )}
-        <button className="map-free-flight" onClick={() => { selectFreeFlight(region.id); goTo('run'); }}>
+        <button className="map-free-flight" onClick={() => {
+          selectWorldStart(ops.locationId || 'field_home', getAirfield(ops.locationId || 'field_home')?.regionId ?? 'the_field'); goTo('run');
+        }}>
           <UiIcon name="flight" size={16} /> Vuelo libre
         </button>
       </header>
 
       <div className="map-stage" ref={stageRef}>
-        <WorldMapCanvas
-          key={region.id}
+      <WorldMapCanvas
+          key={MASTER_MAP_ID}
           ref={mapRef}
-          regionId={region.id}
+          regionId={MASTER_MAP_ID}
           targets={targets}
           origin={origin}
           originHeadingDeg={0}
@@ -173,10 +222,12 @@ export function MapScreen() {
           statusOf={statusOf}
           selectedId={selected?.id ?? null}
           contractTarget={contractTarget}
+          via={missionVia ?? via}
           insets={insets}
           initialView={mapView}
-          onViewChange={(v) => setMapView(region.id, v)}
+          onViewChange={(v) => setMapView('master', v)}
           onSelect={setSelection}
+          fog={fog}
         />
 
         <div className="wmap-hud">
@@ -190,7 +241,27 @@ export function MapScreen() {
           <button onClick={() => mapRef.current?.zoomBy(1 / 1.6)} aria-label="Alejar">−</button>
           <button onClick={() => mapRef.current?.centerHome()} aria-label="Centrar en la base" title="Centrar en la base">⌖</button>
         </div>
-        {!plan && !opsPlan && <span className="wmap-hint">Toca una pista o un lugar para planear la ruta</span>}
+        {!plan && !opsPlan && !worldSelected && <span className="wmap-hint">Explora desde la base y descubre rutas al volar</span>}
+
+        {worldSelected?.airfield && (
+          <aside className="wmap-panel" ref={panelRef} aria-label={`Aeródromo: ${worldSelected.name}`}>
+            <header>
+              <div><span className="wmap-kicker">{worldSelected.revealed ? worldSelected.airfield.regionId.replaceAll('_', ' ') : 'Avistada desde el aire'}</span><h3>{worldSelected.revealed ? worldSelected.name : 'Pista sin descubrir'}</h3></div>
+              <button className="wmap-close" onClick={() => setSelection(null)} aria-label="Cerrar destino">×</button>
+            </header>
+            <dl className="wmap-stats">
+              {origin && origin.id !== worldSelected.id && <div><dt>Desde tu base</dt><dd>{formatDistance(distanceM(origin.x, origin.z, worldSelected.x, worldSelected.z))}</dd></div>}
+              {worldSelected.revealed && <div><dt>Pista</dt><dd>{worldSelected.airfield.surface} · {worldSelected.airfield.runwayLengthM} m</dd></div>}
+              {worldSelected.revealed && <div><dt>Elevación</dt><dd>{Math.round(worldSelected.airfield.position[1])} m</dd></div>}
+            </dl>
+            <p className="wmap-note">{worldSelected.revealed ? 'Aeródromo descubierto. Puedes comenzar aquí en vuelo libre.' : 'Solo una franja vista a lo lejos. Vuela bajo y cerca para identificarla.'}</p>
+            {worldSelected.revealed && <button className="primary-btn" onClick={() => {
+              selectWorldStart(worldSelected.id, worldSelected.airfield!.regionId); goTo('run');
+            }}>
+              Volar a {worldSelected.airfield!.name}
+            </button>}
+          </aside>
+        )}
 
         {ops.active && isOps && (
           <div className="wmap-active" role="status" data-testid="active-contract">
@@ -200,7 +271,7 @@ export function MapScreen() {
           </div>
         )}
 
-        {opsPlan && (
+        {opsPlan && !isWorldMap && (
           <OpsDestinationPanel
             plan={opsPlan}
             contractId={opsContractId}

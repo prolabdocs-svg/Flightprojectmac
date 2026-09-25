@@ -49,4 +49,13 @@ describe('canUnlockTech', () => {
       }
     }
   });
+
+  it('gates the Zenith CH 701 behind the four-stroke engine and field suspension research', () => {
+    const node = getTechNode('airframe_zenith_ch701')!;
+    expect(node.requires).toEqual(['power_four_stroke', 'ground_suspension']);
+    expect(node.unlocksFrameIds).toContain('frame_zenith_ch701');
+    expect(node.unlocksPartIds).toEqual(['wing_ch701', 'tank_ch701_75']);
+    expect(canUnlockTech(['power_four_stroke'], node.id)).toBe(false);
+    expect(canUnlockTech(['power_four_stroke', 'ground_suspension'], node.id)).toBe(true);
+  });
 });

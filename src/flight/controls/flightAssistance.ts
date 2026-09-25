@@ -4,8 +4,9 @@
 // do in the Simulation mode. This file must never touch the rigid body (enforced by a test).
 //
 //   simulation : pilot command passes through unchanged.
-//   assisted   : input shaping/rate limit, partial auto-coordination, rate dampers, soft bank
-//                limit, turn back-pressure, stall WARNING.
+//   assisted   : WEAK and honest: light auto-coordination, light rate dampers, stall WARNING.
+//                No input filtering, no bank/pitch limits, no automatic back-pressure: the pilot
+//                can over-control, stall, bleed energy and bank past 90 deg.
 //   arcade     : all of the above stronger, plus wings-level, pitch-attitude hold, pitch/bank
 //                limits and stall PROTECTION (AoA limiter).
 
@@ -58,7 +59,7 @@ interface Tuning {
 const D = Math.PI / 180;
 const TUNING: Record<AssistLevel, Tuning> = {
   simulation: { commandRate: Infinity, coordination: 0, damperP: 0, damperQ: 0, damperR: 0, levelGain: 0, bankLimitRad: 0, pitchHold: 0, pitchLimitUpRad: 0, pitchLimitDownRad: 0, turnComp: 0, stallProtect: 0, stallWarnMarginRad: 0 },
-  assisted: { commandRate: 6, coordination: 2.5, damperP: 0.12, damperQ: 0.12, damperR: 0.25, levelGain: 0, bankLimitRad: 80 * D, pitchHold: 0, pitchLimitUpRad: 0, pitchLimitDownRad: 0, turnComp: 0.6, stallProtect: 0, stallWarnMarginRad: 4 * D },
+  assisted: { commandRate: Infinity, coordination: 1.5, damperP: 0.05, damperQ: 0.05, damperR: 0.15, levelGain: 0, bankLimitRad: 0, pitchHold: 0, pitchLimitUpRad: 0, pitchLimitDownRad: 0, turnComp: 0, stallProtect: 0, stallWarnMarginRad: 4 * D },
   arcade: { commandRate: 4, coordination: 4, damperP: 0.2, damperQ: 0.2, damperR: 0.4, levelGain: 1.4, bankLimitRad: 60 * D, pitchHold: 2.2, pitchLimitUpRad: 30 * D, pitchLimitDownRad: 25 * D, turnComp: 1, stallProtect: 1, stallWarnMarginRad: 5 * D },
 };
 
@@ -91,6 +92,7 @@ export class FlightAssistance {
     const t = TUNING[this.level];
     out.throttle = cmd.throttle;
     out.brake = cmd.brake;
+    out.flaps = cmd.flaps ?? false;
     this.stallWarning = false;
     this.protecting = false;
     if (this.level === 'simulation') {

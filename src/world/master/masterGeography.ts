@@ -380,17 +380,13 @@ export const NATURAL_LANDMARKS: ReadonlyArray<{ id: string; name: string; e: num
 ];
 
 /* -------------------------------------------------------------------------------------------
- * CAMPAIGN SITES (Phase 2 reconciliation). Each of the 8 campaign regions (src/content/regions.ts) keeps its own LOCAL frame
- * (mission spawn (0,0), airfields, targets, wind volumes are all region-local metres, +Z north, east = -X). A site places that
- * frame in the continent by a rigid TRANSLATION (no rotation/scale, so wind vectors and headings stay valid) plus a vertical
- * datum: local y = master elevation - datumM. The generator grades the footprint to a single flat platform at datumM.
- *
- * Anchors were found by an offline search (flat, dry, on land, >90% inside the macro region, outside the Field fusion zone);
- * see docs/world/MASTER_GEOGRAPHIC_MAP_V1.md §4 for the full reconciliation, conflicts and rationale.
+ * NAMED AREAS (temporary content adapter). These are authored POI anchors within the continuous
+ * world. Their legacy ids only locate old mission/asset packs; the world itself has one coordinate
+ * system, one terrain surface and one streaming instance.
  * ------------------------------------------------------------------------------------------- */
-export interface CampaignSite {
-  /** Campaign region id from src/content/regions.ts (unchanged). */
-  campaignRegionId: string;
+export interface NamedAreaAnchor {
+  /** Stable named-area id retained for content/save compatibility. */
+  id: string;
   /** Macro-region the site lives in. */
   macro: RegionId;
   /** Geographic anchor (E, N km) of the region-local origin (0,0). */
@@ -401,15 +397,41 @@ export interface CampaignSite {
   pressureAltitudeBaseM: number;
 }
 
-export const CAMPAIGN_SITES: ReadonlyArray<CampaignSite> = [
-  { campaignRegionId: 'scrap_valley', macro: 'R02_central_valley', anchorGeoKm: [2.8, -0.6], footprintLocalM: { x: [-60, 60], z: [-40, 770] }, pressureAltitudeBaseM: 0 },
-  { campaignRegionId: 'red_canyon', macro: 'R04_western_badlands', anchorGeoKm: [-20.3, -2.8], footprintLocalM: { x: [-40, 100], z: [-40, 460] }, pressureAltitudeBaseM: 0 },
-  { campaignRegionId: 'backcountry', macro: 'R03_northern_mountains', anchorGeoKm: [-6.72, 9.24], footprintLocalM: { x: [-80, 45], z: [-40, 390] }, pressureAltitudeBaseM: 0 },
-  { campaignRegionId: 'coast_run', macro: 'R06_south_coast', anchorGeoKm: [4.4, -12.7], footprintLocalM: { x: [-60, 60], z: [-40, 520] }, pressureAltitudeBaseM: 0 },
-  { campaignRegionId: 'industrial_belt', macro: 'R02_central_valley', anchorGeoKm: [1.2, -7.6], footprintLocalM: { x: [-95, 115], z: [-40, 530] }, pressureAltitudeBaseM: 0 },
-  { campaignRegionId: 'high_desert_test_range', macro: 'R04_western_badlands', anchorGeoKm: [-17.7, 6.5], footprintLocalM: { x: [-70, 70], z: [-40, 790] }, pressureAltitudeBaseM: 0 },
-  { campaignRegionId: 'the_range', macro: 'R09_eastern_highlands', anchorGeoKm: [7.3, 8.3], footprintLocalM: { x: [-50, 135], z: [-40, 660] }, pressureAltitudeBaseM: 0 },
+export const NAMED_AREA_ANCHORS: ReadonlyArray<NamedAreaAnchor> = [
+  { id: 'scrap_valley', macro: 'R02_central_valley', anchorGeoKm: [2.8, -0.6], footprintLocalM: { x: [-60, 60], z: [-40, 770] }, pressureAltitudeBaseM: 0 },
+  { id: 'red_canyon', macro: 'R04_western_badlands', anchorGeoKm: [-20.3, -2.8], footprintLocalM: { x: [-40, 100], z: [-40, 460] }, pressureAltitudeBaseM: 0 },
+  { id: 'backcountry', macro: 'R03_northern_mountains', anchorGeoKm: [-6.72, 9.24], footprintLocalM: { x: [-80, 45], z: [-40, 390] }, pressureAltitudeBaseM: 0 },
+  { id: 'coast_run', macro: 'R06_south_coast', anchorGeoKm: [4.4, -12.7], footprintLocalM: { x: [-60, 60], z: [-40, 520] }, pressureAltitudeBaseM: 0 },
+  { id: 'industrial_belt', macro: 'R02_central_valley', anchorGeoKm: [1.2, -7.6], footprintLocalM: { x: [-95, 115], z: [-40, 530] }, pressureAltitudeBaseM: 0 },
+  { id: 'high_desert_test_range', macro: 'R04_western_badlands', anchorGeoKm: [-17.7, 6.5], footprintLocalM: { x: [-70, 70], z: [-40, 790] }, pressureAltitudeBaseM: 0 },
+  { id: 'the_range', macro: 'R09_eastern_highlands', anchorGeoKm: [7.3, 8.3], footprintLocalM: { x: [-50, 135], z: [-40, 660] }, pressureAltitudeBaseM: 0 },
 ];
+
+/** @deprecated Legacy campaign content bridge; ids now identify places in the world. */
+export type CampaignSite = NamedAreaAnchor;
+
+/** Rigid campaign-frame transforms for planners and map code that need geographic positions
+ * without constructing the expensive elevation grid. The master terrain runtime uses the
+ * same translations in CampaignFrame. */
+export function namedAreaToWorld(regionId: string, x: number, z: number): [number, number] {
+  if (regionId === 'the_field') return fieldLocalToMaster(x, z);
+  const site = NAMED_AREA_ANCHORS.find((entry) => entry.id === regionId);
+  if (!site) throw new Error(`unknown campaign region ${regionId}`);
+  return [x - site.anchorGeoKm[0] * 1000, z + site.anchorGeoKm[1] * 1000];
+}
+
+export function worldToNamedArea(regionId: string, x: number, z: number): [number, number] {
+  if (regionId === 'the_field') return masterToFieldLocal(x, z);
+  const site = NAMED_AREA_ANCHORS.find((entry) => entry.id === regionId);
+  if (!site) throw new Error(`unknown campaign region ${regionId}`);
+  return [x + site.anchorGeoKm[0] * 1000, z - site.anchorGeoKm[1] * 1000];
+}
 
 /** Grading margin (m) added around a footprint and the width of the blend back into natural terrain. */
 export const SITE_GRADING = { marginM: 60, blendM: 450 } as const;
+
+/** @deprecated Compatibility alias; use namedAreaToWorld. */
+export const campaignLocalToMaster = namedAreaToWorld;
+/** @deprecated Compatibility alias; use worldToNamedArea. */
+export const masterToCampaignLocal = worldToNamedArea;
+export const CAMPAIGN_SITES = NAMED_AREA_ANCHORS;

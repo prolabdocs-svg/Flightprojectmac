@@ -16,6 +16,8 @@ export interface SurfaceDeflections {
   aileronLeft: number;
   aileronRight: number;
   rudder: number;
+  /** XL plain flaps, positive = trailing edge down; absent for other airframes. */
+  flaps?: number;
 }
 
 /** Slipstream state handed to the aero elements. */
@@ -45,6 +47,7 @@ function deflectionFor(kind: string | undefined, outboard: number, s: SurfaceDef
     case 'elevator': return s.elevator;
     case 'rudder': return s.rudder;
     case 'aileron': return outboard > 0 ? s.aileronLeft : s.aileronRight;
+    case 'flap': return s.flaps ?? 0;
     default: return 0;
   }
 }

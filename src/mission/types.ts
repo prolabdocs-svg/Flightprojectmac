@@ -8,7 +8,9 @@ import type { MissionAirfieldLinks } from '../content/missions';
 import type { AircraftCondition, ComponentId } from './aircraftCondition';
 import type { RepairOrder } from './maintenance';
 
-export type ArchetypeId = 'cargo' | 'passenger' | 'urgent' | 'ferry' | 'exploration';
+export type ArchetypeId =
+  | 'cargo' | 'passenger' | 'urgent' | 'ferry' | 'exploration'
+  | 'navigation' | 'precisionLanding' | 'weather' | 'rescue' | 'heavyLift';
 
 /** Contractual lifecycle. The operational phases below only exist while a contract is ACTIVE. */
 export type ContractState =
@@ -189,6 +191,8 @@ export interface OperationsState {
   knownAirfieldIds: string[];
   /** Airfields the player has landed at at least once. */
   visitedAirfieldIds: string[];
+  /** Fog of Discovery: flown territory, sighted airfields, landmarks, identified regions (world/exploration.ts). */
+  exploration: import('../world/exploration').ExplorationState;
   active: ActiveContract | null;
   /** Contracts already paid out: the idempotency ledger against double settlement. */
   settledContractIds: string[];

@@ -18,7 +18,7 @@ import { applyEvent, createSession } from './stateMachine';
 import { observe } from './telemetryEvents';
 import type { ActiveContract, AppliedSettlement, Contract, Loadout, LogKind, MissionEvent, OperationsState, TransitionError } from './types';
 import { applyFlightDamage } from './damageIntegration';
-import { applyNormalWear, estimateRepair, isRepairReady, type RepairOrder } from './maintenance';
+import { applyNormalWear, basicRepair, estimateRepair, isRepairReady, type RepairOrder } from './maintenance';
 import { evaluateAirworthiness, damageAccumulated, type Airworthiness, type ComponentId } from './aircraftCondition';
 
 const DEBT_CAP_CASH = 500;
@@ -65,7 +65,7 @@ export function getDestinationStatuses(profile: PlayerProfile): DestinationStatu
   };
   probe.weather = { windMs: getRegion(home.regionId).windBaseMs, gustMs: getRegion(home.regionId).environment.gustStrengthMs };
   return ops.knownAirfieldIds
-    .filter((id) => id !== ops.locationId && getAirfield(id)?.regionId === home.regionId)
+    .filter((id) => id !== ops.locationId)
     .map((id) => ({ airfieldId: id, visited: ops.visitedAirfieldIds.includes(id), assessment: assessContract(profile.currentBuild, routeContext(ops.locationId, id), probe, ops.fuelL, profile.homeBase) }));
 }
 
@@ -139,6 +139,18 @@ export function advanceMission(profile: PlayerProfile, telemetry: FlightTelemetr
 export function abandonMission(profile: PlayerProfile, telemetry?: FlightTelemetry): OpResult<{ settlement: Settlement | null }> {
   const active = profile.operations.active;
   if (!active) return fail('NO_ACTIVE_CONTRACT');
+  const st = active.session.state;
+  if (st === 'OBJECTIVE_MET' || st === 'COMPLETED' || st === 'FAILED' || st === 'ABORTED' || st === 'RECOVERED') {
+    // Already over (e.g. crashed, then left without recovering): settle if still owed, then free the slot.
+    let p = profile;
+    let settlement: Settlement | null = null;
+    if (!p.operations.settledContractIds.includes(active.contract.id)) {
+      const s = settleActive(p, telemetry ?? null);
+      if (s.ok) { p = s.profile; settlement = s.settlement; }
+    }
+    const rec = recoverAircraft(p);
+    return { ok: true, profile: rec.ok ? rec.profile : withOps(p, { active: null }), settlement };
+  }
   const r = applyEvent(active.session, { type: 'ABANDON' });
   if (!r.ok) return fail(errText(r.error));
   const aborted: ActiveContract = { ...active, session: r.session };
@@ -234,7 +246,9 @@ export function applySettlement(profile: PlayerProfile, s: Settlement, final: { 
       settledContractIds: [...ops.settledContractIds, s.contractId],
       contractSeed: ops.contractSeed + 1,
       condition: conditionAfter,
-      aircraftCondition,
+      // Parked at the destination = the ground crew's free basic repair; still out there (awaiting
+      // recovery) = recoverAircraft applies it.
+      aircraftCondition: nextActive ? aircraftCondition : basicRepair(aircraftCondition),
       active: nextActive,
       log: log2,
       lastSettlement: applied,
@@ -275,7 +289,7 @@ export function recoverAircraft(profile: PlayerProfile): OpResult<{ locationId: 
   const r = applyEvent(active.session, { type: 'RECOVER' });
   if (!r.ok) return fail(errText(r.error));
   const locationId = active.session.divertedTo ?? active.contract.originId;
-  return { ok: true, profile: withOps(profile, { active: null, locationId }), locationId };
+  return { ok: true, profile: withOps(profile, { active: null, locationId, aircraftCondition: basicRepair(profile.operations.aircraftCondition) }), locationId };
 }
 
 /** Local balance telemetry (spec 52). */
@@ -308,7 +322,11 @@ export function operationsRegionId(profile: PlayerProfile): string {
 export function reconcileAfterLoad(profile: PlayerProfile): PlayerProfile {
   let p = profile;
   let active = p.operations.active;
-  if (!active) return p;
+  // Saves from before the free basic repair may be parked GROUNDED: patch them on load.
+  if (!active) {
+    const patched = basicRepair(p.operations.aircraftCondition);
+    return patched === p.operations.aircraftCondition ? p : withOps(p, { aircraftCondition: patched });
+  }
   if (active.session.state === 'ACTIVE') {
     const r = applyEvent(active.session, { type: 'ABANDON' });
     if (!r.ok) return p;

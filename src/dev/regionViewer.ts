@@ -65,6 +65,9 @@ world?.update(camera.position);
 atmosphere.update(camera.position);
 clouds.update(0, new THREE.Vector3(), camera.position);
 const post = new PostProcessing(renderer, scene, camera);
+// Count every pass of the frame (autoReset would leave only the final post-processing quad).
+renderer.info.autoReset = false;
+renderer.info.reset();
 post.render();
 stats.lodChunks = world?.lodCount ?? 0;
 
@@ -85,7 +88,9 @@ let frames = 0;
 const tick = () => {
   if (frames++ > 600) return;
   world?.update(camera.position);
+  renderer.info.reset();
   post.render();
+  document.getElementById('hud')!.textContent = document.getElementById('hud')!.textContent!.replace(/tris \d+ · calls \d+/, `tris ${renderer.info.render.triangles} · calls ${renderer.info.render.calls}`);
   (window as unknown as Record<string, unknown>).__regionViewer = { ...info, render: { ...renderer.info.render } };
   requestAnimationFrame(tick);
 };

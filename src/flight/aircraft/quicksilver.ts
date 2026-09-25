@@ -15,6 +15,8 @@ import type { AeroElementSpec } from '../aero/aeroElement';
 import type { AircraftDefinition, MassItem, Provenance } from './aircraftDefinition';
 
 export const QUICKSILVER_REFERENCE_ID = 'quicksilver_class_reference';
+export const QUICKSILVER_MXII_SPRINT_ID = 'frame_zero';
+export const ZENITH_CH701_ID = 'frame_zenith_ch701';
 
 /** Catalogue -> physics mapping knobs (CALIBRATED against the gameplay targets in Phase 9). */
 export const CATALOGUE_CALIBRATION = {
@@ -29,13 +31,21 @@ export const HTAIL_INCIDENCE_DEG = -3.5;
 /** Tailplane aspect ratio as seen by the flow (open tube frame: worse than the geometric span^2/area). */
 const TAIL_EFFECTIVE_AR = 3.5;
 const WING_SECTIONS = 4;
-/** Gasoline, kg per litre. Shared with the mission fuel model (src/mission/fuel.ts). */
-export const FUEL_DENSITY_KG_L = 0.72;
+import { FUEL_DENSITY_KG_L } from './fuelDensity';
+import { buildNightjarDefinition, NIGHTJAR_ID } from './nightjar';
+export { FUEL_DENSITY_KG_L };
 const PILOT_MASS_KG = 70;
 const PILOT_Z = -0.55; // PLACEHOLDER seat station
 const GEAR_RATIO = 2.3;
 
+/** Airframes described by their own AirframeSpec; every other frame goes through the catalogue builder. */
+const SPEC_BUILDERS: Record<string, (build: AircraftBuild) => AircraftDefinition> = {
+  [NIGHTJAR_ID]: buildNightjarDefinition,
+};
+
 export function buildAircraftDefinition(build: AircraftBuild, cal = CATALOGUE_CALIBRATION): AircraftDefinition {
+  const spec = SPEC_BUILDERS[build.frameId];
+  if (spec) return spec(build);
   const resolved = resolveAircraft(build);
   const wing = resolved.aeroSurfaces.find((s) => s.id === 'wing_root_main');
   if (!wing) throw new Error(`build ${build.frameId} has no main wing`);
@@ -100,7 +110,7 @@ export function buildAircraftDefinition(build: AircraftBuild, cal = CATALOGUE_CA
         downwashFactor: 0,
         propwashImmersion: i === 0 ? 0.55 : 0,
         control: overlap > 0.01 ? { kind: 'aileron', chordFraction: Math.min(0.4, aileron.chordM / meanChord), spanFraction: overlap } : undefined,
-        damageId: overlap > 0.01 ? (side > 0 ? 'aileron_l' : 'aileron_r') : 'wing_root_main',
+        damageId: overlap > 0.01 ? (side > 0 ? 'aileron_l' : 'aileron_r') : (side > 0 ? 'wing_l' : 'wing_r'),
       });
     }
   }
@@ -147,10 +157,11 @@ export function buildAircraftDefinition(build: AircraftBuild, cal = CATALOGUE_CA
 
   // ---- propulsion ----
   const eng = resolved.engine;
-  const powerKw = eng ? eng.maxPowerKw * cal.enginePowerScale : 0;
+  const powerKw = eng ? eng.shaftPowerKw ?? eng.maxPowerKw * cal.enginePowerScale : 0;
   const ratedRpm = eng ? Math.min(eng.redlineRpm * 0.94, eng.redlineRpm - 200) : 0;
   const propDia = eng?.propDiameterM ?? 1.27;
-  const propRps = ratedRpm / GEAR_RATIO / 60;
+  const gearRatio = eng?.gearRatio ?? GEAR_RATIO;
+  const propRps = ratedRpm / gearRatio / 60;
   const rho0 = 1.225;
   const designJ = 0.43;
   const j0 = 0.65;
@@ -159,7 +170,7 @@ export function buildAircraftDefinition(build: AircraftBuild, cal = CATALOGUE_CA
   const cp0 = eng ? (powerKw * 1000) / (cpShape(xd) * rho0 * propRps ** 3 * propDia ** 5) : 0;
   const ct0 = eng ? (cp0 * eng.propEfficiency * cpShape(xd)) / (designJ * ctShape(xd)) : 0;
   // Idle throttle that balances prop + friction load at idle rpm (throttle 0 must idle, not stall or race).
-  const idleRps = (eng?.idleRpm ?? 0) / GEAR_RATIO / 60;
+  const idleRps = (eng?.idleRpm ?? 0) / gearRatio / 60;
   const idleX = eng ? eng.idleRpm / ratedRpm : 0;
   const frictionFraction = 0.08;
   const idlePowerNeed = eng ? cp0 * rho0 * idleRps ** 3 * propDia ** 5 + frictionFraction * powerKw * 1000 * (0.4 + 0.6 * idleX) * idleX : 0;
@@ -201,9 +212,9 @@ export function buildAircraftDefinition(build: AircraftBuild, cal = CATALOGUE_CA
   if (build.installed.fuelTank === undefined) provenance['mass.fuelCapacityL'] = 'PLACEHOLDER';
   provenance['mass.pilot'] = 'PLACEHOLDER';
 
-  return {
+  const definition: AircraftDefinition = {
     id: QUICKSILVER_REFERENCE_ID,
-    name: 'Quicksilver-class reference (starter ultralight)',
+    name: 'Aerofox Kestrel 2 · referencia',
     mass: {
       items,
       fuelPosition: tankPos,
@@ -239,14 +250,17 @@ export function buildAircraftDefinition(build: AircraftBuild, cal = CATALOGUE_CA
           idleRpm: eng.idleRpm,
           redlineRpm: eng.redlineRpm,
           inertiaKgM2: Math.max(0.01, (2 * eng.responseTime * ratedTorque) / ratedOmega),
-          gearRatio: GEAR_RATIO,
+          gearRatio,
           idleThrottle,
-          starterTorqueNm: 12,
+          // Four-strokes crank against compression with a bigger starter; torque scales with rated torque.
+          starterTorqueNm: Math.max(12, ratedTorque * 0.25),
           frictionFraction,
-          altitudeLapse: 1,
+          altitudeLapse: eng.altitudeLapse ?? 1,
           position: [0, 0, 2.54],
           thrustLineDeg: 0,
           fuelBurnLph: (eng.fuelBurnLpm ?? eng.maxPowerKw * 0.44) * 60,
+          jet: eng.jet,
+          thermal: eng.thermal ?? { heatAtFull: 0.8, airflowRelief: 0.2, timeConstantS: 40 },
         }
       : null,
     propeller: eng
@@ -254,9 +268,10 @@ export function buildAircraftDefinition(build: AircraftBuild, cal = CATALOGUE_CA
       : null,
     gear: {
       wheels: [
-        { id: 'nose', position: [0, -1.13, 1.9], radiusM: 0.18, steerable: true, braked: false },
-        { id: 'mainL', position: [1.15, -1.08, -0.32], radiusM: 0.2, steerable: false, braked: true },
-        { id: 'mainR', position: [-1.15, -1.08, -0.32], radiusM: 0.2, steerable: false, braked: true },
+        // Contact points = bottoms of the drawn tyres (src/render/aircraftRig.ts A0_PLACEMENT, tools/a0/hardware.mjs).
+        { id: 'nose', position: [0, -1.06, 1.65], radiusM: 0.18, steerable: true, braked: false },
+        { id: 'mainL', position: [0.81, -1.08, -0.32], radiusM: 0.2, steerable: false, braked: true },
+        { id: 'mainR', position: [-0.81, -1.08, -0.32], radiusM: 0.2, steerable: false, braked: true },
       ],
       travelM: 0.22,
       staticCompressionM: 0.07,
@@ -277,4 +292,52 @@ export function buildAircraftDefinition(build: AircraftBuild, cal = CATALOGUE_CA
     ],
     provenance,
   };
+  if (build.frameId === ZENITH_CH701_ID) {
+    // CH 701 uses the same distributed lift solver, with its tractor engine and actual
+    // high-wing / tail / tricycle stations. The slats and tundra gear are authored in the GLB.
+    definition.id = ZENITH_CH701_ID;
+    definition.name = 'Zenith STOL CH 701 · Rotax 912';
+    definition.mass.items = definition.mass.items.map((item) => item.id === 'pilot'
+      ? { ...item, position: [0, 0.92, 0.15], size: [0.5, 0.9, 0.6] }
+      : item);
+    definition.mass.fuelPosition = [0, 0.55, -0.25];
+    definition.mass.fuelSize = [0.55, 0.38, 0.65];
+    definition.geometry.wingAcPosition = [0, 2.05, 0];
+    definition.aero.bluffBodies = [
+      { id: 'angular_cabin', position: [0, 0.96, -0.05], cdA: [0.55, 0.4, 0.32] },
+      { id: 'engine_cowling', position: [0, 1.03, 2.18], cdA: [0.25, 0.28, 0.38] },
+      { id: 'landing_gear', position: [0, -0.35, 0.5], cdA: [0.18, 0.08, 0.1] },
+    ];
+    if (definition.engine) definition.engine.position = [0, 1.03, 2.20];
+    definition.gear.wheels = [
+      { id: 'nose', position: [0, -0.59, 2.12], radiusM: 0.25, steerable: true, braked: false },
+      { id: 'mainL', position: [0.96, -0.58, -0.12], radiusM: 0.35, steerable: false, braked: true },
+      { id: 'mainR', position: [-0.96, -0.58, -0.12], radiusM: 0.35, steerable: false, braked: true },
+    ];
+    definition.gear.travelM = 0.2;
+    definition.gear.staticCompressionM = 0.055;
+    definition.gear.tyreMu = 0.82;
+    definition.gear.rollingResistance = 0.035;
+    definition.gear.toleranceMs = 4.5;
+    definition.hardPoints = [
+      { id: 'wingtipL', position: [4.12, 2.14, 0] }, { id: 'wingtipR', position: [-4.12, 2.14, 0] },
+      { id: 'nose', position: [0, 1.0, 2.75] }, { id: 'tail', position: [0, 0.8, -3.3] },
+      { id: 'canopy', position: [0, 1.72, 0.7] }, { id: 'bellyFront', position: [0, 0.3, 1.0] }, { id: 'bellyRear', position: [0, 0.3, -1.5] },
+    ];
+    definition.provenance['engine.position'] = 'DOCUMENTED';
+    definition.provenance['gear.wheels[]'] = 'ESTIMATED';
+    definition.provenance['gear.travelM'] = 'ESTIMATED';
+    definition.provenance['gear.staticCompressionM'] = 'ESTIMATED';
+    definition.provenance['gear.tyreMu'] = 'ESTIMATED';
+    definition.provenance['gear.rollingResistance'] = 'ESTIMATED';
+    definition.provenance['gear.toleranceMs'] = 'ESTIMATED';
+  }
+  if (build.frameId === QUICKSILVER_MXII_SPRINT_ID) {
+    // The starter (Aerofox Kestrel 2) asset and planform are specific to this frame. Its initial salvaged
+    // engine, fuel tank, mass stations and control tune stay on the calibrated game setup;
+    // the factory 582 / six-gallon package is represented by real installable parts.
+    definition.id = QUICKSILVER_MXII_SPRINT_ID;
+    definition.name = 'Aerofox Kestrel 2 · motor de campo';
+  }
+  return definition;
 }

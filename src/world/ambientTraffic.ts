@@ -103,11 +103,13 @@ export function planRoadTraffic(roads: ReadonlyArray<RoadPath>, seed: string): R
 
 /** Authored rail lines (world x/z control points), reusing the road drape/spline. The Field's
  * runs across the flat south plain: river-side industrial halt -> level crossing with
- * ROAD_INDUSTRIAL -> south of the strips -> remote farm halt. */
+ * ROAD_INDUSTRIAL -> south of the strips -> remote farm halt -> east edge. */
 export const RAIL_LINES: Record<string, RoadDef> = {
   the_field: {
     id: 'RAIL_SOUTH', surface: 'gravel', widthM: 4.4, priority: 6,
-    points: [[1150, -660], [950, -640], [700, -605], [450, -580], [200, -570], [-50, -585], [-300, -625], [-600, -700], [-900, -790], [-1100, -830], [-1260, -840]],
+    points: [[1150, -660], [950, -640], [700, -605], [450, -580], [200, -570], [-50, -585], [-300, -625], [-600, -700], [-900, -790], [-1100, -830], [-1260, -840],
+      // V2: the line continues east over the uplands and off the map, so the train comes from somewhere.
+      [-1800, -900], [-2500, -950], [-3400, -980], [-4400, -950], [-5400, -900], [-6450, -880]],
   },
 };
 

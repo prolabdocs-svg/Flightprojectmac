@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { FloatingOrigin } from '../floatingOrigin';
 import { createWaterMaterial } from '../../render/waterMaterial';
+import { applySurfaceDetail } from '../../render/surfaceDetail';
 import {
   FLOATING_ORIGIN_CONFIG, TILE_VERTS, tileHeightGrid, tileMinX, tileMinZ, tileSpacingM,
   type HeightFn, type MasterStreamer, type StreamPlan, type StreamView, type TilePlanEntry,
@@ -24,8 +25,11 @@ export interface RenderStreamMetrics {
 
 const stitchKey = (s: TilePlanEntry['stitch']): number => (s.n ? 1 : 0) | (s.s ? 2 : 0) | (s.e ? 4 : 0) | (s.w ? 8 : 0);
 
+/** Ground colour at a (same frame as the height fn) x/z, given elevation and slope; writes into `out`. */
+export type GroundColorFn = (x: number, z: number, elevationM: number, slopeDeg: number, out: THREE.Color) => void;
+
 /** Builds a tile's local-space (0..size on x/z) BufferGeometry from the shared height authority. */
-function buildTileGeometry(heightFn: HeightFn, entry: TilePlanEntry): THREE.BufferGeometry {
+function buildTileGeometry(heightFn: HeightFn, entry: TilePlanEntry, colorFn: GroundColorFn | null): THREE.BufferGeometry {
   const grid = tileHeightGrid(heightFn, entry.key, entry.stitch);
   const n = TILE_VERTS, sp = tileSpacingM(entry.key.level);
   const positions = new Float32Array(n * n * 3);
@@ -48,6 +52,17 @@ function buildTileGeometry(heightFn: HeightFn, entry: TilePlanEntry): THREE.Buff
   geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geo.setIndex(index);
   geo.computeVertexNormals();
+  if (colorFn) {
+    // Baked per-vertex ground colour (biome, slope, altitude): the tile reads as designed terrain, not one flat tint per LOD.
+    const nrm = geo.getAttribute('normal'), colors = new Float32Array(n * n * 3), c = new THREE.Color();
+    const x0 = tileMinX(entry.key), z0 = tileMinZ(entry.key);
+    for (let v = 0; v < n * n; v++) {
+      const slopeDeg = Math.acos(Math.min(1, Math.max(-1, nrm.getY(v)))) * 180 / Math.PI;
+      colorFn(x0 + positions[v * 3], z0 + positions[v * 3 + 2], positions[v * 3 + 1], slopeDeg, c);
+      colors[v * 3] = c.r; colors[v * 3 + 1] = c.g; colors[v * 3 + 2] = c.b;
+    }
+    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  }
   return geo;
 }
 
@@ -82,8 +97,10 @@ function buildTileWater(waterFn: WaterSurfaceFn, entry: TilePlanEntry): THREE.Bu
   return geo;
 }
 
-/** One flat-shaded material per LOD level; cheap and keeps this phase out of sub-tile art (Phase 3 debt). */
-function materialForLevel(level: number): THREE.Material {
+/** One material per LOD level. With a ground colour fn the colour lives in the vertices and the material is faceted
+ * (flatShading) with the shared surface detail, matching the authored field ground; without one, the old flat tint. */
+function materialForLevel(level: number, coloured: boolean): THREE.Material {
+  if (coloured) return applySurfaceDetail(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0, flatShading: true }), { macro: 0.55, soil: 0.2 });
   const shade = 0.42 + level * 0.06;
   const color = new THREE.Color(shade * 0.55, shade * 0.62, shade * 0.42);
   return new THREE.MeshStandardMaterial({ color, roughness: 0.95, metalness: 0, vertexColors: false });
@@ -104,9 +121,11 @@ export class MasterRenderStreamer {
 
   private readonly waterFn: WaterSurfaceFn | null;
   private waterMaterial: THREE.Material | null = null;
+  private readonly colorFn: GroundColorFn | null;
 
-  constructor(scene: THREE.Object3D, streamer: MasterStreamer, heightFn: HeightFn, origin?: FloatingOrigin, maxBuildsPerUpdate = 8, waterFn: WaterSurfaceFn | null = null) {
+  constructor(scene: THREE.Object3D, streamer: MasterStreamer, heightFn: HeightFn, origin?: FloatingOrigin, maxBuildsPerUpdate = 8, waterFn: WaterSurfaceFn | null = null, colorFn: GroundColorFn | null = null) {
     this.waterFn = waterFn;
+    this.colorFn = colorFn;
     this.scene = scene;
     this.streamer = streamer;
     this.heightFn = heightFn;
@@ -116,7 +135,7 @@ export class MasterRenderStreamer {
 
   private materialFor(level: number): THREE.Material {
     let m = this.materials.get(level);
-    if (!m) { m = materialForLevel(level); this.materials.set(level, m); }
+    if (!m) { m = materialForLevel(level, this.colorFn !== null); this.materials.set(level, m); }
     return m;
   }
 
@@ -174,8 +193,8 @@ export class MasterRenderStreamer {
 
   private buildOrRebuildTile(entry: TilePlanEntry): void {
     const existing = this.meshes.get(entry.id);
-    if (existing) { existing.geometry.dispose(); existing.geometry = buildTileGeometry(this.heightFn, entry); existing.userData.stitchKey = stitchKey(entry.stitch); return; }
-    const geo = buildTileGeometry(this.heightFn, entry);
+    if (existing) { existing.geometry.dispose(); existing.geometry = buildTileGeometry(this.heightFn, entry, this.colorFn); existing.userData.stitchKey = stitchKey(entry.stitch); return; }
+    const geo = buildTileGeometry(this.heightFn, entry, this.colorFn);
     const mesh = new THREE.Mesh(geo, this.materialFor(entry.key.level));
     this.attachWater(mesh, entry);
     mesh.userData.stitchKey = stitchKey(entry.stitch);

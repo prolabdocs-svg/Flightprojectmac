@@ -39,6 +39,8 @@ const ROLE_REPAIR_FLOOR_CASH: Record<PartRole, number> = {
   wing: 80,
   tail: 40,
   gear: 60,
+  powertrain: 120,
+  airframe: 100,
 };
 
 const ROLE_TO_CATEGORY: Partial<Record<PartRole, PartCategory>> = {

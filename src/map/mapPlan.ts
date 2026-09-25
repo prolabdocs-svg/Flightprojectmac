@@ -1,11 +1,12 @@
 import type { MissionDefinition } from '../core/types';
 import { MISSIONS } from '../content/missions';
 import { getRegion } from '../content/regions';
-import { getFreeFlightAirfield, getRegionAirfields, type AirfieldDefinition } from '../world/airfields';
+import { AIRFIELDS, getFreeFlightAirfield, getRegionAirfields, type AirfieldDefinition } from '../world/airfields';
 import { RouteGraph } from '../world/routePlanner';
 import { createTerrainQueryService, type TerrainQueryService } from '../world/terrainQuery';
 import { distanceM } from './mapProjection';
 import { getRegionMap, type MapPoi } from './mapGeography';
+import { getMasterTerrain } from '../world/master/masterRuntime';
 
 /** Flight-planning logic behind the map: origin, targets, range, route profile, contracts.
  * Pure (no DOM/canvas) so it is unit-tested without a browser. */
@@ -71,6 +72,51 @@ export function getMapTargets(regionId: string): MapTarget[] {
   }));
   const pois = getRegionMap(regionId).pois.map((p): MapTarget => ({ id: p.id, kind: 'poi', name: p.name, x: p.x, z: p.z, poi: p, revealed: true }));
   return [...airfields, ...pois];
+}
+
+/** Airfields translated onto the continuous master-world chart. The returned field keeps
+ * its campaign-region id for the action that opens its local mission chart. */
+export function getMasterMapTargets(): MapTarget[] {
+  const definitions = new Map(AIRFIELDS.map((field) => [field.id, field]));
+  return getMasterTerrain().airfields().flatMap((field): MapTarget[] => {
+    const definition = definitions.get(field.id);
+    if (!definition) return [];
+    const worldDefinition: AirfieldDefinition = {
+      ...definition,
+      position: [field.worldPosition[0], field.elevationM, field.worldPosition[1]],
+    };
+    return [{
+      id: field.id, kind: 'airfield', name: definition.name,
+      x: field.worldPosition[0], z: field.worldPosition[1], airfield: worldDefinition,
+      // Global chart knowledge is provided by Fog of Discovery in MapScreen. Contracts no longer
+      // leak unvisited locations onto the world map.
+      revealed: definition.discoveryState === 'known',
+    }];
+  });
+}
+
+/** Minimum-hop connected air-route overlay over the master chart. Prim's algorithm adds
+ * one real airfield-to-airfield leg at a time until every authored field is connected. */
+export function getMasterAirRoutes(): Array<{ fromId: string; toId: string; distanceM: number; difficulty: number }> {
+  const fields = getMasterMapTargets().filter((target) => target.airfield);
+  if (fields.length < 2) return [];
+  const connected = new Set([fields[0].id]);
+  const routes: ReturnType<typeof getMasterAirRoutes> = [];
+  while (connected.size < fields.length) {
+    let best: { fromId: string; toId: string; distanceM: number } | null = null;
+    for (const fromId of connected) {
+      const from = fields.find((field) => field.id === fromId)!;
+      for (const to of fields) {
+        if (connected.has(to.id)) continue;
+        const distance = distanceM(from.x, from.z, to.x, to.z);
+        if (!best || distance < best.distanceM) best = { fromId, toId: to.id, distanceM: distance };
+      }
+    }
+    if (!best) break;
+    connected.add(best.toId);
+    routes.push({ ...best, difficulty: best.distanceM / 1000 });
+  }
+  return routes;
 }
 
 /** Where the player currently is: the region's free-flight airfield (the home strip). */

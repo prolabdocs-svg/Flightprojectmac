@@ -30,8 +30,31 @@ const warpZN = noise('warpZ');
 
 export const HOME_DATUM_M = 6;
 export const SEA_LEVEL_M = -24;
-/** Lake: bed dips `floorDepthM` below the surface at the centre, edge meets the surface. */
-export const FIELD_LAKE = { x: 2500, z: 1900, radiusM: 720, floorDepthM: 34, waterLevelM: -12 } as const;
+/** Lake: bed dips `floorDepthM` below the surface at the centre, edge meets the surface.
+ * `radiusM` is the nominal radius; the real shoreline is `lakeShoreRadius(angle)` (a lobed,
+ * bayed outline) and never exceeds `maxRadiusM`. */
+export const FIELD_LAKE = { x: 2500, z: 1900, radiusM: 720, maxRadiusM: 1080, floorDepthM: 34, waterLevelM: -12 } as const;
+/** Wooded island off the north shore (crest ~10 m above the water, shore radius ~115 m). */
+export const FIELD_LAKE_ISLAND = { x: 2330, z: 2230, radiusM: 115 } as const;
+
+const angDiff = (a: number, b: number): number => Math.atan2(Math.sin(a - b), Math.cos(a - b));
+/** Shoreline radius at polar angle `a` = atan2(dz, dx) from the lake centre. Low harmonics give
+ * an organic outline; two authored features make it a place: a long north-east arm where the
+ * river comes in, and a blunt peninsula on the west shore. The lake road and dock follow the
+ * outline through `lakeShore` (fieldComposition.ts). */
+export function lakeShoreRadius(a: number): number {
+  const R = FIELD_LAKE.radiusM;
+  let k = 1 + 0.1 * Math.sin(2 * a + 0.9) + 0.07 * Math.sin(3 * a + 2.3) + 0.04 * Math.sin(5 * a + 0.2) + 0.025 * Math.sin(8 * a + 1.7);
+  k += 0.42 * Math.exp(-((angDiff(a, 0.86) / 0.2) ** 2)); // river arm (inflow, north-west of world = +x,+z)
+  k += 0.16 * Math.exp(-((angDiff(a, 2.35) / 0.3) ** 2)); // reed bay, north-east
+  k -= 0.2 * Math.exp(-((angDiff(a, -0.35) / 0.16) ** 2)); // west peninsula
+  return Math.min(FIELD_LAKE.maxRadiusM, R * k);
+}
+/** Signed distance-ish to the lake shore (negative inside the water outline). */
+export function lakeEdgeDistance(x: number, z: number): number {
+  const dx = x - FIELD_LAKE.x, dz = z - FIELD_LAKE.z;
+  return Math.hypot(dx, dz) - lakeShoreRadius(Math.atan2(dz, dx));
+}
 /** Half-extent of the terrain mesh; the edge sinks into the sea from EDGE_START_M outward. */
 export const EDGE_START_M = 6600;
 export const EDGE_END_M = 7900;
@@ -176,10 +199,14 @@ export function fieldElevation(x: number, z: number): number {
   // The map edge sinks into the sea (a coast, never a cut).
   h = lerp(h, SEA_LEVEL_M - 20, smoothstep(EDGE_START_M, EDGE_END_M, Math.max(Math.abs(x), Math.abs(z))));
   const d = Math.hypot(x - FIELD_LAKE.x, z - FIELD_LAKE.z);
-  const r = FIELD_LAKE.radiusM;
+  // Beyond 3x the widest shore every blend below is saturated, so the outline doesn't matter there.
+  if (d >= 3 * FIELD_LAKE.maxRadiusM) return h;
+  const r = lakeShoreRadius(Math.atan2(z - FIELD_LAKE.z, x - FIELD_LAKE.x));
   if (d < r) {
     const k = d / r;
-    return FIELD_LAKE.waterLevelM - FIELD_LAKE.floorDepthM * (1 - k * k);
+    const bed = FIELD_LAKE.waterLevelM - FIELD_LAKE.floorDepthM * (1 - k * k) * (0.55 + 0.45 * Math.min(1, r / FIELD_LAKE.radiusM));
+    const di = Math.hypot(x - FIELD_LAKE_ISLAND.x, z - FIELD_LAKE_ISLAND.z);
+    return Math.max(bed, FIELD_LAKE.waterLevelM - 40 + 48 * Math.exp(-((di / 150) ** 2)) + fbm(localN, x, z, 60, 1) * 1.2);
   }
   // Basin walls: never below the lake surface at the rim, eased into the surroundings.
   const wall = lerp(h, Math.max(h, FIELD_LAKE.waterLevelM + 3), 1 - smoothstep(r * 1.5, r * 3, d));

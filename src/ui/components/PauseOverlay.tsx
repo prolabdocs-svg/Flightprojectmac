@@ -1,6 +1,9 @@
 import { useGameStore } from '../../state/gameStore';
 import { useProfileStore } from '../../state/profileStore';
+import { useState } from 'react';
 import { UiIcon } from './UiIcon';
+import { ControlsReference } from './ControlsReference';
+import '../screens/Screens.css';
 import './PauseOverlay.css';
 
 // Spec 82.13 Pause: resume / restart / exit mission.
@@ -10,16 +13,21 @@ export function PauseOverlay() {
   const selectMission = useGameStore((s) => s.selectMission);
   const selectedMissionId = useGameStore((s) => s.selectedMissionId);
   const contractActive = useProfileStore((s) => s.profile.operations.active?.contract.id === selectedMissionId);
+  // Contracts can only relaunch from PREPARED (before engine start); after that, abandoning is the only exit.
+  const canRestart = useProfileStore((s) => !contractActive || s.profile.operations.active?.session.state === 'PREPARED');
+
+  const [showControls, setShowControls] = useState(false);
 
   return (
     <div className="pause-overlay">
-      <div className="pause-panel">
-        <span className="kicker">EN PAUSA</span>
+      <div className={`pause-panel paper${showControls ? ' is-wide' : ''}`} role="dialog" aria-modal="true" aria-label="Pausa">
+        <span className="kicker">Vuelo en pausa</span>
         <h2>Pausa</h2>
+        {showControls && <ControlsReference />}
         <button className="primary-btn" onClick={() => setPaused(false)}>
           <UiIcon name="flight" size={18} />Reanudar
         </button>
-        {!contractActive && (
+        {canRestart && (
           <button
             className="secondary-btn"
             onClick={() => {
@@ -30,6 +38,9 @@ export function PauseOverlay() {
             <UiIcon name="retry" size={18} />Reiniciar vuelo
           </button>
         )}
+        <button className="secondary-btn" aria-expanded={showControls} onClick={() => setShowControls((v) => !v)}>
+          <UiIcon name="settings" size={18} />{showControls ? 'Ocultar controles' : 'Controles'}
+        </button>
         <button
           className="secondary-btn"
           onClick={() => {

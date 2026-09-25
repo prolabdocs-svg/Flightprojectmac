@@ -1,6 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 import { getRegionMap, type MapPoi, type RegionMap } from '../../map/mapGeography';
 import { formatDistance, type MapTarget, type RangeStatus } from '../../map/mapPlan';
+import { FOG_CELL_M, FOG_N, isCellRevealed, isRevealed } from '../../world/exploration';
 import { homeView, type MapRange, clampView, fitRect, panBy, pointsVisible, scaleLimits, worldToScreen, zoomAt, type Insets, type MapSize, type MapView } from '../../map/mapProjection';
 
 /** Canvas renderer + pointer/touch/wheel interaction for the world map. It only DRAWS map data
@@ -21,11 +22,15 @@ interface Props {
   statusOf: (t: MapTarget) => RangeStatus | null;
   selectedId: string | null;
   contractTarget: { x: number; z: number; radiusM: number } | null;
+  /** Intermediate FlightPlan points on the selected route (src/nav), drawn as the route's bends. */
+  via?: Array<{ x: number; z: number }>;
   /** Screen area covered by the destination panel; keeps the route out from under it. */
   insets: Insets;
   initialView?: MapView;
   onViewChange: (view: MapView) => void;
   onSelect: (id: string | null) => void;
+  /** Fog of Discovery bitset (world/exploration.ts), only for the master chart. Null = fully charted. */
+  fog?: Uint8Array | null;
 }
 
 const COLORS = {
@@ -52,6 +57,29 @@ function rasterCanvas(map: RegionMap): HTMLCanvasElement | null {
     ctx.putImageData(new ImageData(new Uint8ClampedArray(map.raster.rgba), map.raster.size, map.raster.size), 0, 0);
     rasterCanvases.set(map.regionId, c);
   }
+  return c;
+}
+
+/** Unknown territory as a soft cloud deck: one pixel per fog cell (plus a 1-cell border), upscaled with smoothing. */
+let fogCache: { fog: Uint8Array; canvas: HTMLCanvasElement } | null = null;
+function fogCanvas(fog: Uint8Array): HTMLCanvasElement | null {
+  if (fogCache?.fog === fog) return fogCache.canvas;
+  const n = FOG_N + 2, c = document.createElement('canvas');
+  c.width = c.height = n;
+  const ctx = c.getContext('2d');
+  if (!ctx) return null;
+  const img = ctx.createImageData(n, n);
+  for (let py = 0; py < n; py++) for (let px = 0; px < n; px++) {
+    const i = FOG_N - px, j = FOG_N - py; // image: east (-x) right, north up; fog rows grow north
+    const h = Math.sin(i * 12.9898 + j * 78.233) * 43758.5453, v = 196 + (h - Math.floor(h)) * 30, k = (py * n + px) * 4;
+    if (isCellRevealed(fog, i, j)) {
+      img.data[k] = 52; img.data[k + 1] = 100; img.data[k + 2] = 132; img.data[k + 3] = 0;
+    } else {
+      img.data[k] = v; img.data[k + 1] = v + 4; img.data[k + 2] = v + 10; img.data[k + 3] = 164;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  fogCache = { fog, canvas: c };
   return c;
 }
 
@@ -146,6 +174,15 @@ export const WorldMapCanvas = forwardRef<WorldMapHandle, Props>(function WorldMa
       ctx.beginPath(); ctx.moveTo(q.sx - 3, q.sy - 3); ctx.lineTo(q.sx - 3, q.sy + 3); ctx.moveTo(q.sx + 3, q.sy - 3); ctx.lineTo(q.sx + 3, q.sy + 3); ctx.stroke();
     }
 
+    if (p.fog) {
+      const fc = fogCanvas(p.fog);
+      if (fc) {
+        const tl = toS(map.rect.maxX + FOG_CELL_M, map.rect.maxZ + FOG_CELL_M), span = (FOG_N + 2) * FOG_CELL_M * sc;
+        ctx.imageSmoothingEnabled = true;
+        ctx.drawImage(fc, tl.sx, tl.sy, span, span);
+      }
+    }
+
     const origin = p.origin;
     const o = origin ? toS(origin.x, origin.z) : null;
 
@@ -176,10 +213,14 @@ export const WorldMapCanvas = forwardRef<WorldMapHandle, Props>(function WorldMa
     if (sel && origin && sel.id !== origin.id) {
       const a = toS(origin.x, origin.z), b = toS(sel.x, sel.z);
       const len = Math.hypot(b.sx - a.sx, b.sy - a.sy);
-      ctx.lineWidth = 6; ctx.strokeStyle = 'rgba(10,14,15,.7)'; ctx.setLineDash([]);
-      ctx.beginPath(); ctx.moveTo(a.sx, a.sy); ctx.lineTo(b.sx, b.sy); ctx.stroke();
-      ctx.lineWidth = 3; ctx.strokeStyle = COLORS.accent; ctx.setLineDash([11, 6]);
-      ctx.beginPath(); ctx.moveTo(a.sx, a.sy); ctx.lineTo(b.sx, b.sy); ctx.stroke(); ctx.setLineDash([]);
+      const legs = [a, ...(p.via ?? []).map((v) => toS(v.x, v.z)), b];
+      const leg = () => { ctx.beginPath(); legs.forEach((q, i) => (i ? ctx.lineTo(q.sx, q.sy) : ctx.moveTo(q.sx, q.sy))); ctx.stroke(); };
+      ctx.lineWidth = 6; ctx.strokeStyle = 'rgba(10,14,15,.7)'; ctx.setLineDash([]); leg();
+      ctx.lineWidth = 3; ctx.strokeStyle = COLORS.accent; ctx.setLineDash([11, 6]); leg(); ctx.setLineDash([]);
+      for (const q of legs.slice(1, -1)) { // waypoint diamonds
+        ctx.fillStyle = COLORS.text; ctx.strokeStyle = 'rgba(10,14,15,.85)'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(q.sx, q.sy - 6); ctx.lineTo(q.sx + 6, q.sy); ctx.lineTo(q.sx, q.sy + 6); ctx.lineTo(q.sx - 6, q.sy); ctx.closePath(); ctx.stroke(); ctx.fill();
+      }
       if (len > 50) { // direction chevron at the midpoint
         const mx = (a.sx + b.sx) / 2, my = (a.sy + b.sy) / 2, ang = Math.atan2(b.sy - a.sy, b.sx - a.sx);
         ctx.save(); ctx.translate(mx, my); ctx.rotate(ang);
@@ -206,7 +247,7 @@ export const WorldMapCanvas = forwardRef<WorldMapHandle, Props>(function WorldMa
     // Markers + label candidates.
     interface Lbl { text: string; sx: number; sy: number; r: number; prio: number; force: boolean; dim?: boolean }
     const labels: Lbl[] = [];
-    if (sc > 0.02) for (const l of map.labels) { const q = toS(l.x, l.z); labels.push({ text: l.name.toUpperCase(), sx: q.sx, sy: q.sy, r: -1, prio: 6, force: false }); }
+    if (sc > 0.02) for (const l of map.labels) { if (p.fog && !isRevealed(p.fog, l.x, l.z)) continue; const q = toS(l.x, l.z); labels.push({ text: l.name.toUpperCase(), sx: q.sx, sy: q.sy, r: -1, prio: 6, force: false }); }
     for (const t of p.targets) {
       const q = toS(t.x, t.z);
       if (q.sx < -40 || q.sx > size.w + 40 || q.sy < -40 || q.sy > size.h + 40) continue;
@@ -307,7 +348,7 @@ export const WorldMapCanvas = forwardRef<WorldMapHandle, Props>(function WorldMa
       const p = propsRef.current, map = getRegionMap(p.regionId);
       if (first) {
         regionRef.current = p.regionId;
-        commit(p.initialView ?? homeView(p.origin, p.range, sizeRef.current, map.rect), true);
+        commit(p.initialView ?? (p.regionId === 'master' ? fitRect(map.rect, sizeRef.current) : homeView(p.origin, p.range, sizeRef.current, map.rect)), true);
       } else commit(targetRef.current ?? viewRef.current!, true);
     };
     resize();
@@ -318,7 +359,7 @@ export const WorldMapCanvas = forwardRef<WorldMapHandle, Props>(function WorldMa
   }, [props.regionId]);
 
   // Redraw on any prop change.
-  useEffect(() => { schedule(); }, [props.selectedId, props.range, props.targets, props.origin, props.routes, props.contractTarget]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { schedule(); }, [props.selectedId, props.range, props.targets, props.origin, props.routes, props.contractTarget, props.via]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Selecting a destination frames the route: out from under the panel, and never a 40 px speck.
   useEffect(() => {

@@ -1,6 +1,7 @@
 import { AIRFIELDS } from '../world/airfields';
 import { createAircraftCondition } from './aircraftCondition';
 import type { OperationsState } from './types';
+import { createExploration } from '../world/exploration';
 
 export const OPERATIONS_VERSION = 1;
 export const HOME_AIRFIELD_ID = 'field_home';
@@ -15,6 +16,7 @@ export function createOperations(): OperationsState {
     fuelL: 8,
     knownAirfieldIds: known,
     visitedAirfieldIds: [HOME_AIRFIELD_ID],
+    exploration: createExploration(),
     active: null,
     settledContractIds: [],
     contractSeed: 1,

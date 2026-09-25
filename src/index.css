@@ -1,41 +1,72 @@
 :root {
   color-scheme: dark;
-  /* Design tokens — "taller + RC transmitter + flight notebook" visual language
-     (spec 83.1). Warm workshop neutrals with a hangar-lamp amber accent; the
-     functional color-coding set below follows spec 83.2 exactly (never relies
-     on color alone — see icon/shape usage at call sites). */
-  --bg: #17191a;
-  --bg-elevated: #24282a;
-  --surface: rgba(242, 236, 221, 0.055);
-  --surface-strong: rgba(242, 236, 221, 0.11);
-  --border: rgba(184, 192, 195, 0.18);
-  --border-strong: rgba(184, 192, 195, 0.33);
-  --text: #faf8f2;
-  --text-dim: rgba(250, 248, 242, 0.7);
-  --text-faint: rgba(250, 248, 242, 0.5);
+  /* ── Project Flight design tokens (docs/ui/PROJECT_FLIGHT_UI_UX_MASTER_SPEC.md §4) ──
+     "Placard" language: charcoal hangar steel + warm manual-paper placards, ink borders,
+     hard offset shadows (tactile, slightly toy-like), safety-orange for the one action
+     that matters, hazard-yellow for caution. Status colours are always paired with an
+     icon/shape/word — never colour alone. */
+  --bg: #141719;
+  --bg-elevated: #1e2326;
+  --steel: #242a2d;
+  --steel-2: #2e3639;
+  --steel-3: #3a4447;
+  --ink: #1a1c1d;
+  --paper: #efe7d5;
+  --paper-2: #e3d8bf;
+  --paper-line: rgba(26, 28, 29, 0.16);
+  --surface: rgba(242, 236, 221, 0.05);
+  --surface-strong: rgba(242, 236, 221, 0.1);
+  --border: rgba(214, 206, 188, 0.16);
+  --border-strong: rgba(214, 206, 188, 0.34);
+  --text: #f6f1e6;
+  --text-dim: rgba(246, 241, 230, 0.72);
+  --text-faint: rgba(246, 241, 230, 0.5);
 
-  /* Workshop accent (stencil amber — labels, primary CTAs, selection state). */
-  --accent: #f06a2a;
-  --accent-strong: #ff8a4d;
-  --on-accent: #17191a;
-  --cyan: #58c7e8;
+  --accent: #f26a21;
+  --accent-strong: #ff8a45;
+  --accent-deep: #a8420c;
+  --on-accent: #1a1c1d;
+  --hazard: #f2c230;
+  --cyan: #5cc4dc;
+  --chart-teal: #2f8f9d;
   --workshop-blue: #347da0;
 
-  /* Functional color coding (spec 83.2): function, not decoration. */
+  /* Functional colour coding: function, not decoration. */
   --status-neutral: #f1efe4;
-  --status-nominal: #4caf6c;
-  --status-caution: #e0a93a;
+  --status-nominal: #58b36e;
+  --status-caution: #e8b33a;
   --status-critical: #e2503f;
   --status-nav: #4fb8e0;
   --status-engineering: #d7c23a;
 
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 18px;
+  /* Geometry — restrained rounding, structural blocks. */
+  --radius-xs: 2px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --border-w: 2px;
+  --shadow-hard: 0 3px 0 rgba(0, 0, 0, 0.5);
+  --shadow-lift: 0 4px 0 rgba(0, 0, 0, 0.45), 0 14px 30px rgba(0, 0, 0, 0.35);
+
+  /* Spacing scale (4-pt). */
+  --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 24px; --sp-6: 32px;
+
+  /* Type. System stacks only (offline PWA + CSP): condensed display, humanist UI, mono readouts. */
   --font-ui: Inter, 'Segoe UI', system-ui, sans-serif;
-  --font-display: 'Arial Narrow', 'Roboto Condensed', Impact, sans-serif;
-  --font-technical: 'IBM Plex Mono', 'SFMono-Regular', Consolas, monospace;
-  --focus: #58c7e8;
+  --font-display: 'DIN Condensed', 'Bahnschrift SemiCondensed', 'Arial Narrow', 'Roboto Condensed', Impact, sans-serif;
+  --font-technical: 'IBM Plex Mono', 'SFMono-Regular', Menlo, Consolas, monospace;
+  --fs-kicker: 10px; --fs-small: 12px; --fs-body: 14px; --fs-title: clamp(24px, 3vw, 34px); --fs-hero: clamp(40px, 6.4vw, 84px);
+
+  /* Motion. Every animation communicates navigation, state, hierarchy, reward or consequence. */
+  --dur-fast: 150ms;
+  --dur-med: 240ms;
+  --dur-slow: 420ms;
+  --ease-out: cubic-bezier(0.2, 0.7, 0.2, 1);
+
+  /* Layers. */
+  --z-stage: 0; --z-chrome: 10; --z-sheet: 20; --z-overlay: 40; --z-toast: 60;
+  --hud-opacity: 0.92;
+  --focus: #5cc4dc;
 }
 
 * {
@@ -134,4 +165,12 @@ button:focus-visible, input:focus-visible {
   color: var(--on-accent);
   background: var(--accent-strong);
   font: 700 0.9rem var(--font-ui);
+}
+
+/* Fog of Discovery find, over the flight view (world/exploration.ts). */
+.discovery-toast {
+  position: absolute; top: max(64px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); z-index: 20;
+  max-width: calc(100% - 32px); padding: 8px 14px; border: 2px solid var(--ink); border-radius: var(--radius-sm);
+  background: var(--hazard); color: var(--ink); font: 700 13px var(--font-technical); letter-spacing: 0.06em; text-transform: uppercase;
+  pointer-events: none;
 }

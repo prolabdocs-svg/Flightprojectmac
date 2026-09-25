@@ -39,9 +39,9 @@ export function BootScreen() {
     <div className="screen boot-screen">
       <BrandMark compact />
       <h1 className="boot-title">PROJECT<em>FLIGHT</em></h1>
-      <p className="boot-subtitle">construido a mano, volado con cuidado</p>
-      <div className="boot-bar">
-        <div className="boot-bar-fill" style={{ width: `${progress * 100}%` }} />
+      <p className="boot-subtitle">construido a mano · volado con cuidado</p>
+      <div className="boot-bar" role="progressbar" aria-valuenow={Math.round(progress * 100)} aria-valuemin={0} aria-valuemax={100}>
+        {Array.from({ length: 9 }, (_, i) => <i key={i} className={progress * 9 > i ? 'on' : ''} />)}
       </div>
     </div>
   );

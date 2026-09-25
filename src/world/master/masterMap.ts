@@ -1,7 +1,7 @@
 import { createNoise2D } from 'simplex-noise';
 import { FIELD_RIVER_POINTS, fieldElevation } from '../fieldGeography';
 import {
-  BLOBS, CAMPAIGN_SITES, CELL_M, SITE_GRADING, COAST_ROUGHNESS, DAMS, EASTERN_ISLAND_COAST, GRID_N, HALF_M, LAKES, MAINLAND_COAST, MASTER_SEED, MESAS,
+  BLOBS, NAMED_AREA_ANCHORS, CELL_M, SITE_GRADING, COAST_ROUGHNESS, DAMS, EASTERN_ISLAND_COAST, GRID_N, HALF_M, LAKES, MAINLAND_COAST, MASTER_SEED, MESAS,
   PRIMARY_RANGE, REGION_IDS, REGION_SEEDS, RIDGES, RIVERS, STARTER_BASIN, SUMMITS, fieldLocalToMaster, worldToGeo,
   type Blob, type Pt, type RegionId, type Ridge, type RiverDef,
 } from './masterGeography';
@@ -236,7 +236,7 @@ function buildSpurs(): Ridge[] {
 }
 
 /* ------------------------------ rivers ------------------------------ */
-export interface MasterSiteInfo { campaignRegionId: string; datumM: number; rectGeoKm: [number, number, number, number] }
+export interface MasterSiteInfo { namedAreaId: string; datumM: number; rectGeoKm: [number, number, number, number] }
 
 export interface RiverPath {
   id: string; name: string; kind: 'perennial' | 'dry'; parent?: string;
@@ -702,7 +702,7 @@ export function buildMasterMap(): MasterMapData {
 
   /* ---- campaign sites: grade each region-local footprint to ONE flat platform (spec §33 runway grading) ---- */
   const sites: MasterSiteInfo[] = [];
-  for (const S of CAMPAIGN_SITES) {
+  for (const S of NAMED_AREA_ANCHORS) {
     const [ae, an] = S.anchorGeoKm;
     // local x -> geographic E offset is -x/1000 (east is -X); local z -> +N
     const e0 = ae - (S.footprintLocalM.x[1] + SITE_GRADING.marginM) / 1000, e1 = ae - (S.footprintLocalM.x[0] - SITE_GRADING.marginM) / 1000;
@@ -724,7 +724,7 @@ export function buildMasterMap(): MasterMapData {
       if (w > 0 && h[k] > 1) h[k] = lerp(h[k], datum, w);
     }
     protect.push([(e0 + e1) / 2, (n0 + n1) / 2, Math.hypot(e1 - e0, n1 - n0) / 2 + blend + 0.1]);
-    sites.push({ campaignRegionId: S.campaignRegionId, datumM: datum, rectGeoKm: [e0, n0, e1, n1] });
+    sites.push({ namedAreaId: S.id, datumM: datum, rectGeoKm: [e0, n0, e1, n1] });
   }
 
   /* ---- stream-power erosion (dendritic gullies on flanks); masked off the Field core, lakes, dam, sills ---- */

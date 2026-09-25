@@ -49,7 +49,7 @@ class Analyzer {
     this.def = def;
     const d = def.mass;
     const items = [...d.items, { id: 'fuel', massKg: d.fuelCapacityL * fuelFraction * d.fuelDensityKgL, position: d.fuelPosition, size: d.fuelSize }];
-    if (payloadKg > 0) items.push(payloadMassItem(payloadKg));
+    if (payloadKg > 0) items.push(payloadMassItem(payloadKg, def.mass.payloadPosition));
     const mp = computeMassProperties(items);
     this.massKg = mp.massKg;
     this.cg = mp.cg;
@@ -64,6 +64,8 @@ class Analyzer {
     if (!p) return { thrustN: 0, rpm: 0, powerFraction: 0 };
     p.reset();
     p.engine.rpm = p.engineDef.idleRpm;
+    const jet = p.engineDef.jet;
+    if (jet) p.spool = jet.idleFraction + (1 - jet.idleFraction) * throttle; // steady state: skip the spool lag
     this.air.set(0, 0, V);
     for (let i = 0; i < 200; i++) p.step(0.02, { throttle, engineOn: true, fuelL: 5, rho, airAtHub: this.air });
     return { thrustN: p.thrustN, rpm: p.engine.rpm, powerFraction: Math.min(1, p.engine.powerW / (p.engineDef.maxPowerKw * 1000)) };

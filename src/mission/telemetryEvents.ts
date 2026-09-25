@@ -5,6 +5,7 @@
 import type { FlightTelemetry } from '../flight/flightTypes';
 import { isMissionCompleted } from '../content/missionProgress';
 import { getAirfield, AIRFIELDS } from '../world/airfields';
+import { getMasterTerrain } from '../world/master/masterRuntime';
 import { applyEvent } from './stateMachine';
 import type { Contract, MissionEvent, MissionSession } from './types';
 
@@ -26,7 +27,7 @@ export function nextEvent(session: MissionSession, t: FlightTelemetry, c: Contra
   if (t.crashed) return { type: 'CRASH', reason: t.crashReason ?? 'unknown' };
 
   const origin = getAirfield(c.originId)!;
-  const dest = getAirfield(c.destinationId)!;
+  const destinationPoint = c.mission.targetPoint ?? getAirfield(c.destinationId)!.position;
   const airborneNow = t.wheelsOnGround === 0 && t.altitudeM > 0.3;
   switch (session.phase) {
     case 'TAXI':
@@ -36,14 +37,19 @@ export function nextEvent(session: MissionSession, t: FlightTelemetry, c: Contra
       if (!session.airborne) return airborneNow ? { type: 'AIRBORNE' } : null;
       return t.altitudeM > 5 && flat(t, origin.position) > origin.runwayLengthM / 2 + DEPARTURE_MARGIN_M ? { type: 'DEPARTURE_EXITED' } : null;
     case 'ENROUTE':
-      if (t.wheelsOnGround > 0) return { type: 'GROUND_CONTACT', atDestination: flat(t, dest.position) <= (c.mission.targetRadiusM ?? 0) };
-      return flat(t, dest.position) <= APPROACH_RADIUS_M ? { type: 'DESTINATION_PROXIMITY' } : null;
+      if (t.wheelsOnGround > 0) return { type: 'GROUND_CONTACT', atDestination: flat(t, destinationPoint) <= (c.mission.targetRadiusM ?? 0) };
+      return flat(t, destinationPoint) <= APPROACH_RADIUS_M ? { type: 'DESTINATION_PROXIMITY' } : null;
     case 'APPROACH':
-      return t.wheelsOnGround > 0 ? { type: 'GROUND_CONTACT', atDestination: flat(t, dest.position) <= (c.mission.targetRadiusM ?? 0) } : null;
+      return t.wheelsOnGround > 0 ? { type: 'GROUND_CONTACT', atDestination: flat(t, destinationPoint) <= (c.mission.targetRadiusM ?? 0) } : null;
     case 'LANDED': {
       if (!(t.state === 'stopped' || t.landed)) return null;
       const atDestination = isMissionCompleted(c.mission, t);
-      const near = AIRFIELDS.find((a) => flat(t, a.position) <= DIVERT_SNAP_M);
+      const world = getMasterTerrain();
+      const [wx, wz] = world.localToWorld(c.mission.regionId, t.position[0], t.position[2]);
+      const near = AIRFIELDS.find((a) => {
+        const field = world.airfield(a.id);
+        return field && Math.hypot(wx - field.worldPosition[0], wz - field.worldPosition[1]) <= DIVERT_SNAP_M;
+      });
       return { type: 'AIRCRAFT_STOPPED', atDestination, divertedTo: atDestination ? undefined : near?.id };
     }
     default:

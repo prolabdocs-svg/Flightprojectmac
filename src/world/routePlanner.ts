@@ -1,4 +1,5 @@
 import { AIRFIELDS, getAirfield } from './airfields';
+import { campaignLocalToMaster } from './master/masterGeography';
 
 export interface RouteEdge {
   fromId: string;
@@ -12,9 +13,9 @@ function distanceBetween(aId: string, bId: string): number {
   const a = getAirfield(aId);
   const b = getAirfield(bId);
   if (!a || !b) return Infinity;
-  const [ax, ay, az] = a.position;
-  const [bx, by, bz] = b.position;
-  return Math.hypot(bx - ax, by - ay, bz - az);
+  const [ax, az] = campaignLocalToMaster(a.regionId, a.position[0], a.position[2]);
+  const [bx, bz] = campaignLocalToMaster(b.regionId, b.position[0], b.position[2]);
+  return Math.hypot(bx - ax, bz - az);
 }
 
 /** Hand-authored connections between airfields (GDD world-graph foundation). Edges are

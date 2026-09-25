@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 
-type IconName = 'map' | 'wrench' | 'tree' | 'paint' | 'settings' | 'flight' | 'back' | 'cash' | 'research' | 'salvage' | 'chevron' | 'lock' | 'check' | 'target' | 'retry' | 'pause' | 'home';
+export type IconName = 'logbook' | 'fuel' | 'warning' | 'star' | 'map' | 'wrench' | 'tree' | 'paint' | 'settings' | 'flight' | 'back' | 'cash' | 'research' | 'salvage' | 'chevron' | 'lock' | 'check' | 'target' | 'retry' | 'pause' | 'home';
 
 const paths: Record<IconName, ReactNode> = {
   map: <><path d="m3 6 6-3 6 3 6-3v15l-6 3-6-3-6 3V6Z"/><path d="M9 3v15M15 6v15"/></>,
@@ -19,6 +19,10 @@ const paths: Record<IconName, ReactNode> = {
   target: <><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></>,
   retry: <><path d="M4 12a8 8 0 1 0 2.5-5.8"/><path d="M4 4v5h5"/></>,
   pause: <path d="M8 5v14M16 5v14"/>,
+  logbook: <><path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3V4Z"/><path d="M5 17a3 3 0 0 1 3-3h11M9 8h6"/></>,
+  fuel: <><path d="M4 21V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v16M3 21h12M4 10h10"/><path d="M14 8h2a2 2 0 0 1 2 2v6a1.5 1.5 0 0 0 3 0V8l-3-3"/></>,
+  warning: <><path d="M12 3 2 20h20L12 3Z"/><path d="M12 10v4M12 17h.01"/></>,
+  star: <path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9L12 3Z"/>,
   home: <path d="m3 11 9-8 9 8M5 10v10h14V10"/>,
 };
 

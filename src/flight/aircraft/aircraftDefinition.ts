@@ -8,6 +8,7 @@
 import type { AeroElementSpec, BluffBodySpec } from '../aero/aeroElement';
 import type { AirfoilSpec } from '../aero/airfoil';
 import type { Vec3 } from '../core/coordinates';
+import type { DamageStructure } from '../../sim/damageSystem';
 
 export type Provenance = 'MEASURED' | 'DOCUMENTED' | 'ESTIMATED' | 'CALIBRATED' | 'PLACEHOLDER';
 
@@ -43,6 +44,10 @@ export interface EngineDefinition {
   thrustLineDeg: number;
   /** Fuel consumption at rated power, L/h. */
   fuelBurnLph: number;
+  /** Turbojet core: thrust straight from N1, no propeller torque/slipstream. rpm reads N1 x redlineRpm. */
+  jet?: { maxThrustN: number; spoolTimeS: number; idleFraction: number };
+  /** Head-temperature model, as a fraction of the thermal limit (1 = limit; above it the engine derates). */
+  thermal?: { heatAtFull: number; airflowRelief: number; timeConstantS: number };
 }
 
 export interface PropellerDefinition {
@@ -95,6 +100,8 @@ export interface ControlDefinition {
   rudderMaxDeg: number;
   /** Actuator slew rate of every surface, deg/s. */
   surfaceRateDegS: number;
+  /** Full flap travel, deg. Only meaningful when the wing has 'flap' elements (see hasFlaps). */
+  flapMaxDeg?: number;
 }
 
 export interface AircraftDefinition {
@@ -107,6 +114,8 @@ export interface AircraftDefinition {
     fuelSize: Vec3;
     fuelCapacityL: number;
     fuelDensityKgL: number;
+    /** Where cargo/passenger payload sits (a passenger seat, a cargo bay). Defaults to payload.ts's bay. */
+    payloadPosition?: Vec3;
   };
   geometry: { wingAreaM2: number; wingspanM: number; meanChordM: number; wingAcPosition: Vec3 };
   aero: {
@@ -119,10 +128,16 @@ export interface AircraftDefinition {
   propeller: PropellerDefinition | null;
   gear: GearDefinition;
   /** Structural contact points (tips, nose, tail, canopy, belly) in BODY axes. */
-  hardPoints: Array<{ id: 'wingtipL' | 'wingtipR' | 'nose' | 'tail' | 'canopy' | 'bellyFront' | 'bellyRear'; position: Vec3 }>;
+  hardPoints: Array<{ id: 'wingtipL' | 'wingtipR' | 'nose' | 'tail' | 'canopy' | 'bellyFront' | 'bellyRear' | 'pilot' | 'passenger'; position: Vec3 }>;
+  /** Airframe-specific structure for the damage system (strength scaling, contact-zone loads).
+   * Absent = the generic ultralight tuning in sim/damageSystem.ts. */
+  damage?: DamageStructure;
   /** Dotted-path -> provenance for every numeric parameter above. */
   provenance: Record<string, Provenance>;
 }
+
+/** Whether the definition has a flap system the pilot can deploy. */
+export const hasFlaps = (def: AircraftDefinition) => def.aero.elements.some((e) => e.control?.kind === 'flap');
 
 /** Lists the dotted path of every numeric leaf (arrays collapse to `name[]`). */
 export function numericPaths(value: unknown, prefix = '', out: string[] = []): string[] {

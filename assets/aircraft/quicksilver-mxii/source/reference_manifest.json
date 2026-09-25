@@ -1,0 +1,30 @@
+{
+  "aircraft": "Quicksilver MX II Sprint",
+  "variant": "Rotax 582 factory reference configuration",
+  "sources": [
+    {
+      "kind": "manufacturer specifications",
+      "url": "https://www.quicksilveraircraft.com/movil/MX-II-SPRINT-Spec.php",
+      "usedFor": ["dimensions", "wing area", "fuel capacity", "maximum takeoff weight", "engine", "propeller", "published performance"]
+    },
+    {
+      "kind": "manufacturer assembly manuals index",
+      "url": "https://air-techinc.com/assembly-manuals/",
+      "usedFor": ["variant identification and construction reference"]
+    },
+    {
+      "kind": "reference photographs",
+      "url": "https://commons.wikimedia.org/wiki/File:Quicksilver_MX_II_Sprint_two_seater_photo_2.jpg",
+      "usedFor": ["high-wing open-frame silhouette and two-seat layout"]
+    },
+    {
+      "kind": "reference photographs",
+      "url": "https://www.aviationcorner.net/show_photo_en.asp?id=199920",
+      "usedFor": ["side-view silhouette and Rotax 503 variant reference"]
+    }
+  ],
+  "runtimeAsset": "/assets/models/airframes/quicksilver_mxii_sprint.glb",
+  "meshSource": "tools/a0/source/pf_aircraft_ultralight.source.glb",
+  "generator": "tools/a0/split_a0.mjs",
+  "notes": "Runtime mesh reuses the project's authored open-frame ultralight sculpt, removes its A0 livery marks, fits the published MX II span, and exports a dedicated asset with animated control and landing-gear pivots. Published wing and fuel modules are available to install in the workshop, but the default Field Twin starter loadout remains gameplay-calibrated. A replacement mesh built directly from orthographic references and factory-accurate physics remain future work."
+}

@@ -24,8 +24,17 @@ const VELOCITY_LOOK_BLEND = 0.55;
 const G_DROP_M = 0.35;
 const GROUND_STIFFEN = 1.8;
 
+const FPV_FLIP = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI);
+// Cockpit framing: a wider fixed lens and the head tipped slightly down, so the horizon sits in the
+// upper third and the Kestrel's primaries in the lower third without the player looking down.
+const FPV_FOV = 72;
+const FPV_PITCH_RAD = -9 * Math.PI / 180;
+
 export class ChaseCamera {
   readonly camera: THREE.PerspectiveCamera;
+  fpv = false;
+  /** Pilot eye in aircraft-local space (+Z forward); FlightScene sets it from the pilot mesh. */
+  readonly eye = new THREE.Vector3(0.24, 1.3, 0.85);
   private lookTarget = new THREE.Vector3();
   private pos = new THREE.Vector3(0, 6, -15);
   private shakeTimeRemainingS = 0;
@@ -44,9 +53,27 @@ export class ChaseCamera {
   private readonly shake = new THREE.Vector3();
   private readonly up = new THREE.Vector3();
   private readonly tmpLook = new THREE.Vector3();
+  /** Free-look offsets from pointer drag (radians); ease back to 0 when not dragging. */
+  lookYaw = 0;
+  lookPitch = 0;
+  dragging = false;
+  private readonly lookAxis = new THREE.Vector3();
+  private readonly lookQuat = new THREE.Quaternion();
+  private readonly lookEuler = new THREE.Euler(0, 0, 0, 'YXZ');
+
+  /** Drag delta in pixels → yaw/pitch. */
+  drag(dxPx: number, dyPx: number) {
+    this.lookYaw = THREE.MathUtils.euclideanModulo(this.lookYaw - dxPx * 0.006 + Math.PI, Math.PI * 2) - Math.PI;
+    this.lookPitch = THREE.MathUtils.clamp(this.lookPitch + dyPx * 0.006, -1.2, 1.2);
+  }
 
   constructor() {
     this.camera = new THREE.PerspectiveCamera(BASE_FOV, 1, 0.1, 6000);
+  }
+
+  /** Floating-origin rebase: move the smoothed camera state by the same x/z delta as the world. */
+  shift(dx: number, dz: number) {
+    for (const v of [this.pos, this.lastPos, this.lookTarget, this.camera.position]) { v.x -= dx; v.z -= dz; }
   }
 
   update(position: THREE.Vector3, quaternion: THREE.Quaternion, dtS: number, input: ChaseCameraInput) {
@@ -55,13 +82,30 @@ export class ChaseCamera {
     if (this.hasLastPos && dt > 1e-4) this.velocity.copy(position).sub(this.lastPos).multiplyScalar(1 / dt).clampLength(0, 120);
     this.lastPos.copy(position);
     this.hasLastPos = true;
+    if (!this.dragging) {
+      const k = Math.exp(-2.5 * dt);
+      this.lookYaw *= k; this.lookPitch *= k;
+    }
+    if (this.fpv) {
+      // Rigid cockpit mount; keep the chase state tracking so switching back doesn't swoop in from afar.
+      this.pos.copy(position).add(this.behind.set(0, 5.6, -13.4).applyQuaternion(quaternion));
+      this.lookTarget.copy(position);
+      this.camera.position.copy(this.desiredPos.copy(this.eye).applyQuaternion(quaternion).add(position));
+      this.camera.quaternion.copy(quaternion).multiply(FPV_FLIP)
+        .multiply(this.lookQuat.setFromEuler(this.lookEuler.set(FPV_PITCH_RAD - this.lookPitch, this.lookYaw, 0)));
+      if (this.camera.fov !== FPV_FOV) { this.camera.fov = FPV_FOV; this.camera.updateProjectionMatrix(); }
+      return;
+    }
     this.currentG += (input.gForce - this.currentG) * (1 - Math.exp(-4 * dt));
     // Portrait screens need a centered, longer chase vector; the desktop three-quarter
     // angle otherwise crops the wing and makes the aircraft read as UI-adjacent clutter.
     const portrait = this.camera.aspect < 0.8;
     const behind = this.behind
       .set(portrait ? -2.8 : -7.2, portrait ? 7.2 : 5.6, portrait ? -21 : -13.4)
-      .applyQuaternion(quaternion);
+      .applyQuaternion(quaternion)
+      .applyAxisAngle(this.lookAxis.set(0, 1, 0), this.lookYaw);
+    this.lookAxis.set(0, 1, 0).cross(behind).normalize();
+    if (this.lookAxis.lengthSq() > 0.5) behind.applyAxisAngle(this.lookAxis, -this.lookPitch);
     const desiredPos = this.desiredPos.copy(position).add(behind);
     // Positive G sinks the camera slightly (heavy pull-ups feel heavy); zero/negative G lifts it.
     desiredPos.y -= THREE.MathUtils.clamp(this.currentG - 1, -1.5, 3) * G_DROP_M;

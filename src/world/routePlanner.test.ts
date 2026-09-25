@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ROUTE_EDGES, RouteGraph, findRoute, isRouteReachable } from './routePlanner';
+import { campaignLocalToMaster } from './master/masterGeography';
+import { getAirfield } from './airfields';
 
 describe('ROUTE_EDGES', () => {
   it('every edge has a positive computed distance', () => {
@@ -7,6 +9,17 @@ describe('ROUTE_EDGES', () => {
       expect(edge.distanceM).toBeGreaterThan(0);
       expect(Number.isFinite(edge.distanceM)).toBe(true);
     }
+  });
+
+  it('derives inter-region edge length from continuous master-world coordinates', () => {
+    const from = getAirfield('field_north_strip')!;
+    const to = getAirfield('scrap_yard_strip')!;
+    const [fx, fz] = campaignLocalToMaster(from.regionId, from.position[0], from.position[2]);
+    const [tx, tz] = campaignLocalToMaster(to.regionId, to.position[0], to.position[2]);
+    const expected = Math.hypot(tx - fx, tz - fz);
+    const edge = ROUTE_EDGES.find((route) => route.fromId === from.id && route.toId === to.id)!;
+    expect(edge.distanceM).toBeCloseTo(expected, 6);
+    expect(edge.distanceM).toBeGreaterThan(1000);
   });
 });
 

@@ -51,6 +51,7 @@ describe('migration to schema v4', () => {
     expect(m.homeBase).toEqual({ runwayLevel: 0, hangarLevel: 0 });
     expect(m.ownedFrameIds).toEqual(['frame_zero']);
     expect(m.settings.textSize).toBe('normal');
+    expect(m.settings.engineVolume).toBe(0.8);
     expect(m.operations.locationId).toBe('field_home');
   });
 

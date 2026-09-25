@@ -81,11 +81,6 @@ export const SURF = {
 function wingColor(x, z, top) {
   const ax = Math.abs(x), gap = G.hingeGap;
   if (ax > SURF.wingTipX) return C.accent;
-  // "A0" designation on both upper wing panels: 11x7 cells, upright when seen from behind (reads toward -x).
-  if (top && ax > 0.6 && ax < 0.85) {
-    const cell = 0.0155, xc = x > 0 ? 0.72 : -0.72;
-    if (textHit('A0', Math.floor((xc + 5.5 * cell - x) / cell), Math.floor((0.17 + 3.5 * cell - z) / cell))) return C.ink;
-  }
   // "PROJECT FLIGHT" wordmark under the left wing, read from below.
   if (!top && x > 0.28 && x < 0.9) {
     const cell = 0.0071;
@@ -108,10 +103,6 @@ function tailColor(x, z) {
 function finColor(z, y, side) {
   if (Math.abs(z - SURF.rudderHingeZ) < 0.0025 && y > SURF.rudderBottomY) return C.ink;
   if (z < SURF.rudderHingeZ && y > SURF.rudderBottomY) return C.accent;
-  // vertical "A0" on the fixed fin, upright and reading nose-to-tail from either side
-  const cell = 0.0105, row = Math.floor((0.395 - y) / cell);
-  const col = side === 'left' ? Math.floor((-0.436 - z) / cell) : Math.floor((z + 0.4888) / cell);
-  if (stackHit('A0', col, row)) return C.ink;
   return C.ivory;
 }
 

@@ -1,14 +1,16 @@
+import { getEngineCharacter } from '../../content/engines';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
-import { useGameStore } from '../../state/gameStore';
 import { useProfileStore } from '../../state/profileStore';
-import { useMode2Store, getResolvedControls } from '../../input/mode2Store';
+import { useGameStore } from '../../state/gameStore';
+import { hasFlaps } from '../../flight/aircraft/aircraftDefinition';
+import { useMode2Store, getResolvedControls, stepKeyboardThrottle } from '../../input/mode2Store';
 import { mapGamepad } from '../../input/gamepad';
 import { resolveAircraft } from '../../content/assembly';
 import { isMissionAvailableToProfile } from '../../content/missions';
 import { resolveMission } from '../../mission/operations';
-import { conditionToPartIntegrity, conditionToPowerMultiplier } from '../../mission/damageIntegration';
+import { conditionToPartIntegrity } from '../../mission/damageIntegration';
 import { tickContractFlight, concludeContractFlight } from '../../state/contractFlight';
 import { PHASE_LABEL, STATE_LABEL } from '../../mission/labels';
 import { evaluateMissionReadiness } from '../../content/missionReadiness';
@@ -35,9 +37,14 @@ const SURFACE_ROUGHNESS: Record<RunwaySurface, number> = {
 import { FlightScene } from '../../render/FlightScene';
 import { computeFlightResult } from '../../content/economy';
 import { getPaint } from '../../content/paint';
+import { activateFlightPlan, advancePlan, buildFlightPlan, guidance, guidanceVisibility, goAroundPlan, type FlightPlan, type Guidance } from '../../nav/flightPlan';
 import { FlightHud } from '../components/FlightHud';
 import { audioService } from '../../audio/audioService';
 import { sinkRateToIntensity } from '../../audio/flightAudioMappings';
+import { discoverLandmarks } from '../../world/landmarks';
+
+/** Regions flown this app session: the first takeoff in each one plays as 'regionEnter'. */
+const visitedMusicRegions = new Set<string>();
 import { getEnvironmentWind } from '../../sim/weather';
 import { FixedStepClock } from '../../core/fixedStepClock';
 import { createTerrainQueryService } from '../../world/terrainQuery';
@@ -46,7 +53,24 @@ import { getHomeBaseBenefits } from '../../content/homeBase';
 import { getRegionObstacles } from '../../world/obstacles';
 import { createMasterRegionTerrain, getMasterTerrain } from '../../world/master/masterRuntime';
 import { MasterWorldAdapter } from '../../world/master/masterWorldAdapter';
-import { hasRegionComposition } from '../../world/regionCompositions';
+import { uiSound } from '../../audio/uiSound';
+import { REGIONS } from '../../content/regions';
+import type { ExplorationEvent } from '../../world/exploration';
+
+function describeDiscovery(e: ExplorationEvent): string {
+  switch (e.kind) {
+    case 'airfield_sighted': return 'Pista avistada';
+    case 'airfield_discovered': return `Aeródromo descubierto: ${getAirfield(e.id)?.name ?? e.id}`;
+    case 'airfield_visited': return `Primera visita: ${getAirfield(e.id)?.name ?? e.id}`;
+    case 'landmark': return `Referencia registrada: ${getMasterTerrain().landmarks().find((l) => l.id === e.id)?.name ?? e.id}`;
+    case 'region': return `Nueva región: ${REGIONS.find((r) => r.id === e.id)?.name ?? e.id}`;
+  }
+}
+
+
+function masterTerrainForStart(airfieldId: string): string {
+  return getAirfield(airfieldId)?.regionId ?? 'the_field';
+}
 
 export function FlightScreen() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -63,20 +87,32 @@ export function FlightScreen() {
   const setPaused = useGameStore((s) => s.setPaused);
   const selectedMissionId = useGameStore((s) => s.selectedMissionId);
   const selectedFreeFlightRegionId = useGameStore((s) => s.selectedFreeFlightRegionId);
+  const selectedWorldStartId = useGameStore((s) => s.selectedWorldStartId);
   const goTo = useGameStore((s) => s.goTo);
   const setLastResult = useGameStore((s) => s.setLastResult);
   const profile = useProfileStore((s) => s.profile);
   const applyFlightResult = useProfileStore((s) => s.applyFlightResult);
 
   const [telemetry, setTelemetry] = useState<FlightTelemetry | null>(null);
+  const [nav, setNav] = useState<Guidance | null>(null);
   const [ready, setReady] = useState(false);
+  const [fpv, setFpv] = useState(false);
+  const [discoveryToast, setDiscoveryToast] = useState<string | null>(null);
+  useEffect(() => {
+    if (!discoveryToast) return;
+    uiSound('discovery');
+    const id = window.setTimeout(() => setDiscoveryToast(null), 4500);
+    return () => window.clearTimeout(id);
+  }, [discoveryToast]);
+  useEffect(() => { sceneRef.current?.setFpv(fpv); }, [fpv, ready]);
 
   // Dynamic contracts resolve through the profile (persisted active contract), not just the static campaign.
   // Resolved once at mount: the contract leaves `active` the moment it is settled, but this flight still ends on it.
   const resolvedRef = useRef<ReturnType<typeof resolveMission> | null>(null);
   if (!resolvedRef.current) resolvedRef.current = resolveMission(profile, selectedMissionId);
   const { mission, contract } = resolvedRef.current;
-  const activeRegion = mission ? getRegion(mission.regionId) : getRegion(selectedFreeFlightRegionId);
+  const activeRegionId = mission ? mission.regionId : selectedFreeFlightRegionId;
+  const activeRegion = getRegion(activeRegionId);
   const missionSession = profile.operations.active?.contract.id === contract?.id ? profile.operations.active?.session ?? null : null;
   const fuelCapacityL = resolveAircraft(profile.currentBuild).fuelCapacityL;
 
@@ -127,25 +163,22 @@ export function FlightScreen() {
       // the body collider only touches terrain once the airframe is already wrecked.
       // Every region keeps a deep flat floor as the last resort.
       // A contract flies in ITS weather (the same wind the planner used), not the region's generic mean.
+      const startAreaId = !mission && selectedWorldStartId ? masterTerrainForStart(selectedWorldStartId) : activeRegionId;
+      const startArea = getRegion(startAreaId);
       const region = contract
-        ? { ...activeRegion, windBaseMs: contract.weather.windMs, environment: { ...activeRegion.environment, gustStrengthMs: contract.weather.gustMs } }
-        : activeRegion;
+        ? { ...startArea, windBaseMs: contract.weather.windMs, environment: { ...startArea.environment, gustStrengthMs: contract.weather.gustMs } }
+        : startArea;
       // PHASE 2C: a campaign-site region with a master-world frame (src/world/master/masterRuntime.ts)
       // gets its terrain/physics from the real streamed master authority instead of the flat safety
       // floor it had before. Two regions are excluded, both to keep single terrain authority (never
       // two ground truths for the same region — see docs/world/PHASE_2C_GAMEPLAY_INTEGRATION.md):
       //   - 'the_field' keeps its own authored/legacy terrain exactly as-is (spec item 6: preserve
       //     the vertical slice).
-      //   - any region with a legacy `regionCompositions.ts` entry (src/world/regionCompositions.ts,
-      //     owned by concurrent Slice-4 work landing in this same branch) already gets its terrain,
-      //     roads and fieldGrid from WorldEnvironment's own analytic heightfield; wiring master
-      //     streaming on top would be the exact double-terrain-authority bug this phase exists to
-      //     avoid. EXTERNAL CONCURRENT CHANGE, discovered mid-task — see PHASE_2C doc for detail.
-      //     Every campaign-site region currently has a composition, so master streaming is real,
-      //     tested (masterWorldAdapter, streamingRuntime, colliderStreaming) and ready, but not yet
-      //     reachable from gameplay until Slice-4's compositions themselves move to master elevation.
       const masterTerrain = getMasterTerrain();
-      const useMasterWorld = region.id !== 'the_field' && masterTerrain.hasFrame(region.id) && !hasRegionComposition(region.id);
+      const hasCrossRegionDestination = Boolean(contract && contract.mission.regionId !== getAirfield(contract.destinationId)?.regionId);
+      // Free flight is exploration: The Field joins the continuous master world too, so the player can
+      // fly out of the basin into unknown regions with no loading screen or teleport.
+      const useMasterWorld = masterTerrain.hasFrame(region.id) && (region.id !== 'the_field' || hasCrossRegionDestination || !mission);
       const terrainQuery = useMasterWorld ? createMasterRegionTerrain(region, masterTerrain) : createTerrainQueryService(region);
       const SAFETY_FLOOR_Y = -500;
       const groundDesc = RAPIER.ColliderDesc.cuboid(3000, 0.5, 3000).setTranslation(0, SAFETY_FLOOR_Y - 0.5, 0).setFriction(0.04);
@@ -156,14 +189,20 @@ export function FlightScreen() {
 
       const aircraft = resolveAircraft(profile.currentBuild);
       const freeFlightAirfield = mission ? undefined : getFreeFlightAirfield(region.id);
-      const spawnPoint = mission?.spawnPoint ?? freeFlightAirfield?.position ?? ([0, 1.2, 0] as const);
+      const worldStartField = !mission && selectedWorldStartId ? masterTerrain.airfield(selectedWorldStartId) : undefined;
+      if (worldStartField && worldStartField.namedAreaId !== region.id) throw new Error('World start must use its named-area compatibility origin');
+      const worldSpawnXZ = worldStartField?.worldPosition ?? (useMasterWorld ? masterTerrain.localToWorld(region.id, freeFlightAirfield?.position[0] ?? 0, freeFlightAirfield?.position[2] ?? 0) : undefined);
+      const spawnFrameId = worldStartField?.namedAreaId ?? region.id;
+      const localSpawn = worldSpawnXZ && useMasterWorld ? masterTerrain.worldToLocal(spawnFrameId, worldSpawnXZ[0], worldSpawnXZ[1]) : undefined;
+      const spawnPoint = mission?.spawnPoint ?? (localSpawn ? [localSpawn[0], 0, localSpawn[1]] as const : freeFlightAirfield?.position ?? ([0, 1.2, 0] as const));
       const spawnGroundY = terrainQuery.getElevation(spawnPoint[0], spawnPoint[2]);
       const spawn = new THREE.Vector3(spawnPoint[0], Math.max(spawnPoint[1], spawnGroundY + 1.2), spawnPoint[2]);
-      const destinationAirfield = mission?.destinationAirfieldId ? getAirfield(mission.destinationAirfieldId) : undefined;
+      const guidanceAirfield = mission?.destinationAirfieldId ? getAirfield(mission.destinationAirfieldId) : undefined;
+      const destinationAirfield = mission ? guidanceAirfield : undefined;
       // AirfieldDefinition (src/world/airfields.ts, owned by other work) doesn't carry an
       // explicit roughness value, so surface type stands in for it here: unpaved surfaces
       // are inherently rougher than tarmac/salt.
-      const runwayAirfield = destinationAirfield ?? freeFlightAirfield;
+      const runwayAirfield = guidanceAirfield ?? (worldStartField ? getAirfield(worldStartField.id) : freeFlightAirfield);
       const baseRunwayConditions = runwayAirfield
         ? { surface: runwayAirfield.surface, roughness: SURFACE_ROUGHNESS[runwayAirfield.surface] }
         : DEFAULT_RUNWAY_CONDITIONS;
@@ -178,7 +217,6 @@ export function FlightScreen() {
       const controller = new FlightModel(world, aircraft, profile.currentBuild, spawn, mission?.spawnHeadingDeg ?? 0, terrainQuery, {
         runwayConditions, obstacles, load: contract ? profile.operations.active?.loadout ?? undefined : undefined,
         initialPartIntegrity: condition ? conditionToPartIntegrity(condition, aircraft.aeroSurfaces.map((s) => s.id)) : undefined,
-        powerMultiplier: condition ? conditionToPowerMultiplier(condition) : undefined,
       });
       // The simulation owns its fixed step (PHYSICS_HZ); the clock must match it.
       fixedDt = controller.dtS;
@@ -186,11 +224,47 @@ export function FlightScreen() {
       controllerRef.current = controller;
 
       const paint = getPaint(profile.selectedPaintId);
+      const remoteDestination = mission && getAirfield(mission.destinationAirfieldId ?? '')?.regionId !== region.id
+        ? { airfield: getAirfield(mission.destinationAirfieldId ?? '')!, position: mission.targetPoint! }
+        : undefined;
       const scene = new FlightScene(canvasRef.current, region, paint && {
         fabricColor: paint.fabricColor,
         tubeColor: paint.tubeColor,
-      }, profile.currentBuild.frameId, useMasterWorld ? { terrainQuery, skipTerrainMesh: true } : undefined);
-      scene.setTargetMarker(mission?.targetPoint, mission?.targetRadiusM ?? 20);
+      }, profile.currentBuild.frameId, useMasterWorld ? { terrainQuery, skipTerrainMesh: true, remoteDestination } : undefined);
+      scene.setPilotAppearance(profile.avatar);
+      const navVis = guidanceVisibility(profile.settings.navGuidance);
+      // Destination landing zone is itself a world cue: Minimal guidance leaves it to the chart.
+      scene.setTargetMarker(navVis.worldDestination && profile.settings.navGuidance !== 'off' ? mission?.targetPoint : undefined, mission?.targetRadiusM ?? 20);
+      // The one route model (src/nav): contracts and campaign missions fly the same FlightPlan.
+      let navPlan: FlightPlan | null = null;
+      if (mission?.targetPoint) {
+        const originField = contract ? getAirfield(contract.originId) : undefined;
+        const known = !destinationAirfield || destinationAirfield.discoveryState === 'known' || profile.operations.knownAirfieldIds.includes(destinationAirfield.id);
+        navPlan = buildFlightPlan(
+          { id: originField?.id ?? 'spawn', label: originField?.name ?? 'Salida', known: true, x: spawn.x, z: spawn.z },
+          { id: destinationAirfield?.id ?? mission.id, label: destinationAirfield?.name ?? mission.name, known, x: mission.targetPoint[0], z: mission.targetPoint[2] },
+          { elevationAt: (x, z) => terrainQuery.getElevation(x, z), runway: destinationAirfield ? {
+            id: destinationAirfield.id, label: destinationAirfield.name, x: mission.targetPoint[0], z: mission.targetPoint[2],
+            elevationM: terrainQuery.getElevation(mission.targetPoint[0], mission.targetPoint[2]),
+            lengthM: destinationAirfield.runwayLengthM, widthM: destinationAirfield.runwayWidthM, headingDeg: 0,
+          } : undefined },
+        );
+      } else if (worldStartField) {
+        const targetField = getAirfield(worldStartField.id);
+        if (targetField) {
+          const [worldX, worldZ] = masterTerrain.localToWorld(spawnFrameId, spawnPoint[0], spawnPoint[2]);
+          const [localTargetX, localTargetZ] = masterTerrain.worldToLocal(spawnFrameId, worldX, worldZ);
+          const targetPoint = { x: localTargetX, z: localTargetZ };
+          const [targetWorldX, targetWorldZ] = masterTerrain.localToWorld(spawnFrameId, targetField.position[0], targetField.position[2]);
+          const [targetX, targetZ] = masterTerrain.worldToLocal(spawnFrameId, targetWorldX, targetWorldZ);
+          navPlan = buildFlightPlan(
+            { id: `start_${targetField.id}`, label: targetField.name, known: true, x: targetPoint.x, z: targetPoint.z },
+            { id: targetField.id, label: targetField.name, known: true, x: targetX, z: targetZ },
+            { elevationAt: (x, z) => terrainQuery.getElevation(x, z), runway: { id: targetField.id, label: targetField.name, x: targetX, z: targetZ,
+              elevationM: terrainQuery.getElevation(targetX, targetZ), lengthM: targetField.runwayLengthM, widthM: targetField.runwayWidthM, headingDeg: 0 } },
+          );
+        }
+      }
       sceneRef.current = scene;
       // PHASE 2C: real THREE.Scene + real Rapier.World wiring for MasterStreamingRuntime (see
       // masterWorldAdapter.ts for why region-local coordinates, not master-world-absolute ones).
@@ -273,11 +347,10 @@ export function FlightScreen() {
         }
         pressed.add(key);
         const input = useMode2Store.getState();
-        if (key === 'w') input.setThrottle(1);
-        if (key === 's') input.setThrottle(0);
         if (key === 'e') input.toggleEngine();
         if (key === 'f') input.toggleFlaps();
         if (key === 'escape') setPaused(true);
+        if (key === 'c' && !event.repeat) setFpv((v) => !v);
         applyKeyboardAxes();
       };
       const onKeyUp = (event: KeyboardEvent) => {
@@ -296,10 +369,20 @@ export function FlightScreen() {
       setReady(true);
 
       let elapsedFlightS = 0;
+      let previousNavState = 'PREFLIGHT';
+      let exploreElapsedS = 1;
+      // The simulation remains at its fixed 60 Hz, while the HUD only needs fresh
+      // React snapshots at 15 Hz. This avoids rerendering the full HUD/store tree
+      // every physics tick without delaying simulation-side edge events.
+      const HUD_UPDATE_INTERVAL_S = 1 / 15;
+      let hudUpdateElapsedS = 0;
       // Edge state for controller buttons. Axes/triggers are continuously sampled,
       // while toggles must fire once per press rather than every animation frame.
       let previousGamepadButtons = { engine: false, flaps: false, pause: false };
       let gamepadWasConnected = false;
+      // Analog trigger only writes throttle when it moves, so it doesn't stomp keyboard
+      // accumulation every frame; whichever device moved last owns the throttle.
+      let lastGamepadThrottle = -1;
 
       const pollGamepad = () => {
         const gamepad = navigator.getGamepads?.().find((pad) => pad?.connected);
@@ -313,12 +396,16 @@ export function FlightScreen() {
             controls.releaseMomentaryControls();
           }
           gamepadWasConnected = false;
+          lastGamepadThrottle = -1;
           previousGamepadButtons = { engine: false, flaps: false, pause: false };
           return;
         }
         gamepadWasConnected = true;
         const controls = useMode2Store.getState();
-        controls.setThrottle(input.throttle);
+        if (Math.abs(input.throttle - lastGamepadThrottle) > 0.01) {
+          controls.setThrottle(input.throttle);
+          lastGamepadThrottle = input.throttle;
+        }
         controls.setAileron(input.roll);
         // Gamepad Y axis is -1 when pushed up; elevator +1 means stick pushed forward.
         controls.setElevator(-input.pitch);
@@ -356,6 +443,7 @@ export function FlightScreen() {
           currentPosition.x -= delta.x; currentPosition.z -= delta.z;
           renderPosition.x -= delta.x; renderPosition.z -= delta.z;
           windPosition.x -= delta.x; windPosition.z -= delta.z;
+          scene.shiftOrigin(delta.x, delta.z);
         });
       }
 
@@ -372,7 +460,14 @@ export function FlightScreen() {
       let lastTouchdown: number | null = null;
       let lastEngineOn = false;
       let lastStalled = false;
+      // Music triggers (musicDirector.ts): edges and a 1 Hz landmark scan.
+      let lastOnGround = true;
+      let landmarkScanS = 0;
+      let seenLandmarks: Set<string> | null = null;
+      const gustMs = region.environment?.gustStrengthMs ?? 0;
+      let lastImpactSpeed = 0;
       const engineSpec = aircraft.engine;
+      const engineVoice = getEngineCharacter(engineSpec?.id).sound;
 
       /** Advances the authoritative simulation by whole fixed ticks and applies every
        * per-tick side effect (feedback, damage visuals, end of flight). Shared by the
@@ -398,7 +493,36 @@ export function FlightScreen() {
         }
         if (!telem) return;
         lastTelemetry = telem;
-        setTelemetry(telem);
+        hudUpdateElapsedS += steps * fixedDt;
+        if (hudUpdateElapsedS >= HUD_UPDATE_INTERVAL_S || telem.crashed || telem.landed) {
+          hudUpdateElapsedS %= HUD_UPDATE_INTERVAL_S;
+          setTelemetry(telem);
+          useGameStore.getState().setFlightTelemetry(telem);
+          if (navPlan) {
+            // Plan coordinates are the unshifted streaming frame; telemetry is floating-origin relative.
+            const off = masterWorld?.runtime.origin.originOffset;
+            const ox = off?.x ?? 0, oz = off?.z ?? 0;
+            const pos = [telem.position[0] + ox, telem.position[1], telem.position[2] + oz] as const;
+            navPlan = activateFlightPlan(advancePlan(navPlan, pos[0], pos[2], telem.headingDeg));
+            let g = guidance(navPlan, { position: pos, headingDeg: telem.headingDeg, landed: telem.landed, airspeedMs: telem.airspeedMs, verticalSpeedMs: telem.verticalSpeedMs });
+            if (g.goAroundRecommended && !telem.onGround && navPlan.runway) {
+              navPlan = goAroundPlan(navPlan, { x: pos[0], z: pos[2] }, telem.headingDeg);
+              g = guidance(navPlan, { position: pos, headingDeg: telem.headingDeg, airspeedMs: telem.airspeedMs, verticalSpeedMs: telem.verticalSpeedMs });
+            }
+            if (g.state !== previousNavState) {
+              if (g.state === 'APPROACH') audioService.playEvent('approach');
+              else if (g.state === 'FINAL') audioService.playEvent('final');
+              else if (g.state === 'GO_AROUND') audioService.playEvent('goAround');
+              else if (g.state === 'ENROUTE' && navPlan.active > 1) audioService.playEvent('waypoint');
+              previousNavState = g.state;
+            }
+            setNav(g);
+            scene.setGuidanceCue(
+              navVis.worldMarker && ['waypoint', 'approach', 'final', 'threshold'].includes(g.target.kind) ? { x: g.target.x - ox, z: g.target.z - oz, minAltM: g.target.minAltM, kind: g.target.kind, runway: g.runway ? { elevationM: g.runway.elevationM, headingDeg: g.runway.approachHeadingDeg, glideAngleDeg: g.runway.glideAngleDeg, thresholdX: navPlan!.points.find((p) => p.kind === 'threshold')!.x - ox, thresholdZ: navPlan!.points.find((p) => p.kind === 'threshold')!.z - oz } : undefined } : null,
+              navVis.hudArrow ? g.deltaDeg : null,
+            );
+          }
+        }
 
         // Impact feedback: screen shake + stinger the moment damage/crash severity escalates.
         if (telem.crashOutcome !== lastCrashOutcome && telem.crashOutcome !== 'none') {
@@ -418,18 +542,50 @@ export function FlightScreen() {
         lastStalled = telem.stalled;
         lastCrashOutcome = telem.crashOutcome;
 
+        if (telem.crashOutcome === 'totalLoss') audioService.musicEvent('crash');
+        else if (!telem.onGround) {
+          if (lastOnGround) {
+            audioService.musicEvent(visitedMusicRegions.has(region.id) ? 'takeoff' : 'regionEnter');
+            visitedMusicRegions.add(region.id);
+            if (gustMs >= 7) audioService.musicEvent('dangerousWeather');
+          }
+          if (telem.stallWarning || !telem.engineOn || telem.fuelFraction < 0.08) audioService.musicEvent('emergency');
+          if (gustMs >= 5 && useProfileStore.getState().profile.operations.active?.session.phase === 'APPROACH') audioService.musicEvent('hardApproach');
+          landmarkScanS += steps * fixedDt;
+          if (landmarkScanS >= 1) {
+            landmarkScanS = 0;
+            const found = discoverLandmarks(region.id, terrainQuery, { x: telem.position[0], z: telem.position[2], elevationM: telem.position[1] }, seenLandmarks ?? new Set());
+            // First scan only seeds what is already in view at departure.
+            if (seenLandmarks && found.size > seenLandmarks.size) audioService.musicEvent('landmarkDiscovered');
+            seenLandmarks = found;
+          }
+        }
+        lastOnGround = telem.onGround;
+
         if (telem.damagedPartIds.length !== lastDamagedCount || telem.detachedPartIds.length !== lastDetachedCount) {
-          const wingDamaged = telem.damagedPartIds.some((id) => id !== 'elevator' && id !== 'rudder');
-          const wingDetached = telem.detachedPartIds.some((id) => id !== 'elevator' && id !== 'rudder');
-          const tailDamaged = telem.damagedPartIds.some((id) => id === 'elevator' || id === 'rudder');
-          const tailDetached = telem.detachedPartIds.some((id) => id === 'elevator' || id === 'rudder');
+          const isWing = (id: string) => id.startsWith('wing') || id.startsWith('aileron');
+          const isTail = (id: string) => id === 'elevator' || id === 'rudder' || id === 'tail';
+          const wingDamaged = telem.damagedPartIds.some(isWing);
+          const wingDetached = telem.detachedPartIds.some(isWing);
+          const tailDamaged = telem.damagedPartIds.some(isTail);
+          const tailDetached = telem.detachedPartIds.some(isTail);
           scene.setPartVisualState('wing', wingDamaged, wingDetached);
           scene.setPartVisualState('tail', tailDamaged, tailDetached);
           lastDamagedCount = telem.damagedPartIds.length;
           lastDetachedCount = telem.detachedPartIds.length;
         }
+        scene.setImpactDamage(telem.impactZone, telem.detachedPartIds, telem.impactSpeedMs, telem.partIntegrity);
+        const impactSpeed = telem.impactSpeedMs ?? 0;
+        if (telem.impactZone && impactSpeed > lastImpactSpeed + 0.5) {
+          // Metal/structure dragged fast along the ground throws sparks; everything else kicks up dust.
+          const sparks = telem.impactZone !== 'gear' && impactSpeed > 8;
+          scene.spawnImpactBurst(telem.impactZone, 'dust', impactSpeed / 15);
+          if (sparks) scene.spawnImpactBurst(telem.impactZone, 'sparks', impactSpeed / 25);
+        }
+        lastImpactSpeed = impactSpeed;
+        const vibration = telem.vibration ?? 0;
+        if (vibration > 0.1 && telem.engineOn) scene.triggerImpactShake(vibration * 0.06 * (telem.rpm > 0 ? 1 : 0), 0.12);
 
-        useGameStore.getState().setFlightTelemetry(telem);
         if (contract) {
           // Phases, terminal states and payment all come from the mission domain, fed by real telemetry.
           if (tickContractFlight(telem) && endTimerRef.current === null) {
@@ -480,8 +636,15 @@ export function FlightScreen() {
         };
       }
 
+      const instrumentFit = { engine: controller.sim.def.engine, hasFlaps: hasFlaps(controller.sim.def) };
       const loop = () => {
         if (disposed) return;
+        if (document.hidden) {
+          // RAF can keep firing in some embedded browsers while hidden. Skip all
+          // scene, audio and gamepad work; visibilitychange already pauses flight.
+          frameId = requestAnimationFrame(loop);
+          return;
+        }
         const now = performance.now();
         const frameDt = Math.min(0.1, (now - lastNow) / 1000);
         lastNow = now;
@@ -490,6 +653,12 @@ export function FlightScreen() {
 
         let renderAlpha = 1;
         if (!useGameStore.getState().paused) {
+          const up = pressed.has('w');
+          const down = pressed.has('s');
+          if (up || down) {
+            const controls = useMode2Store.getState();
+            controls.setThrottle(stepKeyboardThrottle(controls.throttle, up, down, pressed.has('shift'), frameDt));
+          }
           const frame = clock.advance(frameDt);
           renderAlpha = frame.alpha;
           advanceSim(frame.steps, getResolvedControls);
@@ -514,6 +683,21 @@ export function FlightScreen() {
           masterWorld.update(t.x, t.z, v.x, v.z, aglM);
         }
 
+        // Fog of Discovery (world/exploration.ts), ~1 Hz from the aircraft's TRUE master-world position.
+        exploreElapsedS += frameDt;
+        if (exploreElapsedS >= 1 && masterTerrain.hasFrame(region.id)) {
+          exploreElapsedS = 0;
+          const t = controller.body.translation();
+          const off = masterWorld?.runtime.origin.originOffset;
+          const lx = t.x + (off?.x ?? 0), lz = t.z + (off?.z ?? 0);
+          const [wx, wz] = masterTerrain.localToWorld(region.id, lx, lz);
+          const events = useProfileStore.getState().recordExploration({
+            x: wx, z: wz, aglM: t.y - terrainQuery.getElevation(t.x, t.z), onGround: lastTelemetry?.onGround ?? true,
+          });
+          const shown = events.filter((e) => e.kind !== 'airfield_sighted' || !events.some((o) => o.id === e.id && o.kind !== e.kind));
+          if (shown.length) setDiscoveryToast(shown.map(describeDiscovery).join(' · '));
+        }
+
         const speedMs = lastTelemetry?.speedMs ?? 0;
         scene.syncAircraft(renderPosition, renderQuaternion, frameDt, {
           speedMs,
@@ -521,12 +705,20 @@ export function FlightScreen() {
           gForce: lastTelemetry?.gForce ?? 1,
           stalled: lastTelemetry?.stalled ?? false,
         });
-        scene.animateAircraft(controller.sim.controls.target, lastTelemetry?.rpm ?? 0, frameDt);
+        if (lastTelemetry) scene.updateInstruments(lastTelemetry, frameDt, instrumentFit);
+        scene.animateAircraft(
+          { ...controller.sim.controls.target, flaps: controller.sim.controls.actuators.position.flaps }, lastTelemetry?.rpm ?? 0, frameDt,
+          lastTelemetry?.groundSpeedMs ?? 0, lastTelemetry?.onGround ?? true,
+          aircraft.engine?.gearRatio ?? 2.3,
+          { compressionM: controller.sim.gear.wheels.map((w) => w.compressionM), steerRad: controller.sim.gear.wheels[0]?.steerRad ?? 0 },
+        );
+        scene.animatePilot({ ...controller.sim.assisted, gForce: lastTelemetry?.gForce ?? 1 }, frameDt);
         scene.updateEnvironment(elapsedFlightS, getEnvironmentWind(region, elapsedFlightS, currentPosition));
         audioService.updateFlight({
           rpm: lastTelemetry?.rpm ?? 0,
           idleRpm: engineSpec?.idleRpm ?? 1600,
           redlineRpm: engineSpec?.redlineRpm ?? 6200,
+          voice: engineVoice,
           throttle: lastTelemetry?.throttle ?? 0,
           airspeedMs: lastTelemetry?.airspeedMs ?? 0,
           groundSpeedMs: lastTelemetry?.groundSpeedMs ?? 0,
@@ -562,11 +754,12 @@ export function FlightScreen() {
     <div className="flight-screen">
       <canvas ref={canvasRef} className="flight-canvas" />
       {ready && telemetry && (
-        <FlightHud telemetry={telemetry} mission={mission} fuelCapacityL={fuelCapacityL} phaseLabel={missionSession?.phase ? PHASE_LABEL[missionSession.phase] : missionSession ? STATE_LABEL[missionSession.state] : undefined} contractState={missionSession?.state} freeFlightRegionName={mission ? undefined : activeRegion.name} freeFlightAirfieldName={mission ? undefined : getFreeFlightAirfield(activeRegion.id)?.name} onPause={() => setPaused(true)} paused={paused} />
+        <FlightHud telemetry={telemetry} mission={mission} nav={nav} navMode={profile.settings.navGuidance} fuelCapacityL={fuelCapacityL} phaseLabel={missionSession?.phase ? PHASE_LABEL[missionSession.phase] : missionSession ? STATE_LABEL[missionSession.state] : undefined} contractState={missionSession?.state} freeFlightRegionName={mission ? undefined : activeRegion.name} freeFlightAirfieldName={mission ? undefined : getFreeFlightAirfield(activeRegion.id)?.name} onPause={() => setPaused(true)} paused={paused} fpv={fpv} onToggleCamera={() => setFpv((v) => !v)} />
       )}
       {ready && debugOn && (
         <FlightDebugOverlay getModel={getModel} recorder={recorderRef.current} showGizmos={gizmosOn} onToggleGizmos={() => setGizmosOn((v) => !v)} />
       )}
+      {discoveryToast && <div className="discovery-toast" role="status" data-testid="discovery-toast">{discoveryToast}</div>}
       {!ready && <div className="loading-overlay">Cargando taller y pista…</div>}
     </div>
   );

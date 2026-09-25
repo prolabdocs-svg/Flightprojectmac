@@ -65,7 +65,7 @@ export const useMode2Store = create<Mode2State>((set) => ({
   aileron: 0,
   invertPitch: false,
   preset: 'normal',
-  assistMode: 'assisted',
+  assistMode: 'standard',
   engineOn: false,
   brake: false,
   flapsDown: false,
@@ -106,4 +106,16 @@ export function getResolvedControls() {
     chuteDeployed: s.chuteDeployed,
     assistMode: s.assistMode,
   };
+}
+
+/** Keyboard throttle accumulation (W/S held). Rates are fractions of full travel per second:
+ * a ~80 ms tap moves ~4%, holding W goes 0 -> 100% in ~2 s. Shift = fine control. */
+export const KEYBOARD_THROTTLE = { increaseRatePerS: 0.5, decreaseRatePerS: 0.6, fineMultiplier: 0.25 };
+
+export function stepKeyboardThrottle(
+  throttle: number, up: boolean, down: boolean, fine: boolean, dtS: number, cfg = KEYBOARD_THROTTLE,
+): number {
+  const k = fine ? cfg.fineMultiplier : 1;
+  const next = throttle + ((up ? cfg.increaseRatePerS : 0) - (down ? cfg.decreaseRatePerS : 0)) * k * dtS;
+  return Math.max(0, Math.min(1, next));
 }

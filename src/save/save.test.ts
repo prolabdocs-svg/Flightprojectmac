@@ -12,7 +12,7 @@ describe('createDefaultProfile', () => {
     expect(profile.cash).toBe(200);
     expect(profile.researchPoints).toBe(0);
     expect(profile.unlockedTech).toEqual([]);
-    expect(profile.ownedParts).toEqual(expect.arrayContaining(['engine_small', 'wing_a_basic', 'tank_8', 'gear_light']));
+    expect(profile.ownedParts).toEqual(expect.arrayContaining(['engine_small', 'wing_quicksilver_mxii', 'tank_8', 'gear_light']));
     expect(profile.ownedPaintIds).toContain('paint_default');
     expect(profile.selectedPaintId).toBe('paint_default');
   });
@@ -97,5 +97,16 @@ describe('SaveRepository (IndexedDB-backed)', () => {
     const loaded = reloaded.saveRepository.load();
     expect(loaded?.homeBase).toEqual({ runwayLevel: 0, hangarLevel: 0 });
     expect(loaded?.schemaVersion).toBe(mod.SAVE_SCHEMA_VERSION);
+  });
+});
+
+describe('RANS -> Nightjar save alias', () => {
+  it('carries ownership, research and the active build over to the Nightjar', () => {
+    const old = { ...createDefaultProfile(), ownedFrameIds: ['frame_zero', 'frame_rans_s12xl'], unlockedTech: ['airframe_rans_s12xl'], currentBuild: { frameId: 'frame_rans_s12xl', installed: { engine: 'rotax_582' } } };
+    const p = migrateProfile(old as never);
+    expect(p.ownedFrameIds).toEqual(['frame_zero', 'frame_nightjar']);
+    expect(p.unlockedTech).toEqual(['airframe_nightjar']);
+    expect(p.currentBuild.frameId).toBe('frame_nightjar');
+    expect(p.currentBuild.installed.engine).toBe('rotax_503');
   });
 });

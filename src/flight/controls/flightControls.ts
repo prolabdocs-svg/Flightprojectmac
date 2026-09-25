@@ -15,9 +15,10 @@ export interface PilotCommand {
   yaw: number;
   throttle: number;
   brake: number;
+  flaps?: boolean;
 }
 
-export const NEUTRAL_COMMAND: PilotCommand = { pitch: 0, roll: 0, yaw: 0, throttle: 0, brake: 0 };
+export const NEUTRAL_COMMAND: PilotCommand = { pitch: 0, roll: 0, yaw: 0, throttle: 0, brake: 0, flaps: false };
 
 const clamp1 = (v: number) => Math.max(-1, Math.min(1, v));
 
@@ -34,22 +35,23 @@ export function mixSurfaces(cmd: PilotCommand, c: ControlDefinition, out: Surfac
   out.aileronRight = r > 0 ? -r * up : -r * down;
   out.aileronLeft = r > 0 ? r * down : r * up;
   out.rudder = y * c.rudderMaxDeg * DEG;
+  out.flaps = cmd.flaps ? (c.flapMaxDeg ?? 25) * DEG : 0;
   return out;
 }
 
 export class SurfaceActuators {
-  readonly position: SurfaceDeflections = { elevator: 0, aileronLeft: 0, aileronRight: 0, rudder: 0 };
-  private readonly limits: SurfaceDeflections;
+  readonly position: SurfaceDeflections = { elevator: 0, aileronLeft: 0, aileronRight: 0, rudder: 0, flaps: 0 };
+  private readonly limits: { elevator: number; aileronLeft: number; aileronRight: number; rudder: number; flaps: number };
   private readonly rateRad: number;
 
   constructor(defn: ControlDefinition) {
     const up = defn.aileronUpMaxDeg * DEG;
-    this.limits = { elevator: defn.elevatorMaxDeg * DEG, aileronLeft: up, aileronRight: up, rudder: defn.rudderMaxDeg * DEG };
+    this.limits = { elevator: defn.elevatorMaxDeg * DEG, aileronLeft: up, aileronRight: up, rudder: defn.rudderMaxDeg * DEG, flaps: (defn.flapMaxDeg ?? 25) * DEG };
     this.rateRad = defn.surfaceRateDegS * DEG;
   }
 
   reset(): void {
-    this.position.elevator = this.position.aileronLeft = this.position.aileronRight = this.position.rudder = 0;
+    this.position.elevator = this.position.aileronLeft = this.position.aileronRight = this.position.rudder = this.position.flaps = 0;
   }
 
   /** Slews every surface toward `target` by at most rate*dt and enforces travel limits. */
@@ -61,6 +63,7 @@ export class SurfaceActuators {
     p.aileronLeft = slew(p.aileronLeft, target.aileronLeft, maxStep, l.aileronLeft);
     p.aileronRight = slew(p.aileronRight, target.aileronRight, maxStep, l.aileronRight);
     p.rudder = slew(p.rudder, target.rudder, maxStep, l.rudder);
+    p.flaps = slew(p.flaps ?? 0, target.flaps ?? 0, maxStep, l.flaps);
     return p;
   }
 }
@@ -74,7 +77,7 @@ function slew(current: number, target: number, maxStep: number, limit: number): 
 /** Mixer + actuators as one unit. */
 export class FlightControls {
   readonly actuators: SurfaceActuators;
-  readonly target: SurfaceDeflections = { elevator: 0, aileronLeft: 0, aileronRight: 0, rudder: 0 };
+  readonly target: SurfaceDeflections = { elevator: 0, aileronLeft: 0, aileronRight: 0, rudder: 0, flaps: 0 };
   private readonly defn: ControlDefinition;
 
   constructor(defn: ControlDefinition) {

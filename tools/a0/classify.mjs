@@ -27,9 +27,9 @@ export function classify(x, y, z, nx, ny, nz, t) {
   // Propeller: two blades behind the wing trailing edge, hub on the crank shaft.
   if (ax < 0.16 && z > -0.062 && z < -0.014 && y > 0.293 && y < 0.362) return 'prop';
   const yb = wingBottom(ax);
-  // Cables lying on the skin are excluded (round, thin); the outer skin itself is only ~0.01 thick.
-  const rim = z > 0.27 || z < wingTrailingEdge(ax) + 0.024 || ax > 0.94;
-  if (ax < 0.965 && z > -0.075 && z < 0.305 && y > yb - 0.008 && y < yb + (ax < 0.2 ? 0.056 : 0.05) && (Math.abs(ny) > 0.75 || t > 0.006 || rim)) return 'wing';
+  // Cables and frame tubes (t < 0.026) poking into the skin band stay tube-coloured; the skin itself is caught by its normal.
+  const rim = (z > 0.27 && (nz > 0.2 || Math.abs(ny) > 0.5)) || z < wingTrailingEdge(ax) + 0.024 || ax > 0.94;
+  if (ax < 0.965 && z > -0.075 && z < 0.305 && y > yb - 0.008 && y < yb + (ax < 0.2 ? 0.056 : 0.05) && (Math.abs(ny) > 0.75 || t > 0.03 || rim)) return 'wing';
   const tb = tailBottom(ax);
   if (z < -0.40 && ax < 0.245 && y > tb - 0.014 && y < tb + 0.05 && !(ax < 0.02 && y > tb + 0.03)) return 'tail';
   if (z < -0.395 && ax < 0.03 && y > 0.235 && y < 0.42 && t < 0.02) return 'fin';

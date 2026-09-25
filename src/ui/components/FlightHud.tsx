@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { MissionDefinition } from '../../core/types';
 import type { FlightTelemetry } from '../../flight/flightTypes';
 import type { ContractState } from '../../mission/types';
@@ -6,6 +6,8 @@ import { useMode2Store } from '../../input/mode2Store';
 import { audioService } from '../../audio/audioService';
 import { getMissionProgress } from '../../content/missionProgress';
 import { VirtualStick } from './VirtualStick';
+import { guidanceVisibility, type Guidance, type GuidanceMode } from '../../nav/flightPlan';
+import { formatDistance } from '../../map/mapPlan';
 import './FlightHud.css';
 
 // Placeholder engine RPM range used to normalize the procedural engine sound
@@ -21,15 +23,29 @@ interface FlightHudProps {
   freeFlightAirfieldName?: string;
   paused: boolean;
   onPause: () => void;
+  fpv: boolean;
+  onToggleCamera: () => void;
   /** Tank size in litres, so the fuel readout is the same magnitude the simulation burns and the save stores. */
   fuelCapacityL?: number;
   /** Current mission phase from the mission domain (RODAJE, DESPEGUE, ...). */
   phaseLabel?: string;
   /** Contract state from the mission domain; when present it decides the end-of-flight banner. */
   contractState?: ContractState;
+  /** Live route guidance (src/nav) and how much of it the difficulty reveals. */
+  nav?: Guidance | null;
+  navMode?: GuidanceMode;
 }
 
-export function FlightHud({ telemetry, mission, freeFlightRegionName, freeFlightAirfieldName, paused, onPause, fuelCapacityL, phaseLabel, contractState }: FlightHudProps) {
+export function FlightHud({ telemetry, mission, freeFlightRegionName, freeFlightAirfieldName, paused, onPause, fpv, onToggleCamera, fuelCapacityL, phaseLabel, contractState, nav, navMode = 'standard' }: FlightHudProps) {
+  const [impactPulse, setImpactPulse] = useState<'hard' | 'crash' | null>(null);
+  const impactKey = `${telemetry.crashOutcome}:${telemetry.lastTouchdownVsMs}:${telemetry.crashed}`;
+  useEffect(() => {
+    if (telemetry.crashed) setImpactPulse('crash');
+    else if (telemetry.crashOutcome === 'hardLanding' && telemetry.lastTouchdownVsMs !== null) setImpactPulse('hard');
+    else return;
+    const timeout = window.setTimeout(() => setImpactPulse(null), 620);
+    return () => window.clearTimeout(timeout);
+  }, [impactKey, telemetry.crashed, telemetry.crashOutcome, telemetry.lastTouchdownVsMs]);
   const setThrottle = useMode2Store((s) => s.setThrottle);
   const setRudder = useMode2Store((s) => s.setRudder);
   const setElevator = useMode2Store((s) => s.setElevator);
@@ -93,12 +109,16 @@ export function FlightHud({ telemetry, mission, freeFlightRegionName, freeFlight
   const fuelStatus = fuelPct <= 12 ? 'critical' : fuelPct <= 28 ? 'caution' : 'nominal';
   const rpmStatus = rpmFrac >= 0.97 ? 'critical' : rpmFrac >= 0.88 ? 'caution' : 'nominal';
   const missionProgress = getMissionProgress(mission, telemetry);
-  const bearingLabel = missionProgress?.bearingDeltaDeg === undefined
+  const navVis = guidanceVisibility(navMode);
+  // Without a flight plan the legacy objective bearing still points the way (Minimal hides both).
+  const bearingDeg = nav ? nav.deltaDeg : missionProgress?.bearingDeltaDeg;
+  const bearingLabel = bearingDeg === undefined || !navVis.hudArrow
     ? null
-    : `${missionProgress.bearingDeltaDeg < -8 ? '←' : missionProgress.bearingDeltaDeg > 8 ? '→' : '↑'} ${Math.abs(Math.round(missionProgress.bearingDeltaDeg))}°`;
+    : `${bearingDeg < -8 ? '←' : bearingDeg > 8 ? '→' : '↑'} ${Math.abs(Math.round(bearingDeg))}°`;
 
   return (
     <div className="flight-hud">
+      {impactPulse && <div key={impactKey} className={`hud-impact-flash is-${impactPulse}`} aria-hidden="true" />}
       {speedVignetteOpacity > 0 && (
         <div className="hud-speed-vignette" style={{ opacity: speedVignetteOpacity }} />
       )}
@@ -119,6 +139,9 @@ export function FlightHud({ telemetry, mission, freeFlightRegionName, freeFlight
           <span className="hud-value">{Math.round(telemetry.rpm)}</span>
           <span className="hud-unit">RPM</span>
         </div>
+        <button className="hud-pause-btn" onClick={onToggleCamera} aria-pressed={fpv} title="Cámara (C)">
+          <span aria-hidden="true">{fpv ? '3P' : 'FPV'}</span><span className="sr-only">Cambiar cámara</span>
+        </button>
         <button className="hud-pause-btn" onClick={onPause} disabled={paused}>
           <span aria-hidden="true">Ⅱ</span><span className="sr-only">Pausar</span>
         </button>
@@ -128,8 +151,22 @@ export function FlightHud({ telemetry, mission, freeFlightRegionName, freeFlight
         <div className="hud-mission-banner">
           <strong>{mission.name}</strong>
           <span className={`hud-objective hud-objective-${missionProgress?.state ?? 'active'}`}>{missionProgress?.primaryLabel}</span>
-          {missionProgress?.secondaryLabel && <span>{missionProgress.secondaryLabel}</span>}
-          {bearingLabel && <span className="hud-bearing" aria-label={`Rumbo al destino ${bearingLabel}`}>{bearingLabel}</span>}
+          {missionProgress?.secondaryLabel && !nav && <span>{missionProgress.secondaryLabel}</span>}
+          {bearingLabel && navVis.hudName && <span className="hud-bearing" aria-label={`Rumbo al destino ${bearingLabel}`}>{bearingLabel}</span>}
+          {nav && navVis.hudName && (
+            <span className="hud-nav" data-testid="hud-nav">
+              <b>{nav.phase === 'go-around' ? 'GO AROUND' : nav.phase === 'final' ? 'FINAL' : nav.phase === 'approach' ? 'APROX.' : nav.legCount > 1 ? `WP ${nav.legIndex}/${nav.legCount}` : 'DEST.'}</b>
+              {' '}{nav.targetLabel} · {formatDistance(nav.distanceM)}
+              {navVis.hudArrow && ` · RUMBO ${String(Math.round(nav.bearingDeg)).padStart(3, '0')}°`}
+              {navVis.approachReadout && nav.runway && nav.thresholdDistanceM !== undefined && nav.alignmentErrorDeg !== undefined && nav.lateralDeviationM !== undefined && nav.verticalDeviationM !== undefined && (
+                <em className="hud-nav-approach"> · PISTA {nav.runway.approachHeadingDeg.toFixed(0).padStart(3, '0')}° · UMBRAL {formatDistance(nav.thresholdDistanceM)} · EJE {Math.round(Math.abs(nav.lateralDeviationM))} m {nav.lateralDeviationM < 0 ? 'IZQ.' : 'DER.'} · ALINEA {Math.round(Math.abs(nav.alignmentErrorDeg))}° · SENDA {nav.verticalDeviationM > 0 ? '+' : ''}{Math.round(nav.verticalDeviationM)} m</em>
+              )}
+              {nav.goAroundRecommended && navVis.approachReadout && <strong className="hud-nav-go-around"> · GO AROUND</strong>}
+              {navVis.hudAltitude && nav.targetAltM !== undefined && nav.climbNeededM !== undefined && nav.climbNeededM > 0 && (
+                <em className="hud-nav-alt"> · SUBIR a {Math.round(nav.targetAltM * 3.281)} ft</em>
+              )}
+            </span>
+          )}
           {phaseLabel && <span className="hud-phase" data-testid="hud-phase">{phaseLabel}</span>}
           <span>{telemetry.elapsedS.toFixed(1)} s</span>
         </div>
@@ -158,6 +195,20 @@ export function FlightHud({ telemetry, mission, freeFlightRegionName, freeFlight
         )}
       </div>
 
+      {telemetry.partIntegrity && Object.entries(telemetry.partIntegrity).some(([, value]) => value < 0.7) && (
+        <aside className="hud-damage-readout" aria-label="Daños visibles en la estructura">
+          <div><strong>DAÑO ESTRUCTURAL</strong><span>{telemetry.detachedPartIds.length ? 'FALLO' : 'DEGRADADO'}</span></div>
+          {Object.entries(telemetry.partIntegrity).filter(([, value]) => value < 0.7).sort((a, b) => a[1] - b[1]).slice(0, 3).map(([id, value]) => (
+            <section key={id}>
+              <span>{({ __gear__: 'Tren', wing_root_main: 'Ala', wing_l: 'Ala izq.', wing_r: 'Ala der.', aileron_l: 'Alerón izq.', aileron_r: 'Alerón der.', elevator: 'Elevador', rudder: 'Timón', tail: 'Cola', nose: 'Morro', engine: 'Motor', propeller: 'Hélice', fuselage: 'Fuselaje' } as Record<string, string>)[id] ?? id.replaceAll('_', ' ')}</span>
+              <i><b className={value < 0.4 ? 'is-critical' : ''} style={{ width: `${Math.round(value * 100)}%` }} /></i>
+              <em>{Math.round(value * 100)}%</em>
+            </section>
+          ))}
+        </aside>
+      )}
+
+
       <div className="hud-secondary-controls">
         <button className={engineOn ? 'active' : ''} onClick={toggleEngine}>
           <span className="control-code">PWR</span>{engineOn ? 'CORTAR' : 'MOTOR'}
@@ -178,7 +229,7 @@ export function FlightHud({ telemetry, mission, freeFlightRegionName, freeFlight
       </div>
 
       <div className="hud-keyboard-hint" aria-hidden="true">
-        Teclado: W/S potencia · ↑↓ cabeceo · ←→ alabeo · A/D timón · Espacio freno · E motor · F flaps · Mando: sticks + RT potencia
+        Teclado: W/S potencia (mantener; Mayús = fino) · ↑↓ cabeceo · ←→ alabeo · A/D timón · Espacio freno · E motor · F flaps · Mando: sticks + RT potencia
       </div>
 
       <div className="hud-sticks">

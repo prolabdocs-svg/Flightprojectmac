@@ -39,6 +39,8 @@ export interface FlightTelemetry {
   speedMs: number;
   altitudeM: number;
   aoaDeg: number;
+  /** Sideslip, > 0 = relative wind from the right (drives the cockpit slip ball). Optional for fixtures. */
+  sideslipDeg?: number;
   distanceM: number;
   maxAltitudeM: number;
   maxSpeedMs: number;
@@ -78,6 +80,10 @@ export interface FlightTelemetry {
   throttle: number;
   engineOn: boolean;
   outOfFuel: boolean;
+  /** Engine head temperature as a fraction of its limit (>1 = overheating and derated). */
+  engineTempFrac?: number;
+  /** Power factor lost to heat (1 = none). */
+  engineDerate?: number;
   /** Approaching critical angle of attack or near stall speed while airborne. */
   stallWarning: boolean;
   /** Wing past critical angle of attack (lift collapsing). */
@@ -92,4 +98,9 @@ export interface FlightTelemetry {
   lastTouchdownVsMs: number | null;
   /** Why the flight ended in a crash, null otherwise. */
   crashReason: CrashReason | null;
+  /** Airframe contact zone that received the latest significant impact. */
+  impactZone?: string | null;
+  impactSpeedMs?: number;
+  /** 0..1 airframe vibration from prop/engine damage (camera shake, audio). */
+  vibration?: number;
 }

@@ -9,6 +9,7 @@ import type { AircraftBuild } from '../core/types';
 import type { ResolvedAircraft } from '../content/assembly';
 import { buildAircraftDefinition } from './aircraft/quicksilver';
 import { payloadMassItem } from './aircraft/payload';
+import { hasFlaps } from './aircraft/aircraftDefinition';
 import { AircraftSimulation } from './core/aircraftSimulation';
 import { PHYSICS_DT, SEA_LEVEL_DENSITY, GRAVITY } from './core/constants';
 import { attitude } from './core/coordinates';
@@ -22,8 +23,8 @@ import {
   type CrashReason, type FlightState, type FlightTelemetry, type ResolvedControls,
 } from './flightTypes';
 import {
-  applyGroundImpact, createDamageState, getAeroEffectivenessMultiplier, getGroundHandlingPenalty,
-  listDamagedPartIds, listDetachedPartIds, gearPartId, type DamageState,
+  applyImpact, impactEnergyJ, isAirframeLost, getPowerMultiplier, getVibration,
+  createDamageState, getAeroEffectivenessMultiplier, getGroundHandlingPenalty, listDamagedPartIds, listDetachedPartIds, gearPartId, type DamageState,
 } from '../sim/damageSystem';
 import { validateLanding, type LandingTelemetry, type RunwayConditions } from '../world/landingValidator';
 import type { TerrainQueryService } from '../world/terrainQuery';
@@ -71,6 +72,12 @@ export class FlightModel {
   private readonly clMax: number;
   private readonly initialFuelL: number;
   private readonly initialPartIntegrity?: Record<string, number>;
+  private readonly basePower: number;
+  private readonly hasFlaps: boolean;
+  /** Hard points in contact last tick (ground or obstacle): impacts are edge-triggered. */
+  private readonly touching = new Set<string>();
+  /** An obstacle strike started this chain of damage; it stays the crash reason. */
+  private obstacleStruck = false;
 
   private state: FlightState = 'prestart';
   private crashed = false;
@@ -88,6 +95,8 @@ export class FlightModel {
   private stoppedS = 0;
   private touchdown: LandingTelemetry | null = null;
   private lastTouchdownVsMs: number | null = null;
+  private impactZone: string | null = null;
+  private impactSpeedMs = 0;
   private gForce = 1;
   private stalled = false;
   private stallWarning = false;
@@ -126,7 +135,8 @@ export class FlightModel {
     this.windField = new WindField({ ...DEFAULT_WIND_CONFIG, ...opts.wind });
     const def = buildAircraftDefinition(build);
     const payloadKg = Math.max(0, opts.load?.payloadKg ?? 0);
-    if (payloadKg > 0) def.mass.items.push(payloadMassItem(payloadKg));
+    if (payloadKg > 0) def.mass.items.push(payloadMassItem(payloadKg, def.mass.payloadPosition));
+    this.hasFlaps = hasFlaps(def);
     this.initialFuelL = Math.min(def.mass.fuelCapacityL, Math.max(0, opts.load?.fuelL ?? def.mass.fuelCapacityL));
     this.sim = new AircraftSimulation(world, def, groundFromTerrain(terrain));
     this.sim.physics.fuelL = this.initialFuelL;
@@ -135,7 +145,8 @@ export class FlightModel {
     this.initialPartIntegrity = opts.initialPartIntegrity;
     this.damage = this.seededDamageState();
     this.sim.effectiveness = (id) => getAeroEffectivenessMultiplier(this.damage, id);
-    this.sim.powerMultiplier = Math.max(0, opts.powerMultiplier ?? 1);
+    this.basePower = Math.max(0, opts.powerMultiplier ?? 1);
+    this.sim.powerMultiplier = this.basePower;
     this.sim.placeOnGround(this.spawnXZ[0], this.spawnXZ[1], this.spawnHeadingDeg);
     this.groundY = terrain.getElevation(spawnPos.x, spawnPos.z);
   }
@@ -170,15 +181,19 @@ export class FlightModel {
     this.airborneS = this.stoppedS = 0;
     this.touchdown = null;
     this.lastTouchdownVsMs = null;
+    this.impactZone = null;
+    this.impactSpeedMs = 0;
     this.touchdownClass.value = null;
     this.damage = this.seededDamageState();
+    this.touching.clear();
+    this.obstacleStruck = false;
   }
 
   /** Fresh nominal damage state, with any part the caller carried in from a persistent
    * AircraftCondition (mission/aircraftCondition.ts) starting at its prior integrity instead
    * of 1 — this is what makes damage survive between flights (task item 3). */
   private seededDamageState(): DamageState {
-    const fresh = createDamageState(this.aircraft.aeroSurfaces.map((s) => s.id));
+    const fresh = createDamageState(this.aircraft.aeroSurfaces.map((s) => s.id), this.sim.def.damage);
     const carried = this.initialPartIntegrity;
     if (!carried) return fresh;
     const parts: DamageState['parts'] = {};
@@ -186,7 +201,7 @@ export class FlightModel {
       const integrity = carried[id] ?? part.integrity;
       parts[id] = { ...part, integrity, detached: integrity <= 0 };
     }
-    return { parts, outcome: 'none' };
+    return { ...fresh, parts };
   }
 
   /** Advances one fixed physics tick. `meanWind` is the region's mean+gust wind (world, m/s). */
@@ -199,6 +214,7 @@ export class FlightModel {
 
     const gearGone = listDetachedPartIds(this.damage).includes(gearPartId());
     const engineOn = controls.engineOn && active && !this.landed;
+    this.sim.powerMultiplier = this.basePower * getPowerMultiplier(this.damage, this.elapsedS);
     const p = phys.pos;
     this.windField.sample(meanWind, p, this.elapsedS, p.y - this.groundY, this.windEffective);
 
@@ -209,6 +225,7 @@ export class FlightModel {
         yaw: active ? controls.rudder : 0,
         throttle: active ? controls.throttle : 0,
         brake: controls.brake ? 1 : 0,
+        flaps: controls.flapsDown && this.hasFlaps,
         engineOn,
         assist: assistLevelFromMode(controls.assistMode),
         gearAttached: !gearGone,
@@ -238,49 +255,78 @@ export class FlightModel {
     const sim = this.sim;
     const phys = sim.physics;
     const gear = sim.gear.summary;
-    const hard = sim.def.hardPoints;
-    // Obstacles: any hard point inside a solid ends the flight.
+    const massKg = phys.mass.massKg;
+    const wasTouching = new Set(this.touching);
+    this.touching.clear();
+    // Obstacles (trees, buildings): resolve an impulse at the struck hard point so an
+    // off-centre hit yaws/rolls the airframe, and damage the local components once per entry.
     if (!this.crashed && this.obstacles.length > 0) {
-      for (const h of hard) {
+      for (const h of sim.def.hardPoints) {
         phys.pointWorld(h.position, this.hp);
         for (const o of this.obstacles) {
           const reach = o.kind === 'cylinder' ? o.radiusM : Math.hypot(o.halfX, o.halfZ);
           if (Math.abs(this.hp.x - o.x) > reach + 1 || Math.abs(this.hp.z - o.z) > reach + 1) continue;
-          if (pointInObstacle(o, this.hp.x, this.hp.y, this.hp.z)) { this.crash('obstacle'); break; }
+          if (!pointInObstacle(o, this.hp.x, this.hp.y, this.hp.z)) continue;
+          const key = `obs:${h.id}`;
+          this.touching.add(key);
+          if (wasTouching.has(key)) break;
+          const v = phys.body.linvel();
+          const impactSpeed = Math.hypot(v.x, v.y, v.z);
+          const impulseScale = -Math.min(0.72, 0.22 + impactSpeed * 0.018) * massKg;
+          phys.body.applyImpulseAtPoint({ x: v.x * impulseScale, y: v.y * impulseScale, z: v.z * impulseScale }, { x: this.hp.x, y: this.hp.y, z: this.hp.z }, true);
+          this.noteImpact(h.id, impactSpeed);
+          this.obstacleStruck = true;
+          // Obstacles are treated as head-on: most of the velocity is normal to the surface.
+          this.damage = applyImpact(this.damage, h.id, impactEnergyJ(massKg, impactSpeed * 0.8, impactSpeed * 0.6));
+          break;
         }
-        if (this.crashed) break;
       }
     }
-    const structural = sim.structure.contacts;
     let structuralCount = 0;
-    for (const c of structural) if (c.active) structuralCount++;
-    if (!this.crashed) {
-      for (const c of structural) {
-        if (!c.active) continue;
-        if (c.id === 'canopy') this.crash('flipped');
-        else if ((c.id === 'wingtipL' || c.id === 'wingtipR') && (c.sinkMs > 2.5 || c.speedMs > 9)) this.crash('wingStrike');
-        else if (c.id === 'nose' && (c.sinkMs > 2.5 || c.speedMs > 6)) this.crash('terrain');
-        else if ((c.id === 'bellyFront' || c.id === 'bellyRear') && c.sinkMs > (gearGone ? 3.5 : 2.5)) this.crash('terrain');
-        else if (c.id === 'tail' && c.sinkMs > 4) this.crash('terrain');
-        if (this.crashed) break;
+    for (const c of sim.structure.contacts) {
+      if (!c.active) continue;
+      structuralCount++;
+      this.touching.add(c.id);
+      const tangent = Math.sqrt(Math.max(0, c.speedMs * c.speedMs - c.sinkMs * c.sinkMs));
+      if (!wasTouching.has(c.id)) {
+        // New strike: full normal energy at this point.
+        if (c.sinkMs > 0.5 || c.speedMs > 3) this.noteImpact(c.id, Math.max(c.sinkMs, c.speedMs));
+        this.damage = applyImpact(this.damage, c.id, impactEnergyJ(massKg, c.sinkMs, tangent));
+      } else if (tangent > 1) {
+        // Sustained scrape: friction work this tick, no elastic threshold.
+        this.damage = applyImpact(this.damage, c.id, 0.35 * c.loadN * tangent * PHYSICS_DT, false);
       }
     }
     const onGround = gear.wheelsOnGround > 0 || structuralCount > 0;
-    if (gear.touchedDown && this.airborneS > 0.25 && !this.crashed) this.registerTouchdown(gear.maxSinkMs, structuralCount > 0);
-    if (!this.crashed && onGround && this.terrain.getWaterDepth(phys.pos.x, phys.pos.z) > 0.3) this.crash('water');
-    if (!this.crashed && onGround && this.up.y < 0.1) this.crash('flipped');
+    if (gear.touchedDown && this.airborneS > 0.25 && !this.crashed) this.registerTouchdown(gear.maxSinkMs, structuralCount > 0, massKg);
+    if (this.crashed) return;
+    if (isAirframeLost(this.damage) && this.obstacleStruck) this.crash('obstacle');
+    else if (isAirframeLost(this.damage)) this.crash(this.impactZone === 'wingtipL' || this.impactZone === 'wingtipR' ? 'wingStrike' : 'terrain');
+    else if (onGround && this.terrain.getWaterDepth(phys.pos.x, phys.pos.z) > 0.3) this.crash('water');
+    else if (onGround && (this.up.y < 0.1 || sim.structure.contacts.some((c) => c.active && c.id === 'canopy'))) this.crash('flipped');
+    else if (gearGone && onGround && this.hasFlown && !this.landed && Math.hypot(phys.velWorld.x, phys.velWorld.z) < STOPPED_SPEED_MS) this.completeLanding(0); // belly landing still ends the flight
   }
 
-  private registerTouchdown(sinkMs: number, structuralStrike: boolean): void {
+  private noteImpact(zone: string, speedMs: number): void {
+    this.impactZone = zone;
+    this.impactSpeedMs = Math.max(this.impactSpeedMs, speedMs);
+  }
+
+  private registerTouchdown(sinkMs: number, structuralStrike: boolean, massKg: number): void {
     const tol = this.sim.def.gear.toleranceMs;
     this.lastTouchdownVsMs = -sinkMs;
-    this.damage = applyGroundImpact(this.damage, sinkMs * (8 / (tol * 1.8)));
+    if (sinkMs > 1.1 && !this.impactZone) {
+      this.impactZone = 'gear';
+      this.impactSpeedMs = sinkMs;
+    }
+    const gs0 = Math.hypot(this.sim.physics.velWorld.x, this.sim.physics.velWorld.z);
+    this.damage = applyImpact(this.damage, 'gear', impactEnergyJ(massKg, sinkMs, gs0 * 0.15));
     const phys = this.sim.physics;
     const pitchDeg = Math.asin(Math.max(-1, Math.min(1, this.fwd.y))) * RAD;
     const rollDeg = Math.atan2(this.left.y, this.up.y) * RAD;
     const gs = Math.hypot(phys.velWorld.x, phys.velWorld.z);
     this.touchdownClass.value = classifyTouchdown({ sinkMs, toleranceMs: tol, structuralStrike, bankDeg: rollDeg, pitchDeg, groundSpeedMs: gs });
-    if (sinkMs > tol * 1.8) {
+    if (isAirframeLost(this.damage)) {
       this.crash('hardLanding');
       return;
     }
@@ -307,7 +353,9 @@ export class FlightModel {
     this.crashed = true;
     this.crashReason = reason;
     this.state = 'crashed';
-    this.damage = applyGroundImpact(this.damage, 99);
+    // Preserve the localized damage accumulated at contact. A fatal event still
+    // represents a total loss, but does not magically detach every component before impact.
+    this.damage = { ...this.damage, outcome: 'totalLoss' };
   }
 
   private postStep(): FlightTelemetry {
@@ -359,6 +407,7 @@ export class FlightModel {
       speedMs: speed,
       altitudeM: agl,
       aoaDeg: phys.alphaRad * RAD,
+      sideslipDeg: phys.betaRad * RAD,
       distanceM: this.distanceM,
       maxAltitudeM: this.maxAltitudeM,
       maxSpeedMs: this.maxSpeedMs,
@@ -384,6 +433,8 @@ export class FlightModel {
       throttle: eng?.state === 'running' ? sim.assisted.throttle : 0,
       engineOn: rpm > 0,
       outOfFuel: sim.propulsion !== null && phys.fuelL <= 0,
+      engineTempFrac: sim.propulsion?.tempFrac ?? 0,
+      engineDerate: sim.propulsion?.thermalDerate ?? 1,
       stallWarning: this.stallWarning,
       stalled: this.stalled,
       stallSpeedMs: this.stallSpeedMs(),
@@ -391,6 +442,9 @@ export class FlightModel {
       gForce: this.gForce,
       lastTouchdownVsMs: this.lastTouchdownVsMs,
       crashReason: this.crashReason,
+      impactZone: this.impactZone,
+      impactSpeedMs: this.impactSpeedMs,
+      vibration: getVibration(this.damage),
     };
   }
 

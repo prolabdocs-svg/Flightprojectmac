@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { FloatingOrigin } from '../floatingOrigin';
 import { MasterColliderStreamer, type ColliderBudget } from './colliderStreaming';
 import { DEFAULT_STREAM_CONFIG, FLOATING_ORIGIN_CONFIG, MasterStreamer, type StreamConfig, type StreamPlan, type StreamView } from './masterStreaming';
-import { MasterRenderStreamer, type WaterSurfaceFn } from './renderStreaming';
+import { MasterRenderStreamer, type GroundColorFn, type WaterSurfaceFn } from './renderStreaming';
 import type { MasterTerrain } from './masterRuntime';
 
 /**
@@ -27,7 +27,7 @@ export class MasterStreamingRuntime {
 
   constructor(
     scene: THREE.Object3D,
-    terrain: Pick<MasterTerrain, 'groundAt'> & { waterSurfaceAt?: WaterSurfaceFn },
+    terrain: Pick<MasterTerrain, 'groundAt'> & { waterSurfaceAt?: WaterSurfaceFn; groundColorAt?: GroundColorFn },
     rapier: typeof RAPIER | null,
     physicsWorld: RAPIER.World | null,
     cfg: Partial<StreamConfig> = {},
@@ -36,7 +36,7 @@ export class MasterStreamingRuntime {
     this.streamer = new MasterStreamer(cfg);
     this.origin = new FloatingOrigin(FLOATING_ORIGIN_CONFIG.rebaseThresholdM, FLOATING_ORIGIN_CONFIG.gridSnapM);
     const heightFn = (x: number, z: number): number => terrain.groundAt(x, z);
-    this.render = new MasterRenderStreamer(scene, this.streamer, heightFn, this.origin, undefined, terrain.waterSurfaceAt ?? null);
+    this.render = new MasterRenderStreamer(scene, this.streamer, heightFn, this.origin, undefined, terrain.waterSurfaceAt ?? null, terrain.groundColorAt ?? null);
     this.colliders = rapier && physicsWorld ? new MasterColliderStreamer(rapier, physicsWorld, heightFn, this.origin, colliderBudget) : null;
   }
 

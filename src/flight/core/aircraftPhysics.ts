@@ -86,10 +86,12 @@ export class AircraftPhysics {
     this.body = world.createRigidBody(
       RAPIER.RigidBodyDesc.dynamic().setLinearDamping(0).setAngularDamping(0).setCanSleep(false).setCcdEnabled(false),
     );
-    // Mass properties are authored (setAdditionalMassProperties); the collider only exists so the
-    // body is a valid Rapier body and contributes zero mass.
-    world.createCollider(RAPIER.ColliderDesc.ball(0.3).setDensity(0), this.body);
     this.refreshMass(true);
+    // Mass properties are authored (setAdditionalMassProperties); the collider only exists so the
+    // body is a valid Rapier body and contributes zero mass. It sits on the CG, not the datum: a datum
+    // on the ground plane (Nightjar: tyre bottoms at y = 0) would otherwise bury it in heightfield terrain.
+    const [cx, cy, cz] = this.mass.cg;
+    world.createCollider(RAPIER.ColliderDesc.ball(0.3).setDensity(0).setTranslation(cx, cy, cz), this.body);
   }
 
   get elements() { return this.aero.elements; }

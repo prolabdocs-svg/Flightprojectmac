@@ -241,9 +241,9 @@ describe('failure, abort and recovery', () => {
     expect(failed.profile.operations.debtCash).toBeLessThanOrEqual(500);
     const recovered = ok(recoverAircraft(failed.profile)).profile;
     expect(getOffers(recovered).filter((o) => o.available).length).toBeGreaterThan(0);
-    // A totalLoss crash grounds the engine/propeller (spec item 7); at $0 cash the repair is
-    // financed on debt (spec item 8) rather than soft-locking the player out of flying again.
-    expect(aircraftAirworthiness(recovered).status).toBe('GROUNDED');
+    // Recovery includes the free basic repair: never GROUNDED after recovery. A full restoration
+    // is still a paid (debt-financed if needed) repair.
+    expect(aircraftAirworthiness(recovered).status).not.toBe('GROUNDED');
     const repairStarted = ok(startRepair(recovered, undefined, 0)).profile;
     const repaired = ok(collectRepair(repairStarted, repairStarted.operations.pendingRepair!.readyAtMs)).profile;
     expect(aircraftAirworthiness(repaired).status).toBe('AIRWORTHY');
@@ -344,7 +344,7 @@ describe('Slice 4A: persistent aircraft condition, maintenance & repair', () => 
     expect(settled2.operations.aircraftCondition.wingLeft.integrity).toBeLessThanOrEqual(0.5);
   });
 
-  it('an engine/propeller total-loss crash grounds the aircraft (INOPERATIVE) for the next flight', () => {
+  it('a total-loss crash grounds the wreck; recovery patches it (free basic repair) so it can fly again', () => {
     const { profile: p1 } = prepared();
     const t = cleanTelemetry(p1, { crashOutcome: 'totalLoss', crashed: true, landed: false });
     const settled = ok(settleActive(withEvents(p1, ...TO_LANDED.slice(0, 3), { type: 'CRASH', reason: 'terrain' }), t)).profile;
@@ -353,8 +353,10 @@ describe('Slice 4A: persistent aircraft condition, maintenance & repair', () => 
     const recovered = ok(recoverAircraft(settled)).profile;
     const offer = getOffers(recovered).find((o) => o.available)!;
     const acc = ok(acceptContract(recovered, offer.contract.id));
-    const prep = prepareMission(acc.profile, suggestedLoadout(acc.profile)!);
-    expect(prep).toEqual({ ok: false, error: expect.stringContaining('plan not feasible') });
+    expect(aircraftAirworthiness(recovered).status).not.toBe('GROUNDED');
+    // Patched, not restored: the paid repair still has something to fix.
+    expect(repairEstimateFor(recovered).costCash).toBeGreaterThan(0);
+    ok(prepareMission(acc.profile, suggestedLoadout(acc.profile)!));
   });
 
   it('RESTRICTED (CRITICAL component, not INOPERATIVE) still allows preparing a flight', () => {
@@ -450,5 +452,15 @@ describe('Slice 4A: persistent aircraft condition, maintenance & repair', () => 
     const cleanNext = nominalTelemetry({ distanceM: c2.distanceM, elapsedS: 60, fuelFraction: 0.5, endPosition: [0, 0, 0] });
     const settledNext = ok(settleActive(withEvents(p2, ...TO_LANDED, { type: 'AIRCRAFT_STOPPED', atDestination: true }), cleanNext)).profile;
     expect(settledNext.operations.aircraftCondition.wingLeft.integrity).toBeGreaterThan(0.999);
+  });
+});
+
+describe('abandonMission on a finished contract', () => {
+  it('settles once and frees the slot instead of failing silently', () => {
+    const { profile } = prepared();
+    const crashed = withEvents(profile, { type: 'ENGINE_STARTED' }, { type: 'TAKEOFF_ROLL' }, { type: 'AIRBORNE' }, { type: 'CRASH', reason: 'terrain' });
+    const r = ok(abandonMission(crashed));
+    expect(r.profile.operations.active).toBeNull();
+    expect(r.settlement).not.toBeNull();
   });
 });

@@ -3,7 +3,7 @@
 // degradation sources stay easy to reason about separately, as the spec asks.
 
 import type { AircraftCondition, ComponentId } from './aircraftCondition';
-import { componentTopology, damageAccumulated } from './aircraftCondition';
+import { INTEGRITY_CRITICAL, componentTopology, damageAccumulated } from './aircraftCondition';
 
 // --- Normal wear (very slow; hard landings/impacts are damage, handled elsewhere) -----------------
 
@@ -88,4 +88,18 @@ export function estimateRepair(condition: AircraftCondition, componentIds?: Comp
   }
   const durationMs = ids.length === 0 ? 0 : Math.max(MIN_REPAIR_DURATION_MS, Math.round(maxIntegrityRestored * MS_PER_INTEGRITY_POINT));
   return { componentIds: ids, costCash: Math.round(costCash), durationMs };
+}
+
+// --- Free basic repair (anti-softlock) ----------------------------------------------------------
+
+/** What the recovery crew does for free: every CRITICAL/INOPERATIVE component is patched up to the
+ * DAMAGED band, so the aircraft is always airworthy again. Never raises anything above that — the
+ * performance hit of a DAMAGED aircraft stays, and a full restoration is still a paid repair.
+ * Invariant: a parked aircraft is never GROUNDED, so cash can never gate flying. */
+export function basicRepair(condition: AircraftCondition): AircraftCondition {
+  const low = componentTopology().filter((id) => condition[id].integrity < INTEGRITY_CRITICAL);
+  if (low.length === 0) return condition;
+  const next: AircraftCondition = { ...condition };
+  for (const id of low) next[id] = { integrity: INTEGRITY_CRITICAL };
+  return next;
 }

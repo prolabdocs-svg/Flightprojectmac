@@ -5,7 +5,8 @@ import { FIELD_COMPOSITION_SEED } from '../world/fieldComposition';
 import type { TerrainType } from '../world/regionArtBible';
 import { buildRoadRibbon, type RoadPath } from '../world/fieldRoads';
 import type { FieldLayout, GroundPatch, Placement, PropKind, RockPlacement, TreePlacement } from '../world/fieldPlacement';
-import { FIELD_LAKE } from '../world/fieldGeography';
+import { FIELD_LAKE, lakeEdgeDistance, SEA_LEVEL_M } from '../world/fieldGeography';
+import { POWER_LINES, pylonPositions } from '../world/fieldComposition';
 import type { TerrainGridSampler } from '../world/terrainHeightfield';
 import { assetLibrary } from './assetLibrary';
 import { orientWorldProp } from './blenderAxisFix';
@@ -52,6 +53,9 @@ const PROC_PROPS: Partial<Record<PropKind, { far: number; chunk: number }>> = {
   lattice_tower: { far: 9000, chunk: 2000 }, jetty: { far: 3500, chunk: 2000 }, hut: { far: 1400, chunk: 800 },
   pole: { far: 900, chunk: 500 }, fence_seg: { far: 450, chunk: 400 }, hay_bale: { far: 800, chunk: 500 }, barrel: { far: 400, chunk: 400 },
   crate: { far: 400, chunk: 400 }, sign: { far: 500, chunk: 500 },
+  townhouse: { far: 4200, chunk: 800 }, church: { far: 9000, chunk: 2000 }, pylon: { far: 4200, chunk: 1600 },
+  boat: { far: 1400, chunk: 800 }, reeds: { far: 800, chunk: 500 }, lighthouse: { far: 14000, chunk: 2000 },
+  boathouse: { far: 3000, chunk: 1200 }, car: { far: 600, chunk: 500 },
 };
 const TREE_HI_FAR_M = 1000, TREE_FAR_M = 6800, HERO_TREE_FAR_M = 1300, SHRUB_FAR_M = 750;
 const ROCK_SMALL_FAR_M = 1100, ROCK_LARGE_FAR_M = 4200, ROCK_LARGE_SCALE = 3.4;
@@ -136,6 +140,46 @@ function buildPropGeometry(kind: PropKind): THREE.BufferGeometry | null {
       for (let i = 0; i <= 9; i++) for (const sx of [-1, 1]) parts.push({ geo: cyl(0.16, 0.18, 3.2, 5), color: '#4c3d2a', pos: [sx * 1.6, -1.2, -22 + i * 5] });
       return mergeParts(parts);
     }
+    case 'townhouse': return mergeParts([
+      { geo: box(8, 6.4, 10), color: '#e2d8c4', pos: [0, 3.2, 0] }, { geo: box(8.8, 0.35, 6.2), color: '#8e4a35', pos: [0, 7.6, 2.5], rot: [0.62, 0, 0] },
+      { geo: box(8.8, 0.35, 6.2), color: '#8e4a35', pos: [0, 7.6, -2.5], rot: [-0.62, 0, 0] }, { geo: box(0.9, 2.2, 0.9), color: '#7a6a5c', pos: [2.4, 8.6, -1.5] },
+      { geo: box(1.2, 2.1, 0.1), color: '#4b3a2e', pos: [0, 1.05, 5.02] }, { geo: box(6.4, 0.9, 0.1), color: '#44525c', pos: [0, 4.6, 5.02] }, { geo: box(6.4, 0.9, 0.1), color: '#44525c', pos: [0, 2.2, 5.02], scale: [0.35, 1, 1] },
+    ]);
+    case 'church': return mergeParts([
+      { geo: box(11, 8, 22), color: '#d9d2c2', pos: [0, 4, 0] }, { geo: box(12, 0.4, 7.6), color: '#6a5a50', pos: [0, 10.2, 3], rot: [0.72, 0, 0] }, { geo: box(12, 0.4, 7.6), color: '#6a5a50', pos: [0, 10.2, -3], rot: [-0.72, 0, 0] },
+      { geo: box(6, 20, 6), color: '#e4ddcd', pos: [0, 10, 13] }, { geo: new THREE.ConeGeometry(4.4, 13, 4), color: '#5b6068', pos: [0, 26.5, 13], rot: [0, Math.PI / 4, 0] },
+      { geo: box(0.3, 3, 0.3), color: '#c9a64a', pos: [0, 34.5, 13] }, { geo: box(1.6, 0.3, 0.3), color: '#c9a64a', pos: [0, 35, 13] }, { geo: box(2.2, 3.2, 0.1), color: '#3e3228', pos: [0, 1.6, 16.02] },
+    ]);
+    case 'pylon': {
+      const parts: Part[] = [], H = 34, base = 3.4;
+      for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) {
+        const tilt = Math.atan2(base - 0.6, H);
+        parts.push({ geo: cyl(0.16, 0.22, Math.hypot(H, base - 0.6), 4), color: '#9ea3a6', pos: [sx * (base + 0.6) / 2, H / 2, sz * (base + 0.6) / 2], rot: [sz * tilt, 0, -sx * tilt] });
+      }
+      for (const y of [8, 16, 24]) { const w = base + (0.6 - base) * (y / H); parts.push({ geo: box(w * 2, 0.2, 0.2), color: '#9ea3a6', pos: [0, y, w] }, { geo: box(w * 2, 0.2, 0.2), color: '#9ea3a6', pos: [0, y, -w] }); }
+      parts.push({ geo: box(14, 0.5, 0.6), color: '#9ea3a6', pos: [0, H - 6, 0] }, { geo: box(10, 0.5, 0.6), color: '#9ea3a6', pos: [0, H - 1.5, 0] });
+      for (const x of [-6.6, 0, 6.6]) parts.push({ geo: cyl(0.18, 0.18, 1.6, 5), color: '#5d7f8a', pos: [x, H - 7, 0] });
+      return mergeParts(parts);
+    }
+    case 'boat': return mergeParts([
+      { geo: box(2.1, 0.8, 5.6), color: '#e8e4da', pos: [0, 0.3, 0] }, { geo: new THREE.ConeGeometry(1.05, 1.6, 4), color: '#e8e4da', pos: [0, 0.3, 3.5], rot: [Math.PI / 2, Math.PI / 4, 0], scale: [1, 1, 0.55] },
+      { geo: box(2.15, 0.2, 5.65), color: '#2f5f86', pos: [0, 0.05, 0] }, { geo: box(1.4, 0.9, 1.6), color: '#c9c3b4', pos: [0, 1.1, -0.8] },
+    ]);
+    case 'reeds': {
+      const parts: Part[] = [];
+      for (let i = 0; i < 7; i++) { const a = i * 2.4, r = 0.3 + (i % 3) * 0.45; parts.push({ geo: new THREE.ConeGeometry(0.22, 2.2 + (i % 3) * 0.5, 4), color: i % 2 ? '#7d8a4a' : '#98915a', pos: [Math.cos(a) * r, 1.1, Math.sin(a) * r] }); }
+      return mergeParts(parts);
+    }
+    case 'lighthouse': return mergeParts([
+      { geo: cyl(3.1, 4.3, 24, 14), color: '#f0ece2', pos: [0, 12, 0] }, { geo: cyl(3.5, 3.9, 3, 14), color: '#c33a2a', pos: [0, 8, 0] }, { geo: cyl(3.2, 3.5, 3, 14), color: '#c33a2a', pos: [0, 17, 0] },
+      { geo: cyl(4.2, 4.2, 0.5, 14), color: '#3b3f44', pos: [0, 24.2, 0] }, { geo: cyl(2.4, 2.4, 3, 10), color: '#fff4c2', pos: [0, 26, 0] }, { geo: new THREE.ConeGeometry(2.9, 2.6, 10), color: '#c33a2a', pos: [0, 28.8, 0] },
+      { geo: box(6, 3.2, 5), color: '#e8e4da', pos: [4.5, 1.6, 0] },
+    ]);
+    case 'boathouse': return mergeParts([
+      { geo: box(8, 5, 13), color: '#7a5a3e', pos: [0, 2.5, 0] }, { geo: box(8.8, 0.3, 5), color: '#4f5a60', pos: [0, 5.9, 2.2], rot: [0.5, 0, 0] }, { geo: box(8.8, 0.3, 5), color: '#4f5a60', pos: [0, 5.9, -2.2], rot: [-0.5, 0, 0] },
+      { geo: box(5, 3.8, 0.1), color: '#2e3a40', pos: [0, 1.9, 6.52] },
+    ]);
+    case 'car': return mergeParts([{ geo: box(1.8, 0.8, 4.2), color: '#ffffff', pos: [0, 0.6, 0] }, { geo: box(1.6, 0.6, 2.2), color: '#d8dde2', pos: [0, 1.3, -0.3] }]);
     default: return null;
   }
 }
@@ -254,6 +298,36 @@ export class FieldWorld {
     this.buildBridge();
     this.buildProcProps();
     this.buildTreeMasses();
+    this.buildPowerWires();
+  }
+
+  /** Three sagging conductors per span between the pylons of each line: one LineSegments per line. */
+  private buildPowerWires() {
+    const mat = new THREE.LineBasicMaterial({ color: '#3a3d40', transparent: true, opacity: 0.75 });
+    this.disposables.push(mat);
+    for (const line of POWER_LINES) {
+      const pylons = pylonPositions(line).map((p) => ({ ...p, y: this.grid.height(p.x, p.z) + 27 }));
+      const pts: number[] = [];
+      let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+      for (let i = 0; i < pylons.length - 1; i++) {
+        const a = pylons[i], b = pylons[i + 1];
+        x0 = Math.min(x0, a.x, b.x); x1 = Math.max(x1, a.x, b.x); z0 = Math.min(z0, a.z, b.z); z1 = Math.max(z1, a.z, b.z);
+        const span = Math.hypot(b.x - a.x, b.z - a.z), sag = span * 0.028;
+        for (const off of [-6.6, 0, 6.6]) {
+          const ax = a.x + Math.cos(a.yaw) * off, az = a.z - Math.sin(a.yaw) * off, bx = b.x + Math.cos(b.yaw) * off, bz = b.z - Math.sin(b.yaw) * off;
+          for (let k = 0; k < 10; k++) {
+            for (const t of [k / 10, (k + 1) / 10]) pts.push(ax + (bx - ax) * t, a.y + (b.y - a.y) * t - sag * 4 * t * (1 - t), az + (bz - az) * t);
+          }
+        }
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+      this.disposables.push(geo);
+      const wires = new THREE.LineSegments(geo, mat);
+      wires.name = 'power:wires';
+      wires.frustumCulled = false;
+      this.addLod(wires, { cx: (x0 + x1) / 2, cz: (z0 + z1) / 2, r: Math.hypot(x1 - x0, z1 - z0) / 2 }, 2500);
+    }
   }
 
   // ---- density LOD ---------------------------------------------------------------------------
@@ -426,10 +500,15 @@ export class FieldWorld {
         const mesh = new THREE.InstancedMesh(geo, mat, chunk.items.length);
         mesh.name = `props:${kind}`;
         chunk.items.forEach((p, i) => {
-          const y = kind === 'jetty' ? FIELD_LAKE.waterLevelM + 0.9 : this.baseY(p.x, p.z, kind === 'warehouse' ? 14 : kind === 'tank' || kind === 'silo' ? 5 : 0);
+          const onWater = kind === 'jetty' || kind === 'boat' || kind === 'reeds';
+          const waterY = lakeEdgeDistance(p.x, p.z) < 300 ? FIELD_LAKE.waterLevelM : SEA_LEVEL_M;
+          const y = onWater ? waterY + (kind === 'jetty' ? 0.9 : kind === 'boat' ? 0.1 : -0.3)
+            : this.baseY(p.x, p.z, kind === 'warehouse' ? 14 : kind === 'tank' || kind === 'silo' || kind === 'church' ? 5 : kind === 'townhouse' ? 4 : 0);
           q.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, p.rotY);
           m.compose(new THREE.Vector3(p.x, y, p.z), q, new THREE.Vector3(p.scale, p.scale, p.scale));
           mesh.setMatrixAt(i, m);
+          if (kind === 'townhouse') { tint.setHSL([0.08, 0.11, 0.02, 0.13, 0.55][i % 5], 0.35, 0.78 + (i % 3) * 0.08); mesh.setColorAt(i, tint); }
+          if (kind === 'car' || kind === 'boat') { tint.setHSL((i * 0.37) % 1, 0.45, 0.45 + (i % 4) * 0.1); mesh.setColorAt(i, tint); }
           if (kind === 'barrel' || kind === 'crate') { tint.setHSL(kind === 'barrel' ? [0.02, 0.58, 0.1][i % 3] : 0.09 + (i % 3) * 0.04, 0.5, 0.75 + (i % 2) * 0.2); mesh.setColorAt(i, tint); }
         });
         mesh.instanceMatrix.needsUpdate = true;

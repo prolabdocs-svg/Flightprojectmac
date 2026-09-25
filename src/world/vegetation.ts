@@ -1,5 +1,5 @@
 import { isOnRoad } from './landUse';
-import type { TerrainQueryService } from './terrainQuery';
+import type { TerrainQueryService, TerrainSample } from './terrainQuery';
 
 /**
  * WLD-05 vegetation (spec §59-63, §159, §227, §244, §251). Scope is deliberately the MVP
@@ -107,8 +107,7 @@ function hash01(a: number, b: number, salt: number): number {
  * elevationResponse * disturbanceResponse * randomField, with randomField constrained to a
  * minor jitter so it never dominates causality (§60: "randomField nunca domina la causalidad").
  */
-function densityMultiplier(species: VegetationSpecies, terrain: TerrainQueryService, x: number, z: number): number {
-  const sample = terrain.sample(x, z);
+function densityMultiplier(species: VegetationSpecies, sample: TerrainSample, x: number, z: number): number {
   const biomeWeight = species.biomeIds.reduce((sum, id) => sum + (sample.biomeWeights[id] ?? 0), 0);
   if (biomeWeight <= 0) return 0;
 
@@ -146,9 +145,12 @@ export function scatterVegetation(
       // Jitter the sample point within the cell so the grid itself is invisible (§61).
       const jitterX = cx + hash01(cx, cz, 1.1) * cellSizeM;
       const jitterZ = cz + hash01(cx, cz, 2.2) * cellSizeM;
+      // Terrain samples include elevation, slope, water, and biome weights. All species
+      // share this point, so sample it once per cell rather than once per species.
+      const cellSample = terrain.sample(jitterX, jitterZ);
 
       for (const species of VEGETATION_SPECIES) {
-        const multiplier = densityMultiplier(species, terrain, jitterX, jitterZ);
+        const multiplier = densityMultiplier(species, cellSample, jitterX, jitterZ);
         if (multiplier <= 0) continue;
         const expectedCount = (species.baseDensityPer100m2 / 100) * cellAreaM2 * multiplier;
         const count = Math.floor(expectedCount) + (hash01(cx, cz, species.baseDensityPer100m2) < expectedCount % 1 ? 1 : 0);

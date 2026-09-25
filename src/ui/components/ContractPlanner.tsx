@@ -78,8 +78,24 @@ export function ContractPlanner({ profile, contract, onBack, onStart }: Props) {
         <div className="planner-pay"><b data-testid="expected-net">${plan.economics.expectedNet}</b><span>beneficio esperado</span></div>
       </header>
 
+      {/* Verdict first (UI spec §9–10, §21): one glance answers "do I dare?"; the panels below are the proof. */}
+      <section className={`planner-verdict paper is-${plan.reach === 'REACHABLE' ? 'ok' : plan.reach === 'MARGINAL' ? 'warn' : 'bad'}`} data-testid="planner-verdict">
+        <div className="planner-verdict-risk">
+          <span className="stamp">{REACH_LABEL[plan.reach]}</span>
+          <small>{DIFFICULTY_LABEL[plan.difficulty]} · limita: {LIMITING_LABEL[plan.limiting]}</small>
+        </div>
+        <dl className="planner-verdict-figs">
+          <div><dt>Distancia</dt><dd>{formatDistance(route.distanceM)}</dd></div>
+          <div><dt>Tiempo</dt><dd>{formatDuration(plan.timeEstimateS)}</dd></div>
+          <div><dt>Reserva al llegar</dt><dd className={plan.range.reserveKm < 0 ? 'is-bad' : ''}>{plan.fuel.arrivalL.toFixed(1)} L</dd></div>
+          <div><dt>Pista destino</dt><dd className={plan.utilization.landing > 1 ? 'is-bad' : plan.utilization.landing > 0.8 ? 'is-warn' : ''}>{arr.runwayLengthM} m {rwy(arr.surface).toLowerCase()}</dd></div>
+          <div><dt>Viento cruzado</dt><dd className={plan.utilization.crosswind > 1 ? 'is-bad' : plan.utilization.crosswind > 0.8 ? 'is-warn' : ''}>{plan.wind.crosswindMs.toFixed(1)} m/s</dd></div>
+          <div><dt>Recompensa</dt><dd>${contract.revenueCash}</dd></div>
+        </dl>
+      </section>
+
       <div className="planner-grid">
-        <section className="panel" aria-label="Carga">
+        <section className="panel paper" aria-label="Carga">
           <span className="panel-kicker">CONFIGURACIÓN</span>
           <label className="planner-slider">
             <span>Combustible <b data-testid="fuel-value">{loadout.fuelL.toFixed(1)} L</b> <small>de {capacityL} L · {supplyL < capacityL ? `solo hay ${supplyL.toFixed(1)} L a bordo` : 'disponible en pista'}</small></span>
@@ -96,7 +112,7 @@ export function ContractPlanner({ profile, contract, onBack, onStart }: Props) {
           <button className="secondary-btn" disabled={!!other || started} onClick={() => setLoadout(recommendLoadout(profile.currentBuild, route, contract, ops.fuelL, profile.homeBase))}>Configuración recomendada</button>
         </section>
 
-        <section className="panel" aria-label="Masa y combustible">
+        <section className="panel paper" aria-label="Masa y combustible">
           <span className="panel-kicker">MASA</span>
           <ROW id="mass-total" label="Masa al despegue" value={`${plan.mass.totalKg.toFixed(0)} kg`} tone={tone(plan.utilization.mass)} />
           <ROW label="MTOW" value={`${plan.mass.mtowKg.toFixed(0)} kg`} />
@@ -105,7 +121,7 @@ export function ContractPlanner({ profile, contract, onBack, onStart }: Props) {
           <ROW label="Carga" value={`${plan.mass.payloadKg.toFixed(0)} kg`} />
         </section>
 
-        <section className="panel" aria-label="Autonomía">
+        <section className="panel paper" aria-label="Autonomía">
           <span className="panel-kicker">AUTONOMÍA · {REACH_LABEL[plan.reach]}</span>
           <ROW id="range-required" label="Rango requerido" value={`${plan.range.requiredKm.toFixed(2)} km`} />
           <ROW id="range-estimated" label="Rango estimado" value={`${plan.range.estimatedKm.toFixed(2)} km`} />
@@ -115,7 +131,7 @@ export function ContractPlanner({ profile, contract, onBack, onStart }: Props) {
           <ROW label="Tiempo" value={formatDuration(plan.timeEstimateS)} />
         </section>
 
-        <section className="panel" aria-label="Pistas y viento">
+        <section className="panel paper" aria-label="Pistas y viento">
           <span className="panel-kicker">PISTAS Y VIENTO</span>
           <ROW id="takeoff-runway" label={`Salida · ${rwy(dep.surface)}`} value={`pide ${(plan.takeoff.rollM * RUNWAY_SAFETY).toFixed(0)} m / hay ${dep.runwayLengthM} m`} tone={tone(plan.utilization.takeoff)} />
           <ROW id="landing-runway" label={`Llegada · ${rwy(arr.surface)}`} value={`pide ${(plan.landing.rollM * RUNWAY_SAFETY).toFixed(0)} m / hay ${arr.runwayLengthM} m`} tone={tone(plan.utilization.landing)} />
@@ -125,7 +141,7 @@ export function ContractPlanner({ profile, contract, onBack, onStart }: Props) {
           <ROW id="limiting" label="Factor limitante" value={LIMITING_LABEL[plan.limiting]} />
         </section>
 
-        <section className="panel" aria-label="Economía">
+        <section className="panel paper" aria-label="Economía">
           <span className="panel-kicker">ECONOMÍA</span>
           <ROW id="payout" label="Pago del contrato" value={`$${contract.revenueCash}`} />
           <ROW label="Ingreso esperado (con bonos)" value={`$${plan.economics.expectedRevenue}`} />
@@ -145,7 +161,7 @@ export function ContractPlanner({ profile, contract, onBack, onStart }: Props) {
       {other && (
         <div className="planner-notice" role="alert" data-testid="other-active">
           Ya tienes un contrato en curso ({STATE_LABEL[active!.session.state]}): {active!.contract.title}.
-          <button className="secondary-btn" onClick={() => abandonMission()}>Cancelar ese contrato</button>
+          <button className="secondary-btn" onClick={() => { const r = abandonMission(); setError(r.ok ? null : r.error); }}>Cancelar ese contrato</button>
         </div>
       )}
       {started && (

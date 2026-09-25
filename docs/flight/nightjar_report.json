@@ -1,0 +1,205 @@
+{
+  "aircraft": "frame_nightjar",
+  "build": {
+    "frameId": "frame_nightjar",
+    "installed": {
+      "engine": "rotax_503",
+      "fuelTank": "tank_nightjar_20",
+      "landingGear": "gear_light"
+    }
+  },
+  "metrics": {
+    "taxi.wheelsAtRest": {
+      "value": 3,
+      "min": 3,
+      "max": 3,
+      "unit": "-"
+    },
+    "taxi.speed": {
+      "value": 30.509,
+      "min": 8,
+      "max": 35,
+      "unit": "km/h"
+    },
+    "taxi.lateralDrift": {
+      "value": 0.011,
+      "min": 0,
+      "max": 3,
+      "unit": "m"
+    },
+    "taxi.turnRight": {
+      "value": 118.718,
+      "min": 15,
+      "max": 180,
+      "unit": "deg"
+    },
+    "taxi.stoppedSpeed": {
+      "value": 0.058,
+      "min": 0,
+      "max": 0.5,
+      "unit": "m/s"
+    },
+    "takeoff.groundRoll": {
+      "value": 109.175,
+      "min": 50,
+      "max": 190,
+      "unit": "m"
+    },
+    "takeoff.liftoffSpeed": {
+      "value": 84.218,
+      "min": 58,
+      "max": 85,
+      "unit": "km/h"
+    },
+    "climb.initial": {
+      "value": 2.424,
+      "min": 1.5,
+      "max": 5.5,
+      "unit": "m/s"
+    },
+    "perf.bestClimb": {
+      "value": 4.379,
+      "min": 3,
+      "max": 5.5,
+      "unit": "m/s"
+    },
+    "perf.topSpeed": {
+      "value": 122.4,
+      "min": 112,
+      "max": 140,
+      "unit": "km/h"
+    },
+    "perf.582ClimbGain": {
+      "value": 2.207,
+      "min": 1,
+      "max": 4,
+      "unit": "m/s"
+    },
+    "perf.582TopSpeedGain": {
+      "value": 3.6,
+      "min": 0,
+      "max": 20,
+      "unit": "km/h"
+    },
+    "cruise.speed@70%": {
+      "value": 112.943,
+      "min": 95,
+      "max": 125,
+      "unit": "km/h"
+    },
+    "cruise.verticalSpeed": {
+      "value": 0.002,
+      "min": 0,
+      "max": 0.8,
+      "unit": "m/s"
+    },
+    "cruise.speedBand": {
+      "value": 0.038,
+      "min": 0,
+      "max": 8,
+      "unit": "km/h"
+    },
+    "turn.bank": {
+      "value": 29.418,
+      "min": 25,
+      "max": 35,
+      "unit": "deg"
+    },
+    "turn.rate/expected": {
+      "value": 0.978,
+      "min": 0.8,
+      "max": 1.2,
+      "unit": "-"
+    },
+    "turn.sideslip": {
+      "value": 0.83,
+      "min": 0,
+      "max": 4,
+      "unit": "deg"
+    },
+    "turn.altitudeChange10s": {
+      "value": -1.824,
+      "min": -30,
+      "max": 30,
+      "unit": "m"
+    },
+    "stall.staticStability": {
+      "value": -6611.299,
+      "min": null,
+      "max": -1,
+      "unit": "N m/rad"
+    },
+    "glide.ratio": {
+      "value": 7.702,
+      "min": 7,
+      "max": 10,
+      "unit": ":1"
+    },
+    "stall.speed1g": {
+      "value": 73.376,
+      "min": 58,
+      "max": 76,
+      "unit": "km/h"
+    },
+    "recovery.alphaAfter": {
+      "value": 4.683,
+      "min": -6,
+      "max": 10,
+      "unit": "deg"
+    },
+    "recovery.speed": {
+      "value": 94.901,
+      "min": 70,
+      "max": 150,
+      "unit": "km/h"
+    },
+    "recovery.bank": {
+      "value": 1.097,
+      "min": 0,
+      "max": 20,
+      "unit": "deg"
+    },
+    "recovery.altitudeLost": {
+      "value": 40.892,
+      "min": 0,
+      "max": 150,
+      "unit": "m"
+    },
+    "landing.approachSpeed": {
+      "value": 93.249,
+      "min": 72,
+      "max": 100,
+      "unit": "km/h"
+    },
+    "landing.touchdownSink": {
+      "value": 1.016,
+      "min": 0,
+      "max": 3.8,
+      "unit": "m/s"
+    },
+    "landing.rollout": {
+      "value": 69.737,
+      "min": 5,
+      "max": 300,
+      "unit": "m"
+    },
+    "crosswind.touchdownOffset": {
+      "value": 7.414,
+      "min": 0,
+      "max": 20,
+      "unit": "m"
+    },
+    "crosswind.finalOffset": {
+      "value": 7.043,
+      "min": 0,
+      "max": 30,
+      "unit": "m"
+    },
+    "crosswind.structuralStrike": {
+      "value": 0,
+      "min": 0,
+      "max": 0,
+      "unit": "-"
+    }
+  }
+}

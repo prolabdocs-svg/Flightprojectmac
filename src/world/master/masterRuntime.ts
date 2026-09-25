@@ -4,7 +4,7 @@ import { GROUND_SURFACES, type GroundSurfaceId } from '../surfaces';
 import { createTerrainQueryService, type TerrainQueryService, type TerrainSample } from '../terrainQuery';
 import type { RegionDefinition } from '../../core/types';
 import {
-  CAMPAIGN_SITES, CELL_M, GRID_N, HALF_M, NATURAL_LANDMARKS, REGION_IDS, SITE_GRADING, STARTER_BASIN, worldToGeo,
+  NAMED_AREA_ANCHORS, CELL_M, GRID_N, HALF_M, NATURAL_LANDMARKS, REGION_IDS, SITE_GRADING, STARTER_BASIN, worldToGeo,
   type RegionId,
 } from './masterGeography';
 import { RIVER_ACCUM_CELLS, getMasterMap, sampleMaster, type MasterMapData, type MasterSample } from './masterMap';
@@ -54,8 +54,8 @@ export function bicubicWorld(grid: Float32Array, x: number, z: number): number {
 export type WaterKind = 'sea' | 'lake' | 'lagoon' | 'river';
 export interface WaterInfo { kind: WaterKind; /** Water surface elevation (m, absolute). */ surfaceM: number; /** Depth above the bed (m). */ depthM: number }
 
-export interface CampaignFrame {
-  campaignRegionId: string;
+export interface NamedAreaFrame {
+  namedAreaId: string;
   macro: RegionId;
   /** World x/z of the region-local origin (0,0). */
   originWorld: readonly [number, number];
@@ -67,7 +67,7 @@ export interface CampaignFrame {
 
 export interface MasterAirfield {
   id: string;
-  campaignRegionId: string;
+  namedAreaId: string;
   macro: RegionId;
   /** Region-local position (unchanged from src/world/airfields.ts). */
   localPosition: readonly [number, number, number];
@@ -84,18 +84,18 @@ export interface MasterLandmark { id: string; name: string; kind: string; worldP
 
 export class MasterTerrain {
   readonly map: MasterMapData;
-  private readonly frames = new Map<string, CampaignFrame>();
+  private readonly frames = new Map<string, NamedAreaFrame>();
   private airfieldsCache: MasterAirfield[] | null = null;
 
   constructor(map: MasterMapData = getMasterMap()) {
     this.map = map;
     const [ox, oz] = STARTER_BASIN.worldOffsetM;
-    this.frames.set('the_field', { campaignRegionId: 'the_field', macro: 'R01_starter_basin', originWorld: [ox, oz], datumM: STARTER_BASIN.elevationOffsetM, pressureAltitudeBaseM: 0 });
-    for (const S of CAMPAIGN_SITES) {
-      const info = map.sites.find((s) => s.campaignRegionId === S.campaignRegionId);
-      if (!info) throw new Error(`master map has no graded site for ${S.campaignRegionId}`);
-      this.frames.set(S.campaignRegionId, {
-        campaignRegionId: S.campaignRegionId, macro: S.macro, originWorld: [-S.anchorGeoKm[0] * KM, S.anchorGeoKm[1] * KM],
+    this.frames.set('the_field', { namedAreaId: 'the_field', macro: 'R01_starter_basin', originWorld: [ox, oz], datumM: STARTER_BASIN.elevationOffsetM, pressureAltitudeBaseM: 0 });
+    for (const S of NAMED_AREA_ANCHORS) {
+      const info = map.sites.find((s) => s.namedAreaId === S.id);
+      if (!info) throw new Error(`master map has no graded anchor for ${S.id}`);
+      this.frames.set(S.id, {
+        namedAreaId: S.id, macro: S.macro, originWorld: [-S.anchorGeoKm[0] * KM, S.anchorGeoKm[1] * KM],
         datumM: info.datumM, pressureAltitudeBaseM: S.pressureAltitudeBaseM,
       });
     }
@@ -178,23 +178,23 @@ export class MasterTerrain {
 
   /* ---------------- campaign frames ---------------- */
 
-  frame(campaignRegionId: string): CampaignFrame {
-    const f = this.frames.get(campaignRegionId);
-    if (!f) throw new Error(`unknown campaign region ${campaignRegionId}`);
+  frame(namedAreaId: string): NamedAreaFrame {
+    const f = this.frames.get(namedAreaId);
+    if (!f) throw new Error(`unknown named area ${namedAreaId}`);
     return f;
   }
-  hasFrame(campaignRegionId: string): boolean { return this.frames.has(campaignRegionId); }
-  localToWorld(campaignRegionId: string, x: number, z: number): [number, number] {
-    const f = this.frame(campaignRegionId);
+  hasFrame(namedAreaId: string): boolean { return this.frames.has(namedAreaId); }
+  localToWorld(namedAreaId: string, x: number, z: number): [number, number] {
+    const f = this.frame(namedAreaId);
     return [x + f.originWorld[0], z + f.originWorld[1]];
   }
-  worldToLocal(campaignRegionId: string, x: number, z: number): [number, number] {
-    const f = this.frame(campaignRegionId);
+  worldToLocal(namedAreaId: string, x: number, z: number): [number, number] {
+    const f = this.frame(namedAreaId);
     return [x - f.originWorld[0], z - f.originWorld[1]];
   }
   /** Region-local RAW natural relief (local y): master collidable ground minus the region datum. */
-  localNaturalElevation(campaignRegionId: string): (x: number, z: number) => number {
-    const f = this.frame(campaignRegionId);
+  localNaturalElevation(namedAreaId: string): (x: number, z: number) => number {
+    const f = this.frame(namedAreaId);
     return (x, z) => this.groundAt(x + f.originWorld[0], z + f.originWorld[1]) - f.datumM;
   }
 
@@ -206,7 +206,7 @@ export class MasterTerrain {
       const f = this.frame(a.regionId);
       const [wx, wz] = this.localToWorld(a.regionId, a.position[0], a.position[2]);
       return {
-        id: a.id, campaignRegionId: a.regionId, macro: f.macro, localPosition: a.position, worldPosition: [wx, wz], elevationM: this.groundAt(wx, wz),
+        id: a.id, namedAreaId: a.regionId, macro: f.macro, localPosition: a.position, worldPosition: [wx, wz], elevationM: this.groundAt(wx, wz),
         runwayLengthM: a.runwayLengthM, runwayWidthM: a.runwayWidthM, surface: a.surface, discoveryState: a.discoveryState,
       };
     });

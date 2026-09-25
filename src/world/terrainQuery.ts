@@ -177,8 +177,11 @@ export function createTerrainQueryService(region: RegionDefinition, options: Ter
   const waterBodies: WaterBody[] = legacyWater ? buildWaterBodies(region.id, natural) : [];
   const seaLevelM = legacyWater ? REGION_SEA_LEVEL_M[region.id] ?? -Infinity : -Infinity;
   /** Standing water (lake or sea) surface over a point whose natural ground is `bed`, or null on land. */
-  const standingWaterSurface = (x: number, z: number, bed: number): number | null =>
-    findWaterBodyAt(waterBodies, x, z)?.surfaceElevationM ?? (bed < seaLevelM ? seaLevelM : null);
+  const standingWaterSurface = (x: number, z: number, bed: number): number | null => {
+    const body = findWaterBodyAt(waterBodies, x, z);
+    if (body && !(body.shoreFromBed && bed >= body.surfaceElevationM)) return body.surfaceElevationM;
+    return bed < seaLevelM ? seaLevelM : null;
+  };
   const waterDepthAt = (x: number, z: number): number => {
     const bed = natural(x, z), surface = standingWaterSurface(x, z, bed);
     if (surface !== null) return Math.max(0, surface - bed);

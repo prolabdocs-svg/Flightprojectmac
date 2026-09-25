@@ -1,5 +1,6 @@
-import { distanceToRiver, FIELD_LAKE, FIELD_RIVER_POINTS, homePlainMask, SEA_LEVEL_M, smoothstep } from './fieldGeography';
+import { distanceToRiver, FIELD_LAKE, lakeEdgeDistance, lakeShoreRadius, FIELD_RIVER_POINTS, homePlainMask, SEA_LEVEL_M, smoothstep } from './fieldGeography';
 import { scatterFieldRocks } from './fieldRocks';
+import { authoredCountryside, COUNTRY_PARCELS } from './fieldCountryside';
 import {
   FIELD_COMPOSITION_SEED, FIELD_PARCELS, MAX_TREE_MASS_INSTANCES, ROADS, WORLD_ANCHORS,
   type CropKind, type Vec2,
@@ -41,7 +42,7 @@ export function treeDensity(grid: TerrainGridSampler, patchN: (x: number, y: num
   const h = grid.height(x, z), slope = grid.slopeDeg(x, z);
   if (h < SEA_LEVEL_M + 1.5 || slope > 34) return 0;
   const dr = distanceToRiver(x, z);
-  const lakeEdge = Math.hypot(x - FIELD_LAKE.x, z - FIELD_LAKE.z) - FIELD_LAKE.radiusM;
+  const lakeEdge = lakeEdgeDistance(x, z);
   const patch = smoothstep(-0.05, 0.4, patchN(x / 850, z / 850));
   const plain = homePlainMask(x, z);
   const river = dr < 30 ? 0 : 0.9 * Math.exp(-(((dr - 30) / 230) ** 2)) * (0.55 + 0.45 * patch);
@@ -180,6 +181,9 @@ function authoredField(ctx: CompositionContext): void {
   const W = A_.easternWindmill;
   ctx.addForced('windmill_landmark', W.x, W.z, 0.3, 5.5);
 
+  // ---- V2: the country beyond the basin (fieldCountryside.ts) ----------------------------------
+  authoredCountryside(ctx);
+
   // ---- utility poles along the industrial and airfield roads -------------------------------
   for (const id of ['ROAD_INDUSTRIAL', 'ROAD_AIRFIELD', 'ROAD_VILLAGE'] as const) {
     const road = ctx.roadById(id);
@@ -210,7 +214,7 @@ function fieldRocks(ctx: CompositionContext): void {
   });
   // Lake shore: small groups just above the waterline.
   for (let i = 0; i < 46; i++) {
-    const a = rng.next() * PI * 2, rr = FIELD_LAKE.radiusM + 14 + rng.next() * 60;
+    const a = rng.next() * PI * 2, rr = lakeShoreRadius(a) + 14 + rng.next() * 60;
     ctx.rockCluster(FIELD_LAKE.x + Math.cos(a) * rr, FIELD_LAKE.z + Math.sin(a) * rr, 1.6 + rng.next() * 2.4, 2 + Math.floor(rng.next() * 3), 6);
   }
   // Mountain pass: outcrops flanking the road, more where the corridor narrows.
@@ -239,7 +243,7 @@ export const FIELD_COMPOSITION: RegionCompositionSpec = {
   seed: FIELD_COMPOSITION_SEED,
   anchors: WORLD_ANCHORS,
   roads: ROADS,
-  parcels: FIELD_PARCELS,
+  parcels: [...FIELD_PARCELS, ...COUNTRY_PARCELS],
   parcelColors: CROP_COLORS,
   seaLevelM: SEA_LEVEL_M,
   maxTreeInstances: MAX_TREE_MASS_INSTANCES,
@@ -249,14 +253,18 @@ export const FIELD_COMPOSITION: RegionCompositionSpec = {
     { x: WORLD_ANCHORS.industrialArea.x, z: WORLD_ANCHORS.industrialArea.z, coreRadiusM: 190, falloffM: 420, level: 4 },
     { x: WORLD_ANCHORS.lakeVillage.x, z: WORLD_ANCHORS.lakeVillage.z, coreRadiusM: 170, falloffM: 460, level: 3 },
     { x: WORLD_ANCHORS.secondAirfield.x, z: WORLD_ANCHORS.secondAirfield.z, coreRadiusM: 130, falloffM: 300, level: 3 },
+    { x: WORLD_ANCHORS.southTown.x, z: WORLD_ANCHORS.southTown.z, coreRadiusM: 300, falloffM: 600, level: 4 },
+    { x: WORLD_ANCHORS.estuaryVillage.x, z: WORLD_ANCHORS.estuaryVillage.z, coreRadiusM: 160, falloffM: 400, level: 3 },
+    { x: WORLD_ANCHORS.eastHamlet.x, z: WORLD_ANCHORS.eastHamlet.z, coreRadiusM: 140, falloffM: 360, level: 3 },
+    { x: WORLD_ANCHORS.westHamlet.x, z: WORLD_ANCHORS.westHamlet.z, coreRadiusM: 140, falloffM: 360, level: 3 },
   ],
   treeDensity,
   treeMass: {
     cellM: 84, extentM: 6300, core: [700, 900], coreFalloff: [1800, 6500],
-    priority: (x, z) => (distanceToRiver(x, z) < 260 || Math.hypot(x - FIELD_LAKE.x, z - FIELD_LAKE.z) < FIELD_LAKE.radiusM + 260 ? 0.35 : 0),
+    priority: (x, z) => (distanceToRiver(x, z) < 260 || lakeEdgeDistance(x, z) < 260 ? 0.35 : 0),
   },
   buildingKeepOut: (x, z) => distanceToRiver(x, z) < 90,
-  roadsideAvenue: (def) => (def.surface === 'dirt' && def.id !== 'ROAD_FARM_A' ? null : { wide: def.id === 'ROAD_PASS' }),
+  roadsideAvenue: (def) => ((def.surface === 'dirt' && def.id !== 'ROAD_FARM_A') || def.id.startsWith('ROAD_TOWN') ? null : { wide: def.id === 'ROAD_PASS' }),
   authored: authoredField,
   rocks: fieldRocks,
 };

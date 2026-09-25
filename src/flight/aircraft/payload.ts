@@ -7,6 +7,7 @@ import type { MassItem } from './aircraftDefinition';
 const PAYLOAD_POSITION: MassItem['position'] = [0, 0.05, -0.85];
 const PAYLOAD_SIZE: MassItem['size'] = [0.5, 0.4, 0.5];
 
-export function payloadMassItem(massKg: number): MassItem {
-  return { id: 'payload', massKg, position: PAYLOAD_POSITION, size: PAYLOAD_SIZE };
+/** `position` = the aircraft's own payload station (AircraftDefinition.mass.payloadPosition), if any. */
+export function payloadMassItem(massKg: number, position: MassItem['position'] = PAYLOAD_POSITION): MassItem {
+  return { id: 'payload', massKg, position, size: PAYLOAD_SIZE };
 }

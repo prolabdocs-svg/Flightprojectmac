@@ -5,9 +5,12 @@ import { canUnlockTech } from '../content/techtree';
 import { MAX_HOME_BASE_LEVEL } from '../content/homeBase';
 import { getFrame } from '../content/parts';
 import { buildForFrame } from '../content/assembly';
+import { useGameStore } from './gameStore';
 import * as ops from '../mission/operations';
 import type { Loadout } from '../mission/types';
 import type { FlightTelemetry } from '../flight/flightTypes';
+import { sanitizeAppearance } from '../avatar/appearance';
+import { applyExploration, type ExplorationEvent, type ExploreInput } from '../world/exploration';
 
 interface ProfileState {
   profile: PlayerProfile;
@@ -20,6 +23,7 @@ interface ProfileState {
   unlockTech: (nodeId: string, costRp: number) => boolean;
   buyPaint: (paintId: string, priceCash: number) => boolean;
   selectPaint: (paintId: string) => void;
+  setAvatar: (patch: Partial<PlayerProfile['avatar']>) => void;
   upgradeHomeBase: (facility: 'runway' | 'hangar', costCash: number) => boolean;
   applyFlightResult: (result: FlightResult) => void;
   updateSettings: (patch: Partial<PlayerProfile['settings']>) => void;
@@ -34,7 +38,11 @@ interface ProfileState {
   // Maintenance & repair (Slice 4A).
   startRepair: (componentIds?: import('../mission/aircraftCondition').ComponentId[]) => ReturnType<typeof ops.startRepair>;
   collectRepair: () => ReturnType<typeof ops.collectRepair>;
+  /** Fog of Discovery: one observation of the aircraft's real world position. */
+  recordExploration: (p: ExploreInput) => ExplorationEvent[];
 }
+
+let lastExplorationPersist = 0;
 
 export const useProfileStore = create<ProfileState>((set, get) => ({
   profile: createDefaultProfile(),
@@ -124,6 +132,11 @@ export const useProfileStore = create<ProfileState>((set, get) => ({
     get().persist();
   },
 
+  setAvatar: (patch) => {
+    set((s) => ({ profile: { ...s.profile, avatar: sanitizeAppearance({ ...s.profile.avatar, ...patch }) } }));
+    get().persist();
+  },
+
   upgradeHomeBase: (facility, costCash) => {
     const { profile } = get();
     if (profile.cash < costCash) return false;
@@ -176,9 +189,16 @@ export const useProfileStore = create<ProfileState>((set, get) => ({
     get().persist();
   },
 
+  // Reset Progress, not factory reset: user settings survive. The fresh profile is written
+  // straight back (a put queued after clear's delete) so the store and IndexedDB never disagree
+  // and a reload can't resurrect the old record; runtime caches built from the old profile go too.
   resetProfile: () => {
+    const settings = get().profile.settings;
     saveRepository.clear();
-    set({ profile: createDefaultProfile() });
+    lastExplorationPersist = 0;
+    set({ profile: { ...createDefaultProfile(), settings } });
+    get().persist();
+    useGameStore.getState().resetRuntime();
   },
 
   acceptContract: (contractId) => commit(ops.acceptContract(get().profile, contractId)),
@@ -198,6 +218,15 @@ export const useProfileStore = create<ProfileState>((set, get) => ({
   recoverAircraft: () => commit(ops.recoverAircraft(get().profile)),
   startRepair: (componentIds) => commit(ops.startRepair(get().profile, componentIds)),
   collectRepair: () => commit(ops.collectRepair(get().profile)),
+  recordExploration: (p) => {
+    const r = applyExploration(get().profile, p);
+    if (r.profile === get().profile) return r.events;
+    set({ profile: r.profile });
+    // Fog cells change every few hundred metres: persist finds at once, bare fog at most every 5 s.
+    const now = Date.now();
+    if (r.events.length || now - lastExplorationPersist > 5000) { lastExplorationPersist = now; get().persist(); }
+    return r.events;
+  },
 }));
 
 function commit<T extends ops.OpResult<object>>(r: T): T {

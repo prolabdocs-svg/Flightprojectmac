@@ -18,6 +18,8 @@ export class EngineModel {
   powerW = 0;
   /** Torque the engine delivers at the crank after friction, N m. */
   netTorqueNm = 0;
+  /** External power factor (thermal derate), 1 = full. */
+  powerScale = 1;
   private readonly ratedOmega: number;
 
   constructor(def: EngineDefinition) {
@@ -62,7 +64,7 @@ export class EngineModel {
       const phi = d.idleThrottle + (1 - d.idleThrottle) * Math.max(0, Math.min(1, throttle));
       const sigma = Math.max(0.05, densityRatio);
       const lapse = 1 - d.altitudeLapse + d.altitudeLapse * Math.max(0, (sigma - 0.117) / 0.883);
-      power = d.maxPowerKw * 1000 * powerCurve(x) * phi * lapse;
+      power = d.maxPowerKw * 1000 * powerCurve(x) * phi * lapse * this.powerScale;
       // Hard rev limiter: fuel cut above redline (keeps the state bounded, feels like a real limiter).
       if (this.rpm > d.redlineRpm) power = 0;
     }

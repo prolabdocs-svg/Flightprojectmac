@@ -4,9 +4,9 @@ import { createTerrainQueryService, type TerrainQueryService } from '../world/te
 import { BIOME_COLORS } from '../world/biomeWeights';
 import { createSeededRandom } from '../core/seededRandom';
 import { getAmbientTrafficPose } from '../world/ambientTraffic';
-import { buildWaterBodies } from '../world/waterBodies';
+import { buildWaterBodies, type WaterBody } from '../world/waterBodies';
 import { buildHeightGrid, createGridSampler, FIELD_TERRAIN_SEGMENTS, FIELD_TERRAIN_SIZE_M, type TerrainGridSampler } from '../world/terrainHeightfield';
-import { FIELD_RIVER_POINTS, fieldElevation, RIVER_WATER_HALF_M, SEA_LEVEL_M } from '../world/fieldGeography';
+import { FIELD_RIVER_POINTS, fieldElevation, lakeShoreRadius, RIVER_WATER_HALF_M, SEA_LEVEL_M } from '../world/fieldGeography';
 import { createWaterHeights, createWaterMaterial, updateWater } from './waterMaterial';
 import { fieldGroundColor } from './fieldTerrainColor';
 import { buildRegionGroundPalette, regionGroundColor } from './regionTerrainColor';
@@ -14,6 +14,18 @@ import { getRegionArtBible } from '../world/regionArtBible';
 import { hasRegionComposition } from '../world/regionCompositions';
 import { getDistantLandmarkKind, getTerrainVisualProfile, type TerrainVisualProfile } from './worldVisualIdentity';
 import { applySurfaceDetail } from './surfaceDetail';
+
+/** Water sheet following an irregular shoreline (`lakeShoreRadius`) with a 40 m apron so the
+ * bed-depth fade, not the mesh edge, draws the shore. Local XY -> world XZ after the -90 deg X turn. */
+function shoreOutlineGeometry(body: WaterBody): THREE.BufferGeometry {
+  const shape = new THREE.Shape();
+  for (let i = 0; i <= 160; i++) {
+    const a = (i / 160) * Math.PI * 2, r = Math.min(body.radiusM, lakeShoreRadius(a) + 40);
+    // world (dx, dz) = (cos a, sin a) * r; mesh is rotated -90 deg about X so local y = -world dz.
+    if (i === 0) shape.moveTo(Math.cos(a) * r, -Math.sin(a) * r); else shape.lineTo(Math.cos(a) * r, -Math.sin(a) * r);
+  }
+  return new THREE.ShapeGeometry(shape, 1);
+}
 
 /** Lake surfaces sit this far above the (flat) terrain under them so the two never z-fight at range. */
 const WATER_LIFT_M = 0.3;
@@ -48,7 +60,8 @@ export class WorldEnvironment {
     // The Field's landmarks, scatter and rocks come from the authored composition (FieldWorld).
     if (!this.fieldGrid) {
       this.addDistantLandmark();
-      this.addRidgeline();
+      // Streamed master terrain reaches the real horizon; painted unlit cones would sit on top of it.
+      if (!options.skipTerrainMesh) this.addRidgeline();
       this.addGroundScatter();
     }
     this.addAmbientTraffic();
@@ -279,7 +292,7 @@ export class WorldEnvironment {
     const lakeMaterial = createWaterMaterial(this.region.environment.terrain === 'coast'
       ? { shallow: '#4fb3bf', deep: '#1c6f8c' } : { shallow: '#5e9c8f', deep: '#23566a' }, bed);
     for (const body of buildWaterBodies(this.region.id, (x, z) => this.terrainQuery.getElevation(x, z))) {
-      const water = new THREE.Mesh(new THREE.CircleGeometry(body.radiusM * 1.04, 64), lakeMaterial);
+      const water = new THREE.Mesh(body.shoreFromBed ? shoreOutlineGeometry(body) : new THREE.CircleGeometry(body.radiusM * 1.04, 64), lakeMaterial);
       water.name = `water:${body.id}`;
       water.rotation.x = -Math.PI / 2;
       water.position.set(body.center[0], body.surfaceElevationM + WATER_LIFT_M, body.center[1]);

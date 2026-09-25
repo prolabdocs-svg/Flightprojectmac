@@ -15,6 +15,9 @@ export interface WaterBody {
   center: [number, number]; // world x/z
   radiusM: number;
   surfaceElevationM: number; // filled in by buildWaterBodies from natural terrain
+  /** The footprint circle is only a bound: water exists where the natural bed is below the
+   * surface (irregular shorelines, islands). Only set for basins carved to match (The Field's lake). */
+  shoreFromBed?: boolean;
 }
 
 interface WaterBodySeed {
@@ -25,6 +28,7 @@ interface WaterBodySeed {
   kind: WaterBodyKind;
   center: [number, number];
   radiusM: number;
+  shoreFromBed?: boolean;
 }
 
 /**
@@ -40,7 +44,7 @@ interface WaterBodySeed {
 const WATER_BODY_SEEDS: WaterBodySeed[] = [
   { id: 'backcountry_lake', regionId: 'backcountry', kind: 'lake', center: [300, 65], radiusM: 90 },
   // The Field's western lake: the basin is carved in fieldGeography.ts so its edge meets this surface.
-  { id: 'field_lake', regionId: 'the_field', kind: 'lake', center: [FIELD_LAKE.x, FIELD_LAKE.z], radiusM: FIELD_LAKE.radiusM, surfaceElevationM: FIELD_LAKE.waterLevelM },
+  { id: 'field_lake', regionId: 'the_field', kind: 'lake', center: [FIELD_LAKE.x, FIELD_LAKE.z], radiusM: FIELD_LAKE.maxRadiusM, surfaceElevationM: FIELD_LAKE.waterLevelM, shoreFromBed: true },
   { id: 'coast_run_bay', regionId: 'coast_run', kind: 'lake', center: [340, 1250], radiusM: 220 },
 ];
 

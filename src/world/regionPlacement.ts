@@ -33,7 +33,8 @@ export type BlenderKind = 'farmhouse_a' | 'farmhouse_b' | 'small_workshop' | 'ba
 /** GLB props from the airfield ground-ops pack (Y-up). */
 export type AirfieldKind = 'af_control_tower' | 'af_crew_building' | 'af_gse_store' | 'af_hangar_compound' | 'af_fuel_bowser' | 'af_tug' | 'af_floodlight' | 'af_cone_row' | 'af_chock' | 'af_fence' | 'af_gate' | 'af_ground_power' | 'af_bus' | 'af_taxiway_sign' | 'af_stand_guidance' | 'af_windsock';
 /** Procedural merged-geometry props (fieldWorld.ts builds them). */
-export type ProcKind = 'silo' | 'tank' | 'warehouse' | 'stack' | 'lattice_tower' | 'fence_seg' | 'pole' | 'hay_bale' | 'barrel' | 'crate' | 'sign' | 'jetty' | 'hut';
+export type ProcKind = 'silo' | 'tank' | 'warehouse' | 'stack' | 'lattice_tower' | 'fence_seg' | 'pole' | 'hay_bale' | 'barrel' | 'crate' | 'sign' | 'jetty' | 'hut'
+  | 'townhouse' | 'church' | 'pylon' | 'boat' | 'reeds' | 'lighthouse' | 'boathouse' | 'car';
 export type PropKind = BlenderKind | AirfieldKind | ProcKind;
 
 export interface Placement { kind: PropKind; x: number; z: number; rotY: number; scale: number }
@@ -71,6 +72,7 @@ const facing = (dx: number, dz: number): number => Math.atan2(dx, dz);
 /** Footprint radius (m, at the scale used) per building kind; drives lot spacing checks. */
 const FOOTPRINT_R: Partial<Record<PropKind, number>> = {
   farmhouse_a: 10, farmhouse_b: 10, small_workshop: 11, barn_a: 17, barn_b: 17, silo: 6, tank: 9, warehouse: 30, stack: 6, lattice_tower: 8, hut: 5,
+  townhouse: 7, church: 16, lighthouse: 7, boathouse: 8,
 };
 
 function inParcelRect(p: FieldParcel, x: number, z: number, margin: number): boolean {
@@ -222,6 +224,35 @@ export function buildRegionLayout(spec: RegionCompositionSpec, input: LayoutInpu
     return true;
   };
 
+  // A roadside house is a *lot*, not a box: driveway to the road, a worked yard, a frontage
+  // fence with a gate gap, a shade tree out back and some owner clutter. Own RNG stream so the
+  // rest of the composition (trees, rocks) keeps its draws.
+  const lotRng = createSeededRandom(spec.seed, 'homestead');
+  const YARD = ['#7f9656', '#88985a', '#8e9660', '#76904f'], DRIVE = ['#8f7d5a', '#8a857a', '#94805c'];
+  const CLUTTER: PropKind[] = ['barrel', 'crate', 'hay_bale'];
+  const homestead = (x: number, z: number, nx: number, nz: number, tx: number, tz: number, d: number, r: number) => {
+    const pick = <T,>(a: T[]) => a[Math.floor(lotRng.next() * a.length)];
+    const h = Math.atan2(nx, nz), yardD = r * 2.4 + lotRng.next() * r;
+    ctx.plain(`lot-yard-${lots.length}`, [x + nx * (yardD / 2 - d * 0.55), z + nz * (yardD / 2 - d * 0.55)], r * 2.6 + lotRng.next() * r, yardD + d * 0.55, h, pick(YARD), 0.15);
+    ctx.plain(`lot-drive-${lots.length}`, [x - nx * d / 2 + tx * r * 0.35, z - nz * d / 2 + tz * r * 0.35], 3 + lotRng.next(), d, h, pick(DRIVE), 0.17);
+    if (lotRng.next() < 0.55) {
+      const fx = x - nx * (d - 3), fz = z - nz * (d - 3), half = r * (1.2 + lotRng.next() * 0.5);
+      ctx.fenceRun([[fx - tx * half, fz - tz * half], [fx + tx * half, fz + tz * half]], 'fence_seg', 4, [fx + tx * r * 0.35, fz + tz * r * 0.35], 3);
+    }
+    for (let i = 0, n = 1 + Math.floor(lotRng.next() * 2); i < n; i++) {
+      const side = lotRng.next() < 0.5 ? -1 : 1, back = r + 3 + lotRng.next() * 6, lat = side * r * (0.5 + lotRng.next() * 0.7);
+      const px = x + nx * back + tx * lat, pz = z + nz * back + tz * lat;
+      if (okGround(px, pz, 14) && !inParcel(px, pz, 2)) ctx.addTree('canopy', px, pz, 0.9 + lotRng.next() * 0.6, lotRng.next() * 6.28, lotRng.next(), false);
+    }
+    if (lotRng.next() < 0.4) {
+      const kind = pick(CLUTTER), side = lotRng.next() < 0.5 ? -1 : 1;
+      for (let i = 0, n = 2 + Math.floor(lotRng.next() * 3); i < n; i++) {
+        const lat = side * (r + 2 + i * 1.5), px = x + tx * lat + nx * (lotRng.next() * 2), pz = z + tz * lat + nz * (lotRng.next() * 2);
+        ctx.addProp(kind, px, pz, lotRng.next() * 6.28, 1);
+      }
+    }
+  };
+
   const ctx: CompositionContext = {
     spec, artBible, grid, terrain, rng, roads, trees, lots, props, rocks,
     roadById: (id) => roads.find((r) => r.def.id === id)!,
@@ -286,7 +317,10 @@ export function buildRegionLayout(spec: RegionCompositionSpec, input: LayoutInpu
           const jitter = (rng.next() - 0.5) * o.spacing * 0.35;
           const x = p.x + nx * (o.road.def.widthM / 2 + off) + p.tx * jitter, z = p.z + nz * (o.road.def.widthM / 2 + off) + p.tz * jitter;
           // Front (local +Z) toward the road, loosely.
-          if (ctx.addBuilding(kind, x, z, facing(-nx, -nz) + (rng.next() - 0.5) * 0.14, scale, o.road.def.id)) placed++;
+          if (ctx.addBuilding(kind, x, z, facing(-nx, -nz) + (rng.next() - 0.5) * 0.14, scale, o.road.def.id)) {
+            placed++;
+            homestead(x, z, nx, nz, p.tx, p.tz, o.road.def.widthM / 2 + off, FOOTPRINT_R[kind] ?? 8);
+          }
         }
       }
       return placed;

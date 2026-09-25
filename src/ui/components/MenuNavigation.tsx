@@ -1,11 +1,13 @@
 import type { Screen } from '../../state/gameStore';
-import { UiIcon } from './UiIcon';
+import { UiIcon, type IconName } from './UiIcon';
 
-const items: Array<{ screen: Extract<Screen, 'map' | 'builder' | 'techtree' | 'paint' | 'settings'>; label: string; icon: 'map' | 'wrench' | 'tree' | 'paint' | 'settings' }> = [
+// Target IA (docs/ui/PROJECT_FLIGHT_UI_UX_MASTER_SPEC.md §5): the hangar is the hub; everything else is one hop away.
+const items: Array<{ screen: Screen; label: string; icon: IconName }> = [
+  { screen: 'hangar', label: 'Hangar', icon: 'home' },
   { screen: 'map', label: 'Mapa', icon: 'map' },
   { screen: 'builder', label: 'Taller', icon: 'wrench' },
-  { screen: 'techtree', label: 'I+D', icon: 'tree' },
-  { screen: 'paint', label: 'Pintura', icon: 'paint' },
+  { screen: 'aircraft', label: 'Aeronaves', icon: 'flight' },
+  { screen: 'career', label: 'Bitácora', icon: 'logbook' },
   { screen: 'settings', label: 'Ajustes', icon: 'settings' },
 ];
 

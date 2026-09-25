@@ -54,6 +54,18 @@ export interface EngineSpec {
   propDiameterM: number;
   /** Fuel flow at full throttle, L/min (gameplay abstraction). */
   fuelBurnLpm?: number;
+  /** Real shaft power, kW. When set it is used as-is by the flight model (the Field Twin salvage engines
+   * instead go through CATALOGUE_CALIBRATION.enginePowerScale). */
+  shaftPowerKw?: number;
+  /** Crank-to-propeller reduction ratio (Rotax B-box 2.58, C-box 3.0, 912 2.43). */
+  gearRatio?: number;
+  /** Power lapse with density: 1 = normally aspirated, ~0.3 = turbo-normalised. */
+  altitudeLapse?: number;
+  /** Turbojet: thrust comes straight from the core, there is no propeller. */
+  jet?: { maxThrustN: number; spoolTimeS: number; idleFraction: number };
+  /** Cylinder-head (or EGT for turbines) heating, as a fraction of the thermal limit.
+   * heatAtFull: static full-power equilibrium; airflowRelief: fraction removed by cruise airflow; timeConstantS. */
+  thermal?: { heatAtFull: number; airflowRelief: number; timeConstantS: number };
 }
 
 export type PartCategory =
@@ -254,6 +266,8 @@ export interface PlayerProfile {
   homeBase: HomeBaseState;
   /** Contract loop state (src/mission): parked location, fuel on board, discoveries, active contract, ledger. */
   operations: OperationsState;
+  /** Player avatar look (src/avatar/appearance.ts); sanitized on every load. */
+  avatar: import('../avatar/appearance').AvatarAppearance;
   settings: {
     controlPreset: 'beginner' | 'normal' | 'sport' | 'custom';
     assistMode: 'assisted' | 'standard' | 'acro';
@@ -261,6 +275,7 @@ export interface PlayerProfile {
     stickSize: number;
     musicVolume: number;
     sfxVolume: number;
+    engineVolume: number;
     // Accessibility (spec 55.1/55.2/170.1/170.2). Additive — old saves are backfilled in
     // save.ts#migrate so every screen can rely on these being present.
     colorblindMode: boolean;
@@ -268,6 +283,8 @@ export interface PlayerProfile {
     textSize: 'small' | 'normal' | 'large';
     handedness: 'right' | 'left';
     hasSeenOnboarding: boolean;
+    /** Flight guidance level (src/nav): how much route help the HUD/world show. */
+    navGuidance: 'assisted' | 'standard' | 'minimal' | 'off';
   };
 }
 

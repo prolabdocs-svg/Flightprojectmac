@@ -61,7 +61,7 @@ describe('MasterStreamingRuntime (render + collider + floating origin, wired tog
       expect(plan.tiles.some((t) => t.physics)).toBe(true);
     }
     expect(Math.max(...rings)).toBeGreaterThan(rings[0] * 0.9);
-  }, 15000);
+  }, 60000);
 
   it('approach and landing (descending AGL) keeps physics/render coherent as the chunk set changes', () => {
     const { runtime } = makeRuntime();

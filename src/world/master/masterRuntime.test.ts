@@ -4,13 +4,21 @@ import { MISSIONS } from '../../content/missions';
 import { REGIONS, getRegion } from '../../content/regions';
 import { fieldElevation } from '../fieldGeography';
 import { createTerrainQueryService } from '../terrainQuery';
-import { CAMPAIGN_SITES, STARTER_BASIN, geoToWorld } from './masterGeography';
+import { NAMED_AREA_ANCHORS, STARTER_BASIN, geoToWorld, namedAreaToWorld, worldToNamedArea } from './masterGeography';
 import { MasterTerrain, bicubicWorld, createMasterRegionTerrain } from './masterRuntime';
 
 let W: MasterTerrain;
 beforeAll(() => { W = new MasterTerrain(); }, 120_000);
 
 describe('Phase 2 — runtime authority: terrain', () => {
+  it('treats authored campaign identities as named places in one stable world coordinate system', () => {
+    for (const area of NAMED_AREA_ANCHORS) {
+      const [x, z] = namedAreaToWorld(area.id, 137, -241);
+      expect(worldToNamedArea(area.id, x, z)).toEqual([137, -241]);
+      expect(W.frame(area.id).originWorld).toEqual(namedAreaToWorld(area.id, 0, 0));
+    }
+  });
+
   it('reproduces The Field verbatim through the master (raw relief == fieldElevation) across the preserved core, dry land', () => {
     const f = W.frame('the_field');
     let worst = 0, n = 0;
@@ -79,17 +87,17 @@ describe('Phase 2 — reconciliation: 8 campaign regions, 13+ airfields, 17 miss
   it('every campaign region has exactly one frame, and every non-Field frame is a flat graded platform at its datum', () => {
     expect(REGIONS.map((r) => r.id).sort()).toEqual(['backcountry', 'coast_run', 'high_desert_test_range', 'industrial_belt', 'red_canyon', 'scrap_valley', 'the_field', 'the_range']);
     for (const r of REGIONS) expect(W.hasFrame(r.id), r.id).toBe(true);
-    for (const S of CAMPAIGN_SITES) {
-      const f = W.frame(S.campaignRegionId);
+    for (const S of NAMED_AREA_ANCHORS) {
+      const f = W.frame(S.id);
       expect(f.macro).toBe(S.macro);
       for (const [x, z] of [[0, 0], [S.footprintLocalM.x[0], S.footprintLocalM.z[0]], [S.footprintLocalM.x[1], S.footprintLocalM.z[1]], [S.footprintLocalM.x[0], S.footprintLocalM.z[1]]] as const) {
-        const [wx, wz] = W.localToWorld(S.campaignRegionId, x, z);
-        expect(Math.abs(W.groundAt(wx, wz) - f.datumM), `${S.campaignRegionId} local ${x},${z}`).toBeLessThan(0.01);
-        expect(W.waterAt(wx, wz), `${S.campaignRegionId} dry`).toBeNull();
+        const [wx, wz] = W.localToWorld(S.id, x, z);
+        expect(Math.abs(W.groundAt(wx, wz) - f.datumM), `${S.id} local ${x},${z}`).toBeLessThan(0.01);
+        expect(W.waterAt(wx, wz), `${S.id} dry`).toBeNull();
       }
-      const [wx, wz] = W.localToWorld(S.campaignRegionId, 0, 0);
-      expect(W.regionAt(wx, wz), S.campaignRegionId).toBe(S.macro);
-      const [lx, lz] = W.worldToLocal(S.campaignRegionId, wx, wz);
+      const [wx, wz] = W.localToWorld(S.id, 0, 0);
+      expect(W.regionAt(wx, wz), S.id).toBe(S.macro);
+      const [lx, lz] = W.worldToLocal(S.id, wx, wz);
       expect([lx, lz]).toEqual([0, 0]);
     }
   });
@@ -104,8 +112,8 @@ describe('Phase 2 — reconciliation: 8 campaign regions, 13+ airfields, 17 miss
     for (const a of W.airfields()) {
       expect(W.waterAt(...a.worldPosition), a.id).toBeNull();
       expect(W.regionAt(...a.worldPosition), a.id).toBe(a.macro);
-      if (a.campaignRegionId === 'the_field') { expect(W.slopeDegAt(...a.worldPosition), a.id).toBeLessThan(8); continue; }
-      const f = W.frame(a.campaignRegionId);
+      if (a.namedAreaId === 'the_field') { expect(W.slopeDegAt(...a.worldPosition), a.id).toBeLessThan(8); continue; }
+      const f = W.frame(a.namedAreaId);
       for (const t of [-0.5, 0, 0.5]) {
         const z = a.worldPosition[1] + t * a.runwayLengthM;
         expect(Math.abs(W.groundAt(a.worldPosition[0], z) - f.datumM), `${a.id} runway t=${t}`).toBeLessThan(0.01);
@@ -124,7 +132,7 @@ describe('Phase 2 — reconciliation: 8 campaign regions, 13+ airfields, 17 miss
         expect(W.waterAt(tx, tz), `${m.id} target`).toBeNull();
         expect(W.slopeDegAt(tx, tz), `${m.id} target slope`).toBeLessThan(m.regionId === 'the_field' ? 10 : 5);
       }
-      for (const id of [m.originAirfieldId, m.destinationAirfieldId]) if (id) expect(W.airfield(id)?.campaignRegionId, `${m.id} -> ${id}`).toBe(m.regionId);
+      for (const id of [m.originAirfieldId, m.destinationAirfieldId]) if (id) expect(W.airfield(id)?.namedAreaId, `${m.id} -> ${id}`).toBe(m.regionId);
       // distance-run missions: the required distance must be flyable along +Z (local north) without leaving land or a graded site's neighbourhood
       if (m.family === 'distanceRun' && m.minDistanceM) {
         const [ex, ez] = W.localToWorld(m.regionId, m.spawnPoint[0], m.spawnPoint[2] + m.minDistanceM);
@@ -134,17 +142,17 @@ describe('Phase 2 — reconciliation: 8 campaign regions, 13+ airfields, 17 miss
   });
 
   it('sites are ≥ 3 km apart, and none sits inside the Starter Basin fusion zone', () => {
-    const fr = CAMPAIGN_SITES.map((s) => W.frame(s.campaignRegionId).originWorld);
+    const fr = NAMED_AREA_ANCHORS.map((s) => W.frame(s.id).originWorld);
     for (let i = 0; i < fr.length; i++) for (let j = i + 1; j < fr.length; j++) expect(Math.hypot(fr[i][0] - fr[j][0], fr[i][1] - fr[j][1])).toBeGreaterThan(3000);
-    for (const S of CAMPAIGN_SITES) {
-      const [x, z] = W.frame(S.campaignRegionId).originWorld;
-      expect(Math.max(Math.abs(x - STARTER_BASIN.worldOffsetM[0]), Math.abs(z - STARTER_BASIN.worldOffsetM[1])), S.campaignRegionId).toBeGreaterThan(STARTER_BASIN.fadeEndM + 500);
+    for (const S of NAMED_AREA_ANCHORS) {
+      const [x, z] = W.frame(S.id).originWorld;
+      expect(Math.max(Math.abs(x - STARTER_BASIN.worldOffsetM[0]), Math.abs(z - STARTER_BASIN.worldOffsetM[1])), S.id).toBeGreaterThan(STARTER_BASIN.fadeEndM + 500);
     }
   });
 
   it('keeps the atmosphere base at 0 for every region until missions are rebalanced for real altitude (documented debt), and reports each site altitude', () => {
-    for (const S of CAMPAIGN_SITES) expect(W.frame(S.campaignRegionId).pressureAltitudeBaseM).toBe(0);
-    const highest = Math.max(...CAMPAIGN_SITES.map((s) => W.frame(s.campaignRegionId).datumM));
+    for (const S of NAMED_AREA_ANCHORS) expect(W.frame(S.id).pressureAltitudeBaseM).toBe(0);
+    const highest = Math.max(...NAMED_AREA_ANCHORS.map((s) => W.frame(s.id).datumM));
     expect(highest).toBeGreaterThan(2000); // the_range platform: recorded so the rebalance is not forgotten
   });
 });

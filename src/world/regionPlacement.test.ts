@@ -44,11 +44,12 @@ describe('shared region composer', () => {
 
   it('The Field is unchanged by the refactor (counts pinned from the pre-refactor composer)', () => {
     // Verified byte-identical against HEAD's fieldPlacement.ts (lots/props/rocks/patches/trees). Re-pinned when the
-    // river-datum fix lifted the lower valley out of the sea (trees 8249->8263, rocks 1408->1516 on the reclaimed land).
+    // river-datum fix lifted the lower valley out of the sea (trees 8249->8263, rocks 1408->1516 on the reclaimed land),
+    // and when roadside houses became homestead lots (yard + drive patches, frontage fences, clutter, yard trees).
     expect({
       lots: field.layout.lots.length, props: field.layout.props.length, trees: field.layout.trees.length,
       rocks: field.layout.rocks.length, patches: field.layout.patches.length, exclusions: field.layout.exclusions.length,
-    }).toEqual({ lots: 76, props: 501, trees: 8263, rocks: 1516, patches: 42, exclusions: 12 });
+    }).toEqual({ lots: 76, props: 734, trees: 8328, rocks: 1516, patches: 134, exclusions: 12 });
   });
 
   it('respects the global tree budget per region', () => {

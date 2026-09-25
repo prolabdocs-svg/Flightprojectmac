@@ -3,6 +3,7 @@ import { useGameStore } from '../../state/gameStore';
 import { audioService } from '../../audio/audioService';
 import { UiIcon } from '../components/UiIcon';
 import { ContractResults } from '../components/ContractResults';
+import { CountUp } from '../components/kit';
 import './Screens.css';
 import { getResultsHeadline } from './resultsHeadline';
 
@@ -22,6 +23,7 @@ function LegacyResults() {
   useEffect(() => {
     if (!result) return;
     audioService.playTone(result.crashed ? 'fail' : result.crashOutcome === 'hardLanding' ? 'transition' : 'success');
+    if (!result.crashed) audioService.musicEvent('missionComplete');
   }, [result]);
 
   // A stale deep link or interrupted session can reach Results without a payload. Redirect
@@ -41,54 +43,50 @@ function LegacyResults() {
   const fuelCost = result.fuelCost ?? 0;
   const repairCost = result.repairCost ?? 0;
 
+  const stampTone = result.crashed ? 'is-bad' : result.crashOutcome === 'hardLanding' ? 'is-warn' : 'is-ok';
   return (
     <div className="screen results-screen">
-      <main className="screen-body">
-        <section className={`results-hero ${tone}`}>
-          <span className="kicker">RESULTADO DEL VUELO</span>
-          <h2>{headline.title}</h2>
-          {headline.caution && <p className="results-caution">{headline.caution}</p>}
+      <main className={`report paper ${tone}`}>
+        <span className={`stamp-mark ${stampTone}`} aria-hidden="true">{result.crashed ? 'Siniestro' : result.landed ? 'En tierra' : 'Interrumpido'}</span>
+        <div className="report-col">
+          <div className="report-head">
+            <span className="kicker">Parte de vuelo</span>
+            <h2>{headline.title}</h2>
+          </div>
+          {(headline.caution || hasDamage) && (
+            <div className="report-cause">
+              {headline.caution && <b>{headline.caution}</b>}
+              {hasDamage && (
+                <div className="chip-row">
+                  {((result.detachedPartIds?.length ?? 0) > 0 ? result.detachedPartIds! : result.damagedPartIds!).map((id) => <span key={id} className="tag tag-bad">{id}</span>)}
+                  <span className="results-caution">{(result.detachedPartIds?.length ?? 0) > 0 ? 'Piezas desprendidas' : 'Piezas dañadas'}</span>
+                </div>
+              )}
+            </div>
+          )}
           {result.missionId && result.missionCompleted === false && !result.crashed && (
             <p className="results-note">El vuelo cuenta para ganancias, pero no desbloquea la siguiente zona.</p>
           )}
-        </section>
-
-        <div className="results-layout">
-          <section className="panel">
-            <span className="panel-kicker">TELEMETRÍA</span>
-            <div className="tile-row">
-              <div className="tile"><b>{result.distanceM.toFixed(0)}<small>m</small></b><span>Distancia</span></div>
-              <div className="tile"><b>{result.maxAltitudeM.toFixed(0)}<small>m</small></b><span>Altitud máxima</span></div>
-              <div className="tile"><b>{(result.maxSpeedMs * 3.6).toFixed(0)}<small>km/h</small></b><span>Velocidad máxima</span></div>
-              <div className="tile"><b>{(result.landingQuality * 100).toFixed(0)}<small>%</small></b><span>Calidad de aterrizaje</span></div>
-            </div>
-            {result.bonusesAchieved.length > 0 && (
-              <div className="chip-row">{result.bonusesAchieved.map((b) => <span key={b} className="chip chip-good"><UiIcon name="check" size={11} />{b}</span>)}</div>
-            )}
-            {hasDamage && (
-              <p className="results-note">
-                {(result.detachedPartIds?.length ?? 0) > 0
-                  ? `Piezas desprendidas: ${result.detachedPartIds!.join(', ')}`
-                  : `Piezas dañadas: ${result.damagedPartIds!.join(', ')}`}
-              </p>
-            )}
-          </section>
-
-          <section className="panel">
-            <span className="panel-kicker">RECOMPENSAS</span>
-            <div className="results-rewards">
-              <div className="tile"><b>+${result.rewardCash}</b><span>Efectivo</span></div>
-              <div className="tile"><b>+{result.rewardRp}</b><span>RP</span></div>
-              <div className="tile"><b>+{result.reputationGain ?? (result.crashed ? 0.5 : 1.5)}</b><span>Rep</span></div>
-            </div>
-            {(fuelCost > 0 || repairCost > 0) && (
-              <div className="ledger">
-                {fuelCost > 0 && <div className="neg">Combustible<b>−${fuelCost}</b></div>}
-                {repairCost > 0 && <div className="neg">Reparaciones<b>−${repairCost}</b></div>}
-                <div className="net">Neto<b>${result.netCash ?? result.rewardCash}</b></div>
-              </div>
-            )}
-          </section>
+          <div className="tile-row">
+            <div className="tile"><b>{result.distanceM.toFixed(0)}<small>m</small></b><span>Distancia</span></div>
+            <div className="tile"><b>{result.maxAltitudeM.toFixed(0)}<small>m</small></b><span>Altitud máxima</span></div>
+            <div className="tile"><b>{(result.maxSpeedMs * 3.6).toFixed(0)}<small>km/h</small></b><span>Velocidad máxima</span></div>
+            <div className="tile"><b>{(result.landingQuality * 100).toFixed(0)}<small>%</small></b><span>Aterrizaje</span></div>
+          </div>
+          {result.bonusesAchieved.length > 0 && (
+            <div className="chip-row">{result.bonusesAchieved.map((b) => <span key={b} className="tag tag-good">{b}</span>)}</div>
+          )}
+        </div>
+        <div className="report-col">
+          <span className="panel-kicker">Recompensas</span>
+          <div className="ledger">
+            <div>Efectivo<b>+$<CountUp value={result.rewardCash} /></b></div>
+            <div>Investigación<b>+<CountUp value={result.rewardRp} /> RP</b></div>
+            <div>Reputación<b>+{result.reputationGain ?? (result.crashed ? 0.5 : 1.5)}</b></div>
+            {fuelCost > 0 && <div className="neg">Combustible<b>−${fuelCost}</b></div>}
+            {repairCost > 0 && <div className="neg">Reparaciones<b>−${repairCost}</b></div>}
+          </div>
+          <div className="report-total"><span>Neto</span><b>${result.netCash ?? result.rewardCash}</b></div>
         </div>
       </main>
 

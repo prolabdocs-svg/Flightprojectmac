@@ -77,6 +77,7 @@ export function resolveAircraft(build: AircraftBuild, frames: FrameDefinition[] 
   let dragCoefficient = frame.basePhysics.dragCoefficient;
 
   const aeroSurfaces: AeroSurfaceSpec[] = [...frame.baseAeroSurfaces];
+  const overriddenSurfaceIds = new Set(frame.baseAeroSurfaces.map((surface) => surface.id));
   let engine: EngineSpec | null = null;
   let fuelCapacityL = 0;
   let groundFrictionMul = 1.0;
@@ -87,7 +88,7 @@ export function resolveAircraft(build: AircraftBuild, frames: FrameDefinition[] 
     com = addWeighted(com, part.physics.massKg, part.physics.localCenterOfMass, totalMass);
     dragArea += part.physics.dragArea;
     dragCoefficient = Math.max(dragCoefficient, part.physics.dragCoefficient);
-    if (part.aeroSurfaces) aeroSurfaces.push(...part.aeroSurfaces);
+    if (part.aeroSurfaces) aeroSurfaces.push(...part.aeroSurfaces.filter((surface) => !overriddenSurfaceIds.has(surface.id)));
     if (part.engine) engine = part.engine;
     fuelCapacityL += part.fuelCapacityL ?? 0;
     if (part.groundFrictionMul) groundFrictionMul = part.groundFrictionMul;

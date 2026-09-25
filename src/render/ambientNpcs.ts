@@ -225,7 +225,8 @@ export class AmbientNpcs {
 
   private addBoats(lake: WaterBody, rng: ReturnType<typeof createSeededRandom>) {
     for (let b = 0; b < 3; b++) {
-      const r = lake.radiusM * rng.range(0.3, 0.65), w = rng.range(5, 8) / r, a0 = rng.range(0, Math.PI * 2), spin = b % 2 ? 1 : -1;
+      // Irregular (bed-shored) lakes: the footprint is only a bound, so circle inside the island's radius.
+      const r = lake.shoreFromBed ? rng.range(120, 240) : lake.radiusM * rng.range(0.3, 0.65), w = rng.range(5, 8) / r, a0 = rng.range(0, Math.PI * 2), spin = b % 2 ? 1 : -1;
       const i = this.claim('boat');
       this.updaters.push((t) => {
         const a = a0 + spin * w * t;

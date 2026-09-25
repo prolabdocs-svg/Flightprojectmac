@@ -136,7 +136,7 @@ export function OnboardingScreen() {
           </div>
           <div className="desktop-controls-card">
             <strong>Teclado y mando</strong>
-            <p><kbd>W</kbd>/<kbd>S</kbd> potencia · <kbd>↑</kbd>/<kbd>↓</kbd> cabeceo · <kbd>←</kbd>/<kbd>→</kbd> alabeo · <kbd>A</kbd>/<kbd>D</kbd> timón</p>
+            <p><kbd>W</kbd>/<kbd>S</kbd> potencia gradual (<kbd>Mayús</kbd> fino) · <kbd>↑</kbd>/<kbd>↓</kbd> cabeceo · <kbd>←</kbd>/<kbd>→</kbd> alabeo · <kbd>A</kbd>/<kbd>D</kbd> timón</p>
             <p><kbd>E</kbd> motor · <kbd>F</kbd> flaps · <kbd>Espacio</kbd> freno · <kbd>Esc</kbd> pausa. Con mando: sticks para volar, <kbd>RT</kbd> potencia y <kbd>Menu</kbd> pausa.</p>
           </div>
         </div>

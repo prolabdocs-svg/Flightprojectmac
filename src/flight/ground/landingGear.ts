@@ -27,6 +27,8 @@ export class WheelState {
   cacheZ = Infinity;
   contact = false;
   compressionM = 0;
+  /** Steering angle this tick (rad, + = nose right); 0 for fixed wheels. Drives the drawn nose fork. */
+  steerRad = 0;
   loadN = 0;
   mode: WheelMode = 'air';
   slipSpeedMs = 0;
@@ -115,6 +117,8 @@ export class LandingGear {
       st.mode = 'air';
       st.compressionM = 0;
       st.force.set(0, 0, 0);
+      const steer = w.steerable ? Math.max(-1, Math.min(1, input.steer)) * g.maxSteerRad * Math.max(0.25, 1 - phys.velWorld.length() / 30) : 0;
+      st.steerRad = steer;
       if (!input.gearAttached || !inReach) continue;
 
       phys.pointWorld(w.position, this.p);
@@ -146,7 +150,6 @@ export class LandingGear {
       sum.peakLoadN = Math.max(sum.peakLoadN, fn);
 
       // Tyre frame: rolling direction = (steered) heading projected on the ground plane.
-      const steer = w.steerable ? Math.max(-1, Math.min(1, input.steer)) * g.maxSteerRad * Math.max(0.25, 1 - phys.velWorld.length() / 30) : 0;
       this.roll.copy(this.fwd).applyAxisAngle(this.up, -steer);
       this.roll.addScaledVector(this.n, -this.roll.dot(this.n)).normalize();
       this.side.crossVectors(this.n, this.roll);

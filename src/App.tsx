@@ -13,6 +13,9 @@ const BriefingScreen = lazy(() => import('./ui/screens/BriefingScreen').then((m)
 const BuilderScreen = lazy(() => import('./ui/screens/BuilderScreen').then((m) => ({ default: m.BuilderScreen })));
 const TechTreeScreen = lazy(() => import('./ui/screens/TechTreeScreen').then((m) => ({ default: m.TechTreeScreen })));
 const PaintScreen = lazy(() => import('./ui/screens/PaintScreen').then((m) => ({ default: m.PaintScreen })));
+const AircraftScreen = lazy(() => import('./ui/screens/AircraftScreen').then((m) => ({ default: m.AircraftScreen })));
+const CareerScreen = lazy(() => import('./ui/screens/CareerScreen').then((m) => ({ default: m.CareerScreen })));
+const PilotScreen = lazy(() => import('./ui/screens/PilotScreen').then((m) => ({ default: m.PilotScreen })));
 const SettingsScreen = lazy(() => import('./ui/screens/SettingsScreen').then((m) => ({ default: m.SettingsScreen })));
 const FlightScreen = lazy(() => import('./ui/screens/FlightScreen').then((m) => ({ default: m.FlightScreen })));
 const ResultsScreen = lazy(() => import('./ui/screens/ResultsScreen').then((m) => ({ default: m.ResultsScreen })));
@@ -24,6 +27,7 @@ export default function App() {
   const setPaused = useGameStore((s) => s.setPaused);
   const musicVolume = useProfileStore((s) => s.profile.settings.musicVolume);
   const sfxVolume = useProfileStore((s) => s.profile.settings.sfxVolume);
+  const engineVolume = useProfileStore((s) => s.profile.settings.engineVolume);
   const colorblindMode = useProfileStore((s) => s.profile.settings.colorblindMode);
   const reduceMotion = useProfileStore((s) => s.profile.settings.reduceMotion);
   const textSize = useProfileStore((s) => s.profile.settings.textSize);
@@ -35,9 +39,33 @@ export default function App() {
   // inspect every biome from the actual chase camera without unlocking a campaign
   // profile or contaminating production navigation.
   useEffect(() => {
+    async function enterQaRansFlight(regionId: string) {
+      const frame = 'frame_nightjar';
+      useProfileStore.setState((s) => {
+        const currentBuild = { frameId: frame, installed: { engine: 'rotax_503', fuelTank: 'tank_nightjar_20', landingGear: 'gear_light' } };
+        return { profile: { ...s.profile, ownedFrameIds: [...new Set([...s.profile.ownedFrameIds, frame])], currentBuild } };
+      });
+      useProfileStore.getState().persist();
+      const controls = await import('./input/mode2Store');
+      controls.useMode2Store.setState({ throttle: 0.72, engineOn: true });
+      const state = useGameStore.getState();
+      state.selectFreeFlight(regionId);
+      state.goTo('run');
+    }
     if (!import.meta.env.DEV) return;
-    const regionId = new URLSearchParams(window.location.search).get('qaRegion');
+    if (new URLSearchParams(location.search).has('qaAircraft')) {
+      const frame = 'frame_nightjar';
+      useProfileStore.setState((s) => ({ profile: { ...s.profile, ownedFrameIds: [...new Set([...s.profile.ownedFrameIds, frame])], currentBuild: { frameId: frame, installed: { engine: 'rotax_503', fuelTank: 'tank_nightjar_20', landingGear: 'gear_light' } } } }));
+      useGameStore.getState().goTo('aircraft');
+      return;
+    }
+    const params = new URLSearchParams(window.location.search);
+    const regionId = params.get('qaRansFlight') ?? params.get('qaRegion');
     if (!regionId || !REGIONS.some((region) => region.id === regionId)) return;
+    if (params.has('qaRansFlight')) {
+      void enterQaRansFlight(regionId);
+      return;
+    }
     const state = useGameStore.getState();
     state.selectFreeFlight(regionId);
     state.goTo('run');
@@ -63,7 +91,8 @@ export default function App() {
   useEffect(() => {
     audioService.setVolume('music', musicVolume);
     audioService.setVolume('sfx', sfxVolume);
-  }, [musicVolume, sfxVolume]);
+    audioService.setVolume('engine', engineVolume);
+  }, [musicVolume, sfxVolume, engineVolume]);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -81,6 +110,14 @@ export default function App() {
     }
     audioService.playTone('transition');
   }, [screen]);
+
+  // Music context per screen (musicDirector.ts). Results keeps whatever overlay the
+  // flight/results raised (victory / aftermath); starting a flight clears it.
+  useEffect(() => {
+    const hangarScreens: string[] = ['hangar', 'builder', 'paint', 'aircraft', 'techtree'];
+    if (screen === 'run') audioService.setMusicContext(useProfileStore.getState().profile.operations.active ? 'MISSION' : 'CALM_FLIGHT', true);
+    else audioService.setMusicContext(hangarScreens.includes(screen) ? 'HANGAR' : 'MENU');
+  }, [screen, flightSession]);
 
   // Mobile/browser lifecycle: a hidden flight is always paused. This prevents an
   // accumulated wall-clock gap or stale control state from advancing physics on resume.
@@ -105,7 +142,7 @@ export default function App() {
     <div className="app-root">
       <Suspense
         fallback={
-          <div className="screen-loading" aria-busy="true" style={{ position: 'fixed', inset: 0, background: '#05121f' }} />
+          <div className="screen-loading" aria-busy="true" style={{ position: 'fixed', inset: 0, background: '#141719' }} />
         }
       >
         {screen === 'boot' && <BootScreen />}
@@ -116,6 +153,9 @@ export default function App() {
         {screen === 'builder' && <BuilderScreen />}
         {screen === 'techtree' && <TechTreeScreen />}
         {screen === 'paint' && <PaintScreen />}
+        {screen === 'aircraft' && <AircraftScreen />}
+        {screen === 'career' && <CareerScreen />}
+        {screen === 'pilot' && <PilotScreen />}
         {screen === 'settings' && <SettingsScreen />}
         {screen === 'run' && <FlightScreen key={flightSession} />}
         {screen === 'results' && <ResultsScreen />}

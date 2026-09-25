@@ -13,7 +13,7 @@ const surfaces = (cmd: Partial<typeof NEUTRAL_COMMAND>) => mixSurfaces({ ...NEUT
 
 describe('control mapping (flight-model mixer -> hinge pivots)', () => {
   it('neutral command gives neutral pivots', () => {
-    expect(pivotAngles(surfaces({}))).toEqual({ aileronL: 0, aileronR: 0, elevator: 0, rudder: 0 });
+    expect(pivotAngles(surfaces({}))).toEqual({ aileronL: 0, aileronR: 0, elevator: 0, rudder: 0, flapL: 0, flapR: 0 });
   });
 
   it('roll drives the ailerons in opposite directions and reversing roll mirrors them', () => {
@@ -27,7 +27,7 @@ describe('control mapping (flight-model mixer -> hinge pivots)', () => {
   });
 
   it('never exceeds the mechanical limit, whatever the input', () => {
-    const big = pivotAngles({ elevator: 2, aileronLeft: -2, aileronRight: 2, rudder: -2 });
+    const big = pivotAngles({ elevator: 2, aileronLeft: -2, aileronRight: 2, rudder: -2, flaps: -2 });
     for (const v of Object.values(big)) expect(Math.abs(v)).toBeLessThanOrEqual(VISUAL_LIMIT_RAD + 1e-12);
     expect(pivotAngles(surfaces({ pitch: 1 })).elevator).toBeCloseTo(22 * DEG, 10);
     expect(pivotAngles(surfaces({ yaw: -1 })).rudder).toBeCloseTo(-22 * DEG, 10);
@@ -54,6 +54,12 @@ describe('control mapping (flight-model mixer -> hinge pivots)', () => {
     expect(trailingEdge(0, a.aileronL).y).toBeLessThan(-0.01);
   });
 
+  it('deploys both XL flaps down together', () => {
+    const a = pivotAngles(mixSurfaces({ ...NEUTRAL_COMMAND, flaps: true }, CONTROLS, { elevator: 0, aileronLeft: 0, aileronRight: 0, rudder: 0, flaps: 0 }));
+    expect(a.flapL).toBeLessThan(0);
+    expect(a.flapR).toBeLessThan(0);
+  });
+
   it('nose-right yaw swings the rudder trailing edge toward the right (-X); nose-left toward the left', () => {
     expect(trailingEdge(Math.PI / 2, pivotAngles(surfaces({ yaw: 1 })).rudder).x).toBeLessThan(-0.03);
     expect(trailingEdge(Math.PI / 2, pivotAngles(surfaces({ yaw: -1 })).rudder).x).toBeGreaterThan(0.03);
@@ -70,10 +76,10 @@ describe('damping', () => {
 });
 
 describe('AircraftRig', () => {
-  const fakeAircraft = (skip?: string) => {
+  const fakeAircraft = (skip?: string | string[]) => {
     const root = new THREE.Group();
     for (const name of Object.values(A0_NODES)) {
-      if (name === skip) continue;
+      if (Array.isArray(skip) ? skip.includes(name) : name === skip) continue;
       const node = new THREE.Object3D(); node.name = name;
       if (name === A0_NODES.propeller) node.add(new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshStandardMaterial()));
       root.add(node);
@@ -93,6 +99,55 @@ describe('AircraftRig', () => {
     expect(elevator.quaternion.x).toBeGreaterThan(0.15);
     for (let i = 0; i < 600; i++) rig.update(surfaces({}), 0, 1 / 60);
     expect(elevator.quaternion.angleTo(new THREE.Quaternion())).toBeLessThan(1e-9);
+  });
+
+  it('attaches and animates the Nightjar pivots on aircraft body axes', () => {
+    const root = new THREE.Group();
+    const names = ['aileron_L_pivot', 'aileron_R_pivot', 'elevator_pivot', 'rudder_pivot', 'propeller_pivot', 'nose_steer_pivot', 'wheel_nose_pivot', 'wheel_L_pivot', 'wheel_R_pivot', 'engine_mount'];
+    for (const name of names) { const node = new THREE.Object3D(); node.name = name; root.add(node); }
+    const rig = AircraftRig.attach(root, 'nightjar');
+    const rudder = root.getObjectByName('rudder_pivot')!;
+    const prop = root.getObjectByName('propeller_pivot')!;
+    for (let i = 0; i < 30; i++) rig.update(surfaces({ yaw: 1 }), 5000, 1 / 60);
+    const rudderAxis = new THREE.Vector3(0, 1, 0).applyQuaternion(rudder.quaternion);
+    expect(rudderAxis.distanceTo(new THREE.Vector3(0, 1, 0))).toBeLessThan(1e-9);
+    expect(Math.abs(rudder.quaternion.y)).toBeGreaterThan(0.05);
+    expect(Math.abs(prop.quaternion.z)).toBeGreaterThan(0.05);
+    expect(Math.abs(prop.quaternion.y)).toBeLessThan(1e-9);
+  });
+
+  it('attaches to the exported Nightjar GLB node names (all LODs)', async () => {
+    for (const path of ['nightjar_rw12.glb', 'nightjar_rw12_lod1.glb', 'nightjar_rw12_lod2.glb']) {
+      const bytes = readFileSync(`public/assets/models/airframes/${path}`);
+      // GLB may include extension/compression chunks before its JSON or after it. Read
+      // chunks by their declared headers instead of assuming a JSON chunk at byte 12.
+      let offset = 12;
+      let gltf: { nodes: Array<{ name?: string }> } | undefined;
+      while (offset + 8 <= bytes.length) {
+        const chunkLength = bytes.readUInt32LE(offset);
+        const chunkType = bytes.readUInt32LE(offset + 4);
+        offset += 8;
+        if (chunkType === 0x4e4f534a) gltf = JSON.parse(bytes.toString('utf8', offset, offset + chunkLength)) as typeof gltf;
+        offset += chunkLength;
+      }
+      expect(gltf?.nodes).toBeDefined();
+      const root = new THREE.Group();
+      for (const name of gltf!.nodes.map((node) => node.name).filter((name): name is string => Boolean(name))) {
+        const node = new THREE.Object3D(); node.name = name; root.add(node);
+      }
+      expect(() => AircraftRig.attach(root, 'nightjar'), path).not.toThrow();
+    }
+  });
+
+  it('attaches the Zenith high-wing control surfaces and tractor propeller', () => {
+    const root = fakeAircraft([A0_NODES.engineMount, A0_NODES.cablesLeft, A0_NODES.cablesRight]);
+    const rig = AircraftRig.attach(root, 'zenith');
+    const aileron = root.getObjectByName(A0_NODES.aileronL)!;
+    const prop = root.getObjectByName(A0_NODES.propeller)!;
+    for (let i = 0; i < 30; i++) rig.update(surfaces({ roll: 1 }), 4800, 1 / 60);
+    expect(Math.abs(aileron.quaternion.x)).toBeGreaterThan(0.05);
+    expect(Math.abs(prop.quaternion.z)).toBeGreaterThan(0.05);
+    expect(root.getObjectByName('engine_mount')).toBeTruthy(); // Rig supplies optional vibration anchors.
   });
 });
 
@@ -127,7 +182,7 @@ describe('pf_aircraft_ultralight.glb (A0)', () => {
 
   it('ships every hinge pivot with its surface mesh, plus body, propeller and pilot', () => {
     for (const n of ['a0_body', 'aileron_L', 'aileron_R', 'elevator', 'rudder', 'propeller', 'pilot']) expect(node(n)?.mesh, n).toBeDefined();
-    for (const n of Object.values(A0_NODES)) expect(node(n), n).toBeDefined();
+    for (const n of Object.values(A0_NODES).filter((name) => name !== A0_NODES.flapL && name !== A0_NODES.flapR)) expect(node(n), n).toBeDefined();
   });
 
   it('puts the left aileron on the +X (left) wing and the right one on -X', () => {
@@ -137,7 +192,7 @@ describe('pf_aircraft_ultralight.glb (A0)', () => {
 
   it('keeps a small shared material family and a single 1024px livery atlas', () => {
     const names = (json.materials as Array<{ name: string }>).map((m) => m.name).sort();
-    expect(names).toEqual(['A0_ENGINE_DARK', 'A0_FABRIC', 'A0_FRAME', 'A0_MECHANICAL', 'A0_PILOT', 'A0_PROP', 'A0_RUBBER', 'A0_SEAT']);
+    expect(names).toEqual(['A0_CONTROL_CABLE', 'A0_ENGINE_DARK', 'A0_EXHAUST', 'A0_FABRIC', 'A0_FRAME', 'A0_MECHANICAL', 'A0_PILOT', 'A0_PROP', 'A0_RUBBER', 'A0_SEAT']);
     expect(json.images).toHaveLength(1);
     const binStart = 20 + glb.readUInt32LE(12) + 8;
     const view = json.bufferViews[json.images[0].bufferView];

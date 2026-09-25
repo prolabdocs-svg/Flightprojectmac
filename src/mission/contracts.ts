@@ -9,7 +9,8 @@ import { createSeededRandom, deriveSeed } from '../core/seededRandom';
 import { getRegion } from '../content/regions';
 import type { MissionAirfieldLinks } from '../content/missions';
 import { estimatePerformance } from '../sim/performance';
-import { getAirfield, getRegionAirfields } from '../world/airfields';
+import { getAirfield } from '../world/airfields';
+import { RouteGraph } from '../world/routePlanner';
 import { ARCHETYPES, contractRevenueCash, type ArchetypeDef } from './archetypes';
 import { assessContract, emptyMassKg, mtowKg, type Assessment, type Blocker } from './planning';
 import { routeContext } from './route';
@@ -36,10 +37,10 @@ export interface ContractOffer {
   lockedReason?: Blocker | 'REPUTATION';
 }
 
-export function weatherFor(regionId: string, seed: number, routeKey: string): MissionWeather {
+export function weatherFor(regionId: string, seed: number, routeKey: string, windScale = 1): MissionWeather {
   const region = getRegion(regionId);
   const rng = createSeededRandom(seed, regionId, routeKey, 'weather');
-  const scale = rng.range(0.6, 1.4);
+  const scale = rng.range(0.6, 1.4) * windScale;
   const rot = (rng.range(-25, 25) * Math.PI) / 180;
   const [wx, wy, wz] = region.windBaseMs;
   return {
@@ -80,33 +81,38 @@ function buildContract(a: ArchetypeDef, ctx: GenerationContext, destinationId: s
     description: `${a.title} de ${route.origin.name} a ${dest.name}.`,
     spawnPoint: [route.origin.position[0], route.originElevM + 1.2, route.origin.position[2]],
     spawnHeadingDeg: route.bearingDeg,
-    targetPoint: [dest.position[0], route.destElevM, dest.position[2]],
+    targetPoint: [...route.destinationPoint],
     targetRadiusM: dest.runwayLengthM / 2 + 15,
     minDistanceM: Math.round(route.distanceM * 0.8),
     rewardBaseCash: revenueCash,
     rewardBaseRp: 5 + Math.round((route.distanceM / 1000) * 3),
     bonuses: [
       { id: 'no_damage', label: 'Sin daños', check: 'noDamage', rewardCash: 15, rewardRp: 0 },
-      { id: 'landing_quality', label: 'Aterrizaje suave', check: 'landingQuality', value: 0.7, rewardCash: 20, rewardRp: 3 },
+      { id: 'landing_quality', label: 'Aterrizaje suave', check: 'landingQuality', value: a.landingBonus?.quality ?? 0.7, rewardCash: a.landingBonus?.cash ?? 20, rewardRp: 3 },
     ],
   };
 
   return {
     id, archetype: a.id, title: mission.name, originId: route.origin.id, destinationId: dest.id, regionId: route.origin.regionId,
     distanceM: route.distanceM, bearingDeg: route.bearingDeg, payloadKg, minPayloadKg, passengers,
-    weather: weatherFor(route.origin.regionId, ctx.seed, `${route.origin.id}>${dest.id}`),
+    weather: weatherFor(route.origin.regionId, ctx.seed, `${route.origin.id}>${dest.id}`, a.windScale),
     revenueCash, timeLimitS, reputationRequired: a.reputationRequired, mission,
   };
 }
 
 export function generateContracts(ctx: GenerationContext): ContractOffer[] {
   const home = getAirfield(ctx.originId);
-  const origin = home ? getRegionAirfields(home.regionId) : [];
-  const destinations = origin.filter((f) => f.id !== ctx.originId && ctx.knownAirfieldIds.includes(f.id));
+  const graph = new RouteGraph();
+  const destinations = home
+    ? graph.neighbors(ctx.originId).map((edge) => getAirfield(edge.toId)).filter((field): field is NonNullable<typeof field> => Boolean(field))
+    : [];
   const offers: ContractOffer[] = [];
   for (const dest of destinations) {
     const unvisited = !ctx.visitedAirfieldIds.includes(dest.id);
-    const eligible: ArchetypeId[] = ARCHETYPES.filter((a) => !a.onlyUnvisitedDestination || unvisited).map((a) => a.id);
+    const discovered = ctx.knownAirfieldIds.includes(dest.id);
+    const eligible: ArchetypeId[] = ARCHETYPES
+      .filter((a) => (discovered || a.id === 'exploration') && (!a.onlyUnvisitedDestination || unvisited) && ctx.reputation >= a.reputationRequired)
+      .map((a) => a.id);
     const rng = createSeededRandom(ctx.seed, ctx.originId, dest.id, 'archetypes');
     // Exploration is always offered when there is something to discover; the other slot rotates with the seed.
     const picks: ArchetypeId[] = eligible.includes('exploration') ? ['exploration'] : [];

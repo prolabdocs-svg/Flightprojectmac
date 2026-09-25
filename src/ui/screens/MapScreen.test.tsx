@@ -35,7 +35,18 @@ describe('MapScreen', () => {
     expect(host.querySelectorAll('.region-tab').length).toBeGreaterThan(1);
     expect(byText('nav button', /Taller/)).toBeTruthy();
     expect(host.querySelector('.mission-card')).toBeNull(); // no permanent mission stack
-  });
+  }, 60_000);
+  it('opens the worldwide chart and follows an airfield into its local campaign chart', async () => {
+    await mount();
+    click(byText('.region-tab', /^Mundo$/));
+    expect(useGameStore.getState().selectedMapRegionId).toBe('master');
+    expect(host.querySelector('.map-title h2')?.textContent).toBe('Mapa mundial');
+    click(byText('.wmap-sr button', /Franja Norte/));
+    expect(host.querySelector('.wmap-panel')?.textContent).toContain('Abrir carta de');
+    click(byText('.wmap-panel .primary-btn', /Abrir carta de/));
+    expect(useGameStore.getState().selectedMapRegionId).toBe('the_field');
+    expect(useGameStore.getState().mapSelectionId).toBe('field_north_strip');
+  }, 600_000); // builds the master map on first use
   it('selecting the parked-at airfield shows the aircraft state from the save (fuel in litres), not contracts', async () => {
     await mount();
     click(byText('.wmap-sr button', /Taller de campo/));
@@ -79,11 +90,13 @@ describe('MapScreen', () => {
     expect(useGameStore.getState().selectedMissionId).toBeNull();
     expect(useGameStore.getState().selectedFreeFlightRegionId).toBe('the_field');
   });
-  it('switching region clears the selection; locked regions cannot be entered', async () => {
+  it('switching region clears the selection; unexplored regions are uncharted territory, not padlocks', async () => {
     await mount();
     useGameStore.setState({ mapSelectionId: 'field_home' });
-    const locked = byText('.region-tab', /Red Canyon/) as HTMLButtonElement;
-    expect(locked.disabled).toBe(true);
+    expect(byText('.region-tab', /Red Canyon/)).toBeUndefined(); // name not revealed before flying there
+    const unknown = byText('.region-tab', /Sin cartografiar/) as HTMLButtonElement;
+    expect(unknown.disabled).toBe(true);
+    expect(host.textContent).not.toContain('🔒');
     useGameStore.getState().selectMapRegion('scrap_valley');
     expect(useGameStore.getState().mapSelectionId).toBeNull();
   });

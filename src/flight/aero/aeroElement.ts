@@ -12,7 +12,7 @@ import { MIN_AIRFLOW_MS } from '../core/constants';
 import type { Vec3 } from '../core/coordinates';
 
 export type ElementGroup = 'wing' | 'htail' | 'vtail';
-export type ControlKind = 'aileron' | 'elevator' | 'rudder';
+export type ControlKind = 'aileron' | 'elevator' | 'rudder' | 'flap';
 
 export interface ElementControlSpec {
   kind: ControlKind;
@@ -191,10 +191,10 @@ export class AeroElement {
 
     if (spec.control) {
       // Flap-like control: lift proportional to deflection, faded as the section separates.
-      const dcl = spec.clAlpha * this.controlTau * this.deflectionRad * (1 - 0.7 * t.sep);
+      const dcl = spec.clAlpha * this.controlTau * this.deflectionRad * (1 - 0.7 * t.sep) * (spec.control.kind === 'flap' ? 0.45 : 1);
       cl += dcl;
-      cm -= CM_PER_FLAP_CL * dcl;
-      cd += CD_FLAP_PER_RAD2 * this.deflectionRad * this.deflectionRad * spec.control.spanFraction;
+      cm -= CM_PER_FLAP_CL * dcl * (spec.control.kind === 'flap' ? 1.8 : 1);
+      cd += CD_FLAP_PER_RAD2 * this.deflectionRad * this.deflectionRad * spec.control.spanFraction * (spec.control.kind === 'flap' ? 1.8 : 1);
     }
     if (spec.group === 'wing') cl *= 1 + ctx.groundLiftGain;
     cd += this.inducedK * (spec.group === 'wing' ? ctx.groundInducedFactor : 1) * cl * cl;

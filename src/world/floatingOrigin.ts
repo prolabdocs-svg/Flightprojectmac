@@ -16,6 +16,7 @@ export class FloatingOrigin {
 
   register(object: THREE.Object3D) { this.registered.add(object); }
   unregister(object: THREE.Object3D) { this.registered.delete(object); }
+  has(object: THREE.Object3D): boolean { return this.registered.has(object); }
 
   /** True global position -> current local (renderable) position. */
   toLocal(global: THREE.Vector3): THREE.Vector3 { return global.clone().sub(this.origin); }

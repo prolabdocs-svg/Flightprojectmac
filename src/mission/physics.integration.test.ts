@@ -77,8 +77,9 @@ describe('failure branches driven by the simulation', () => {
 
   it('a nose-first dive is a crash: FAILED with the simulation reason, costed, recoverable, no soft-lock', async () => {
     const prep = prepared();
+    let diving = false; // once committed, hold the dive into the ground (no pull-out)
     const f = await flyActiveContract(prep, {
-      control: (s) => (s && s.altitudeM > 12 ? { throttle: 1, pitch: Math.max(-1, Math.min(1, (-40 - s.pitchDeg) * 0.2)), assistMode: 'acro' } : { throttle: 1, pitch: s && s.airspeedMs > s.stallSpeedMs * 1.05 ? 0.6 : 0 }),
+      control: (s) => ((diving ||= !!s && s.altitudeM > 12) ? { throttle: 1, pitch: Math.max(-1, Math.min(1, (-40 - s!.pitchDeg) * 0.2)), assistMode: 'acro' } : { throttle: 1, pitch: s && s.airspeedMs > s.stallSpeedMs * 1.05 ? 0.6 : 0 }),
     });
     const session = f.profile.operations.active!.session;
     expect(session.state).toBe('FAILED');

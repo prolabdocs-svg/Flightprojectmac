@@ -1,0 +1,13 @@
+{
+  "variant": "RANS S-12XL Airaile, closed cabin, Rotax 582 (reference family configuration)",
+  "sources": [
+    {"url":"https://data.ntsb.gov/Docket/Document/docBLOB?FileExtension=.PDF&FileName=Rans+S+12+Specification+Sheet-Master.PDF&ID=40462454","kind":"manufacturer specification sheet copy","rights":"link only","confidence":"high for published dimensions and engine options"},
+    {"url":"https://data.ntsb.gov/Docket/Document/docBLOB?FileExtension=.PDF&FileName=RANS+S12-XL+Three+View+Drawing-Master.PDF&ID=40397014","kind":"three-view drawing","rights":"link only","confidence":"medium-high for silhouette"},
+    {"url":"https://www.rans.com/_files/ugd/6e941e_e80459fe58ea44fb8b015e4f9203a598.pdf","kind":"official S-12XL parts manual","rights":"link only","confidence":"high for assembly options and part relationships"},
+    {"url":"https://www.rans.com/_files/ugd/6e941e_e2edd712a8df4b86a13a3aa19fb401b1.pdf","kind":"official S-12XL Rotax 582 installation parts","rights":"link only","confidence":"high for 582 installation parts"},
+    {"url":"https://www.rans.com/_files/ugd/6e941e_f391c0e29ce14ec8b64d6b31795bbf2d.pdf","kind":"official S-12XL Rotax 582 installation text","rights":"link only","confidence":"high for 582 installation procedure; serial applicability not established"},
+    {"url":"https://www.jetphotos.com/photo/6818566","registration":"EC-DP9","serial":"S-12-AV002","variant":"RANS S-12XL Airaile 582","date":"2010-03-28","author":"Rafael Alvarez Cacho","rights":"copyright; link only","confidence":"high aircraft/engine metadata; one exterior angle"},
+    {"url":"https://www.airhistory.net/photo/808069/EC-CX1","registration":"EC-CX1","serial":"S-12-196","variant":"S-12XL Airaile 582","date":"2025-04-01","author":"Sultan of Wing","rights":"copyright; no local copy","confidence":"high metadata, restricted photo access"},
+    {"url":"https://commons.wikimedia.org/wiki/File:Rans_S-12XL_Airaile_C-IXII_01.JPG","registration":"C-IXII","date":"2005-06-24","author":"Ahunt","license":"Public domain per Commons","confidence":"medium; engine not verified"}
+  ]
+}

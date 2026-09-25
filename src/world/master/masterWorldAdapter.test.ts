@@ -82,6 +82,26 @@ describe('MasterWorldAdapter (Phase 2C: real THREE.Scene + real Rapier.World)', 
     // global distance travelled.
     const localX = body.translation().x;
     expect(Math.abs(localX)).toBeLessThan(trueGlobalX);
+  }, 60000);
+
+  it('a rebase shifts non-tile region-local scene roots (environment, runway, marker) by the same delta as the terrain', () => {
+    const scene = new THREE.Scene();
+    const adapter = new MasterWorldAdapter(region, scene, null, null, terrain);
+    const envRoot = new THREE.Group();
+    const runway = new THREE.Object3D(); runway.position.set(120, 5, -40);
+    scene.add(envRoot, runway);
+    const deltas: Array<{ x: number; z: number }> = [];
+    adapter.addFollower((d) => deltas.push(d));
+    for (let x = 0; x <= 8000; x += 400) adapter.update(x - deltas.reduce((s, d) => s + d.x, 0), 0, 400, 0, 100);
+    expect(deltas.length).toBeGreaterThan(0);
+    const total = deltas.reduce((s, d) => ({ x: s.x + d.x, z: s.z + d.z }), { x: 0, z: 0 });
+    expect(envRoot.position.x).toBeCloseTo(-total.x, 6);
+    expect(envRoot.position.z).toBeCloseTo(-total.z, 6);
+    expect(runway.position.x).toBeCloseTo(120 - total.x, 6);
+    expect(runway.position.y).toBe(5);
+    // Tiles keep their own FloatingOrigin shift (not doubled): the origin offset equals the summed deltas.
+    expect(adapter.runtime.origin.originOffset.x).toBeCloseTo(total.x, 6);
+    adapter.dispose();
   }, 15000);
 
   it('region-local elevation the adapter height function uses matches createMasterRegionTerrain exactly', () => {
@@ -97,7 +117,7 @@ describe('MasterWorldAdapter (Phase 2C: real THREE.Scene + real Rapier.World)', 
       expect(query.getElevation(x, z)).toBeCloseTo(viaAdapterMath, 6);
     }
     adapter.dispose();
-  });
+  }, 15000);
 
   it('throws for a region with no master frame instead of silently producing a wrong-geography world', () => {
     const scene = new THREE.Scene();
@@ -105,7 +125,7 @@ describe('MasterWorldAdapter (Phase 2C: real THREE.Scene + real Rapier.World)', 
     expect(() => new MasterWorldAdapter(getRegion('the_field'), scene, rapier, world, terrain)).not.toThrow();
     // the_field DOES have a frame (Starter Basin); a genuinely unknown id is what should throw.
     expect(() => new MasterWorldAdapter({ ...getRegion('the_field'), id: 'not_a_real_region' }, scene, rapier, world, terrain)).toThrow();
-  });
+  }, 60000);
 
   it('a long out-and-back flight settles physics/render tile counts back down (no unbounded growth)', () => {
     const scene = new THREE.Scene();

@@ -4,7 +4,7 @@ import { MISSIONS } from '../content/missions';
 import { REGIONS } from '../content/regions';
 import { estimatePerformance } from '../sim/performance';
 import { createDefaultProfile } from '../save/save';
-import { classifyRange, contractsForAirfield, flightTimeS, formatDistance, formatDuration, getMapTargets, getOrigin, getRegionAirRoutes, missionAirfieldId, regionTerrain, routeTags, sampleRouteProfile, usableRangeKm } from './mapPlan';
+import { classifyRange, contractsForAirfield, flightTimeS, formatDistance, formatDuration, getMapTargets, getMasterAirRoutes, getMasterMapTargets, getOrigin, getRegionAirRoutes, missionAirfieldId, regionTerrain, routeTags, sampleRouteProfile, usableRangeKm } from './mapPlan';
 import { distanceM, worldToScreen } from './mapProjection';
 import { getRegionMap } from './mapGeography';
 
@@ -28,6 +28,27 @@ describe('distance', () => {
 });
 
 describe('airfields on the map', () => {
+  it('puts every authored airfield on the master chart and connects them with a route tree', () => {
+    const targets = getMasterMapTargets();
+    expect(targets.map((t) => t.id).sort()).toEqual(AIRFIELDS.map((field) => field.id).sort());
+    const routes = getMasterAirRoutes();
+    expect(routes).toHaveLength(targets.length - 1);
+    const connected = new Set([targets[0].id]);
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const route of routes) {
+        if (connected.has(route.fromId) && !connected.has(route.toId)) { connected.add(route.toId); changed = true; }
+        if (connected.has(route.toId) && !connected.has(route.fromId)) { connected.add(route.fromId); changed = true; }
+      }
+    }
+    expect(connected.size).toBe(targets.length);
+    for (const target of targets) {
+      const field = getMasterMapTargets().find((candidate) => candidate.id === target.id)!;
+      expect(Number.isFinite(field.x) && Number.isFinite(field.z)).toBe(true);
+      expect(field.airfield?.regionId).toBe(AIRFIELDS.find((candidate) => candidate.id === target.id)?.regionId);
+    }
+  }, 20_000);
   it('sit at their real relative positions: the north strip is straight north of home', () => {
     const view = { centerEast: 0, centerNorth: 300, scale: 0.2 }, size = { w: 900, h: 600 };
     const h = worldToScreen(view, size, home.position[0], home.position[2]), n = worldToScreen(view, size, north.position[0], north.position[2]);
