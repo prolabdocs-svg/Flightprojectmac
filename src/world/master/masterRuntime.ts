@@ -8,6 +8,7 @@ import {
   type RegionId,
 } from './masterGeography';
 import { RIVER_ACCUM_CELLS, getMasterMap, sampleMaster, type MasterMapData, type MasterSample } from './masterMap';
+import { outerlandElevation } from '../../map/masterMapGeography';
 
 /**
  * MASTER WORLD RUNTIME AUTHORITY (Phase 2).
@@ -26,6 +27,7 @@ const N = GRID_N;
 const KM = 1000;
 const clamp = (v: number, a: number, b: number): number => (v < a ? a : v > b ? b : v);
 const smooth = (e0: number, e1: number, x: number): number => { const t = clamp((x - e0) / (e1 - e0), 0, 1); return t * t * (3 - 2 * t); };
+const MASTER_AIRPORTS = AIRFIELDS.map((definition) => ({ definition }));
 
 /** World metres -> continuous grid coordinates (cell centres at integers). */
 const gx = (x: number): number => (-x + HALF_M) / CELL_M - 0.5; // east = -x  =>  E = -x/1000
@@ -86,6 +88,7 @@ export class MasterTerrain {
   readonly map: MasterMapData;
   private readonly frames = new Map<string, NamedAreaFrame>();
   private airfieldsCache: MasterAirfield[] | null = null;
+  private airportGradingCache: Array<{ center: readonly [number, number]; radiusM: number }> | null = null;
 
   constructor(map: MasterMapData = getMasterMap()) {
     this.map = map;
@@ -105,7 +108,15 @@ export class MasterTerrain {
 
   /** Ground BED elevation (m): what the terrain mesh draws. */
   elevationAt(x: number, z: number): number {
-    const base = bicubicWorld(this.map.heightM, x, z);
+    if (Math.abs(x) > HALF_M || Math.abs(z) > HALF_M) return outerlandElevation(x, z);
+    let base = bicubicWorld(this.map.heightM, x, z);
+    const overrides = this.airportsWorld();
+    for (const o of overrides) {
+      const d = Math.hypot(x - o.center[0], z - o.center[1]) - o.radiusM;
+      const graded = bicubicWorld(this.map.heightM, o.center[0], o.center[1]);
+      if (d <= 0) { base = graded; break; }
+      if (d < 150) { const t = d / 150, w = t * t * (3 - 2 * t); base = graded + (base - graded) * w; break; }
+    }
     const [ox, oz] = STARTER_BASIN.worldOffsetM;
     const lx = x - ox, lz = z - oz, cheb = Math.max(Math.abs(lx), Math.abs(lz));
     if (cheb >= 5400) return base;
@@ -116,6 +127,7 @@ export class MasterTerrain {
   /** Water at this point, or null on dry land. Lakes/lagoons/sea report their surface; rivers are 1 m deep ribbons. */
   waterAt(x: number, z: number): WaterInfo | null {
     const bed = this.elevationAt(x, z);
+    if (Math.abs(x) > HALF_M || Math.abs(z) > HALF_M) return bed <= 0 ? { kind: 'sea', surfaceM: 0, depthM: -bed } : null;
     const s = sampleMaster(this.map, x, z);
     if (s.water === 'sea') return { kind: 'sea', surfaceM: 0, depthM: Math.max(0, -bed) };
     if (s.water === 'lagoon') return { kind: 'lagoon', surfaceM: 0.4, depthM: Math.max(0.3, 0.4 - bed) };
@@ -142,12 +154,19 @@ export class MasterTerrain {
     return (Math.atan(Math.hypot(dx, dz)) * 180) / Math.PI;
   }
 
-  regionAt(x: number, z: number): RegionId | null { return sampleMaster(this.map, x, z).region; }
-  sampleGeo(x: number, z: number): MasterSample { return sampleMaster(this.map, x, z); }
+  sampleGeo(x: number, z: number): MasterSample {
+    if (Math.abs(x) <= HALF_M && Math.abs(z) <= HALF_M) return sampleMaster(this.map, x, z);
+    const e = -x / 1000, n = z / 1000;
+    const region: RegionId = n > 0 ? 'R03_northern_mountains' : n < -19 ? 'R08_southern_archipelago' : e < 0 ? 'R04_western_badlands' : 'R09_eastern_highlands';
+    const elevationM = this.elevationAt(x, z);
+    const water = elevationM <= 0 ? 'sea' : 'land';
+    return { elevationM, region, water, coastDistM: Math.abs(elevationM) < 80 ? 0 : 1000 } as MasterSample;
+  }
+  regionAt(x: number, z: number): RegionId | null { return this.sampleGeo(x, z).region; }
 
   /** Natural (off-runway) ground surface derived from region, altitude, slope, water and coast distance. */
   surfaceAt(x: number, z: number): GroundSurfaceId {
-    const s = sampleMaster(this.map, x, z);
+    const s = this.sampleGeo(x, z);
     const w = this.waterAt(x, z);
     if (w && w.kind !== 'river') return 'sand';
     const elev = this.elevationAt(x, z), slope = this.slopeDegAt(x, z);
@@ -202,15 +221,22 @@ export class MasterTerrain {
 
   airfields(): MasterAirfield[] {
     if (this.airfieldsCache) return this.airfieldsCache;
-    this.airfieldsCache = AIRFIELDS.filter((a) => this.frames.has(a.regionId)).map((a) => {
+    this.airfieldsCache = MASTER_AIRPORTS.filter(({ definition: a }) => this.frames.has(a.regionId)).map(({ definition: a }) => {
       const f = this.frame(a.regionId);
       const [wx, wz] = this.localToWorld(a.regionId, a.position[0], a.position[2]);
       return {
-        id: a.id, namedAreaId: a.regionId, macro: f.macro, localPosition: a.position, worldPosition: [wx, wz], elevationM: this.groundAt(wx, wz),
+        id: a.id, namedAreaId: a.regionId, macro: f.macro, localPosition: a.position, worldPosition: [wx, wz], elevationM: bicubicWorld(this.map.heightM, wx, wz),
         runwayLengthM: a.runwayLengthM, runwayWidthM: a.runwayWidthM, surface: a.surface, discoveryState: a.discoveryState,
       };
     });
     return this.airfieldsCache;
+  }
+  private airportsWorld() {
+    if (this.airportGradingCache) return this.airportGradingCache;
+    return (this.airportGradingCache = MASTER_AIRPORTS.filter(({ definition: a }) => this.frames.has(a.regionId)).map(({ definition: a }) => {
+      const [x, z] = this.localToWorld(a.regionId, a.position[0], a.position[2]);
+      return { center: [x, z] as const, radiusM: a.runwayLengthM / 2 + 40 };
+    }));
   }
   airfield(id: string): MasterAirfield | undefined { return this.airfields().find((a) => a.id === id); }
 
@@ -252,29 +278,33 @@ export class MasterTerrain {
   }
 }
 
+/** Deterministic peripheral geography joined at sea-level edges. The authored core remains bit-for-bit unchanged. */
+export { outerlandElevation } from '../../map/masterMapGeography';
+
 let cachedTerrain: MasterTerrain | null = null;
 /** Process-wide master world (lazy; the generator is deterministic). */
 export function getMasterTerrain(): MasterTerrain { return (cachedTerrain ??= new MasterTerrain()); }
 
-/**
- * `TerrainQueryService` for a campaign region backed by the master world, in the region-local frame the missions/airfields already
- * use. Graded runway pads, water bodies and biomes are layered by `createTerrainQueryService` exactly as before; only the RAW relief,
- * the natural surface and the water come from the master. For `the_field` this reproduces the legacy terrain verbatim in the core.
- */
-export function createMasterRegionTerrain(region: RegionDefinition, world: MasterTerrain = getMasterTerrain()): TerrainQueryService {
-  const frame = world.frame(region.id);
-  const natural = world.localNaturalElevation(region.id);
-  const base = createTerrainQueryService(region, { natural, legacyWater: false });
-  const toWorld = (x: number, z: number): [number, number] => [x + frame.originWorld[0], z + frame.originWorld[1]];
-  const surface = (x: number, z: number): GroundSurfaceId => (base.isOnGradedRunway(x, z) ? base.getSurfaceId(x, z) : world.surfaceAt(...toWorld(x, z)));
+/** `TerrainQueryService` over absolute master-world coordinates. Legacy mission/asset data must be translated at its boundary. */
+export function createMasterWorldTerrain(region: RegionDefinition, world: MasterTerrain = getMasterTerrain()): TerrainQueryService {
+  const natural = (x: number, z: number): number => world.elevationAt(x, z);
+  const base = createTerrainQueryService(region, { natural, legacyWater: false, includeAirportGrading: false });
+  const surface = (x: number, z: number): GroundSurfaceId => {
+    const nearest = world.nearestAirfield(x, z);
+    return nearest && nearest.distanceM < nearest.airfield.runwayLengthM / 2 + 40 ? nearest.airfield.surface : world.surfaceAt(x, z);
+  };
   const waterDepth = (x: number, z: number): number => {
-    const w = world.waterAt(...toWorld(x, z));
+    const w = world.waterAt(x, z);
     return Math.max(base.getWaterDepth(x, z), w && w.kind !== 'river' ? w.depthM : 0);
   };
   return {
     ...base,
     getSurfaceId: surface,
     getWaterDepth: waterDepth,
+    isOnGradedRunway: (x: number, z: number) => {
+      const nearest = world.nearestAirfield(x, z);
+      return !!nearest && nearest.distanceM < nearest.airfield.runwayLengthM / 2 + 40;
+    },
     sample(x: number, z: number): TerrainSample {
       const s = base.sample(x, z);
       const surfaceId = surface(x, z), waterDepthM = waterDepth(x, z);
@@ -282,6 +312,11 @@ export function createMasterRegionTerrain(region: RegionDefinition, world: Maste
       return { ...s, surfaceId, waterDepthM, emergencyLandingSuitability: waterDepthM > 0 ? 0 : Math.max(0, Math.min(1, flatness * (1 - GROUND_SURFACES[surfaceId].bumpiness * 0.5))) };
     },
   };
+}
+
+/** Region-local compatibility for old mission tooling; active gameplay uses createMasterWorldTerrain. */
+export function createMasterRegionTerrain(region: RegionDefinition, world: MasterTerrain = getMasterTerrain()): TerrainQueryService {
+  return createTerrainQueryService(region, { natural: world.localNaturalElevation(region.id), legacyWater: false });
 }
 
 export { REGION_IDS, RIVER_ACCUM_CELLS, SITE_GRADING, worldToGeo };

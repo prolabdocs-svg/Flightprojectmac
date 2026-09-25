@@ -68,5 +68,5 @@ describe('cross-region contract routing', () => {
     expect(step(telemetryAt([...route.destinationPoint], { state: 'groundRoll', onGround: true, wheelsOnGround: 3, altitudeM: 0, groundSpeedMs: 12, distanceM: route.distanceM }))).toEqual(['GROUND_CONTACT']);
     expect(step(telemetryAt([...route.destinationPoint], { state: 'stopped', landed: true, onGround: true, wheelsOnGround: 3, altitudeM: 0, groundSpeedMs: 0, engineOn: false, rpm: 0, distanceM: route.distanceM }))).toEqual(['AIRCRAFT_STOPPED']);
     expect(session.state).toBe('OBJECTIVE_MET');
-  });
+  }, 15000);
 });

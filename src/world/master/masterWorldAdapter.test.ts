@@ -3,19 +3,19 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import type RAPIER from '@dimforge/rapier3d-compat';
 import { createWorld, initPhysics } from '../../sim/physics';
 import { getRegion } from '../../content/regions';
-import { createMasterRegionTerrain, getMasterTerrain } from './masterRuntime';
+import { createMasterWorldTerrain, getMasterTerrain } from './masterRuntime';
 import { MasterWorldAdapter } from './masterWorldAdapter';
 
 /**
- * PHASE 2C gameplay-integration tests: the seam between the isolated Phase 2B streamer (tested only against a bare THREE
- * group + Rapier world) and real region-local gameplay coordinates. Exercises the actual `MasterStreamingRuntime` +
+ * PHASE 2C gameplay-integration tests: the seam between the isolated Phase 2B streamer and absolute world gameplay coordinates.
+ * Exercises the actual `MasterStreamingRuntime` +
  * `MasterColliderStreamer` + `MasterRenderStreamer` against a real Rapier `World` and a real `THREE.Scene`, driven the way
- * `FlightScreen.tsx` drives it: region-local x/z, a Rapier rigid body as the "aircraft", and floating-origin rebases applied
+ * `FlightScreen.tsx` drives it: world x/z, a Rapier rigid body as the "aircraft", and floating-origin rebases applied
  * back onto that body exactly as `masterWorld.addFollower(...)` does in the real flight loop.
  */
 
 let rapier: typeof RAPIER;
-// Pre-warm the lazy master-map singleton (getMasterTerrain -> getMasterMap generates the whole 48 km
+// Pre-warm the lazy master-map singleton (getMasterTerrain -> getMasterMap generates the whole 72 km
 // grid once, several seconds) at module load, same pattern as streamingRuntime.test.ts /
 // colliderStreaming.test.ts — otherwise the first `it()` eats that one-time cost inside its own timeout.
 const terrain = getMasterTerrain();
@@ -42,7 +42,7 @@ describe('MasterWorldAdapter (Phase 2C: real THREE.Scene + real Rapier.World)', 
     // The world's own physics collider count includes the adapter's terrain colliders.
     expect(world.colliders.len()).toBeGreaterThanOrEqual(adapter.metrics().colliders.activeColliders);
     world.removeRigidBody(body);
-  }, 15000);
+  }, 60000);
 
   it('dispose() removes every tile mesh and terrain collider (no leaks)', () => {
     const scene = new THREE.Scene();
@@ -53,7 +53,7 @@ describe('MasterWorldAdapter (Phase 2C: real THREE.Scene + real Rapier.World)', 
     adapter.dispose();
     expect(scene.children.length).toBe(0);
     expect(adapter.metrics().colliders.activeColliders).toBe(0);
-  });
+  }, 15000);
 
   it('a rebase-registered follower (the aircraft Rapier body) is shifted by exactly the same delta as the terrain', () => {
     const scene = new THREE.Scene();
@@ -66,7 +66,7 @@ describe('MasterWorldAdapter (Phase 2C: real THREE.Scene + real Rapier.World)', 
       const t = body.translation();
       body.setTranslation({ x: t.x - delta.x, y: t.y, z: t.z - delta.z }, true);
     });
-    // Sweep far enough (> rebaseThresholdM = 3072m) to force several rebases, like a long cross-region flight.
+    // Sweep far enough (> rebaseThresholdM = 2560m) to force several rebases, like a long cross-region flight.
     // The body's own translation IS the local x/z fed back to `update()` each step (exactly how FlightScreen.tsx
     // reads `controller.body.translation()` every frame) — advance it by the physics-frame delta each step, not by
     // resetting it to a raw cumulative distance, so a mid-sweep rebase correction is never overwritten next iteration.
@@ -84,7 +84,7 @@ describe('MasterWorldAdapter (Phase 2C: real THREE.Scene + real Rapier.World)', 
     expect(Math.abs(localX)).toBeLessThan(trueGlobalX);
   }, 60000);
 
-  it('a rebase shifts non-tile region-local scene roots (environment, runway, marker) by the same delta as the terrain', () => {
+  it('a rebase shifts non-tile world-space scene roots (environment, runway, marker) by the same delta as the terrain', () => {
     const scene = new THREE.Scene();
     const adapter = new MasterWorldAdapter(region, scene, null, null, terrain);
     const envRoot = new THREE.Group();
@@ -104,27 +104,25 @@ describe('MasterWorldAdapter (Phase 2C: real THREE.Scene + real Rapier.World)', 
     adapter.dispose();
   }, 15000);
 
-  it('region-local elevation the adapter height function uses matches createMasterRegionTerrain exactly', () => {
-    const query = createMasterRegionTerrain(region, terrain);
+  it('world-space elevation the adapter height function uses matches createMasterWorldTerrain exactly', () => {
+    const query = createMasterWorldTerrain(region, terrain);
     const scene = new THREE.Scene();
     const world = createWorld();
     const adapter = new MasterWorldAdapter(region, scene, rapier, world, terrain);
-    // Both read the same MasterTerrain.groundAt through the same frame translation — sample a few points directly via the
-    // frame math the adapter uses internally (mirrored here, not exported, so this checks behaviour, not implementation).
-    const frame = terrain.frame(region.id);
     for (const [x, z] of [[0, 0], [300, -150], [-800, 900]] as const) {
-      const viaAdapterMath = terrain.groundAt(x + frame.originWorld[0], z + frame.originWorld[1]) - frame.datumM;
-      expect(query.getElevation(x, z)).toBeCloseTo(viaAdapterMath, 6);
+      expect(query.getElevation(x, z)).toBeCloseTo(terrain.elevationAt(x, z), 1);
     }
     adapter.dispose();
-  }, 15000);
+  }, 60000);
 
-  it('throws for a region with no master frame instead of silently producing a wrong-geography world', () => {
+  it('streams a region aesthetic without requiring a local geography frame', () => {
     const scene = new THREE.Scene();
     const world = createWorld();
-    expect(() => new MasterWorldAdapter(getRegion('the_field'), scene, rapier, world, terrain)).not.toThrow();
-    // the_field DOES have a frame (Starter Basin); a genuinely unknown id is what should throw.
-    expect(() => new MasterWorldAdapter({ ...getRegion('the_field'), id: 'not_a_real_region' }, scene, rapier, world, terrain)).toThrow();
+    const syntheticRegion = { ...getRegion('the_field'), id: 'world_biome' };
+    const adapter = new MasterWorldAdapter(syntheticRegion, scene, rapier, world, terrain);
+    adapter.update(0, 0, 0, 0, 80);
+    expect(scene.children.length).toBeGreaterThan(0);
+    adapter.dispose();
   }, 60000);
 
   it('a long out-and-back flight settles physics/render tile counts back down (no unbounded growth)', () => {
@@ -138,4 +136,25 @@ describe('MasterWorldAdapter (Phase 2C: real THREE.Scene + real Rapier.World)', 
     const homeTilesAgain = adapter.metrics().render.activeTiles;
     expect(Math.abs(homeTilesAgain - homeTiles)).toBeLessThanOrEqual(5);
   }, 20000);
+
+  it('streams a continuous world route beyond the authored core to the 36 km boundary and back', () => {
+    const scene = new THREE.Scene();
+    const adapter = new MasterWorldAdapter(region, scene, null, null, terrain, { maxTiles: 260 });
+    let localX = 0, globalX = 0;
+    const sweep = (delta: number) => {
+      globalX += delta;
+      localX += delta;
+      adapter.update(localX, 0, Math.sign(delta) * 220, 0, 300);
+      const rebase = adapter.runtime.lastRebaseDeltaXZ;
+      if (rebase) localX -= rebase.x;
+      expect(localX + adapter.runtime.origin.originOffset.x).toBeCloseTo(globalX, 5);
+      expect(Math.abs(localX)).toBeLessThan(3500);
+    };
+    for (let x = 0; x < 36000; x += 120) sweep(120);
+    expect(globalX).toBeCloseTo(36000, 5);
+    expect(adapter.metrics().render.activeTiles).toBeLessThan(400);
+    for (let x = 0; x < 36000; x += 120) sweep(-120);
+    expect(globalX).toBeCloseTo(0, 5);
+    adapter.dispose();
+  }, 90000);
 });

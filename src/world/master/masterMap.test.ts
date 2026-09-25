@@ -16,7 +16,7 @@ let stats: ReturnType<typeof computeMasterStats>;
 beforeAll(() => { m = getMasterMap(); stats = computeMasterStats(m); }, 120_000);
 
 describe('Master Geographic Map V1 — world frame', () => {
-  it('covers X/Z = ±24,000 m centred on the origin, with the game handedness (east is -X)', () => {
+  it('covers X/Z = ±24,000 m in the authored core, with the game handedness (east is -X)', () => {
     expect(m.halfM).toBe(24000);
     expect(m.n * m.cellM).toBe(48000);
     expect(worldToGeo(-5000, 7000)).toEqual([5, 7]); // 5 km east of origin is world x = -5000

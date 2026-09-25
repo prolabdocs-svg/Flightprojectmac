@@ -152,6 +152,8 @@ export interface TerrainQueryOptions {
   /** Replaces the region's authored water. The master-world adapter passes `false`: master relief carries its own
    * sea/lakes/rivers, and the legacy seeds (authored against the analytic relief) would land on dry slopes there. */
   legacyWater?: boolean;
+  /** Disable region-local airport pads when the caller supplies a canonical world terrain. */
+  includeAirportGrading?: boolean;
 }
 
 /** Creates the shared terrain query service for a given region. Deterministic, no RNG. */
@@ -163,7 +165,7 @@ export function createTerrainQueryService(region: RegionDefinition, options: Ter
   // gets a flat, graded pad instead of sitting on raw noise. The graded elevation is the
   // natural terrain height sampled once at the runway center, so the pad blends into its
   // surroundings instead of snapping to an arbitrary fixed height like sea level.
-  const overrides = buildAirportOverrides(region.id);
+  const overrides = options.includeAirportGrading === false ? [] : buildAirportOverrides(region.id);
   const gradedElevationByAirfieldId = new Map(
     overrides.map((o) => [o.airfieldId, natural(o.center[0], o.center[1])]),
   );

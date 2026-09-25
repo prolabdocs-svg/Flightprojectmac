@@ -4,7 +4,7 @@ import { createDefaultProfile, saveRepository, whenSaveRepositoryReady } from '.
 import { canUnlockTech } from '../content/techtree';
 import { MAX_HOME_BASE_LEVEL } from '../content/homeBase';
 import { getFrame } from '../content/parts';
-import { buildForFrame } from '../content/assembly';
+import { buildForFrame, resolveAircraft } from '../content/assembly';
 import { useGameStore } from './gameStore';
 import * as ops from '../mission/operations';
 import type { Loadout } from '../mission/types';
@@ -26,6 +26,8 @@ interface ProfileState {
   setAvatar: (patch: Partial<PlayerProfile['avatar']>) => void;
   upgradeHomeBase: (facility: 'runway' | 'hangar', costCash: number) => boolean;
   applyFlightResult: (result: FlightResult) => void;
+  parkAtAirfield: (airfieldId: string, fuelL: number) => void;
+  refuel: () => boolean;
   updateSettings: (patch: Partial<PlayerProfile['settings']>) => void;
   resetProfile: () => void;
   // Contract loop (src/mission). Thin wrappers: the domain functions are pure, this only commits + persists.
@@ -182,6 +184,35 @@ export const useProfileStore = create<ProfileState>((set, get) => ({
     }
     set({ profile: next });
     get().persist();
+  },
+
+  parkAtAirfield: (airfieldId, fuelL) => {
+    const { profile } = get();
+    const ops = profile.operations;
+    const next = {
+      ...profile,
+      operations: {
+        ...ops,
+        locationId: airfieldId,
+        fuelL: Math.max(0, Math.min(resolveAircraft(profile.currentBuild).fuelCapacityL, fuelL)),
+        knownAirfieldIds: ops.knownAirfieldIds.includes(airfieldId) ? ops.knownAirfieldIds : [...ops.knownAirfieldIds, airfieldId],
+        visitedAirfieldIds: ops.visitedAirfieldIds.includes(airfieldId) ? ops.visitedAirfieldIds : [...ops.visitedAirfieldIds, airfieldId],
+      },
+    };
+    set({ profile: next });
+    get().persist();
+  },
+
+  refuel: () => {
+    const { profile } = get();
+    const capacity = resolveAircraft(profile.currentBuild).fuelCapacityL;
+    const liters = Math.max(0, capacity - profile.operations.fuelL);
+    const unitCost = 4;
+    const cost = Math.ceil(liters * unitCost);
+    if (!liters || profile.cash < cost) return false;
+    set({ profile: { ...profile, cash: profile.cash - cost, operations: { ...profile.operations, fuelL: capacity } } });
+    get().persist();
+    return true;
   },
 
   updateSettings: (patch) => {

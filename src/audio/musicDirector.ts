@@ -103,8 +103,10 @@ export class MusicDirector {
   private cooldownUntil: Partial<Record<MusicEvent, number>> = {};
   private breatheUntil = 0;
   private out: MusicOutput;
+  private readonly rand: () => number;
 
-  constructor(private readonly rand: () => number = Math.random) {
+  constructor(rand: () => number = Math.random) {
+    this.rand = rand;
     this.base = this.enter('MENU');
     this.out = { cue: null, fadeS: 0, state: 'MENU' };
   }

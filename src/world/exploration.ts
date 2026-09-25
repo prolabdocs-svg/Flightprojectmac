@@ -1,9 +1,9 @@
-import { HALF_M } from './master/masterGeography';
+import { HALF_M, WORLD_HALF_M } from './master/masterGeography';
 import { getMasterTerrain } from './master/masterRuntime';
 import { REGIONS } from '../content/regions';
 
 /**
- * Fog of Discovery. The master world (±24 km) is a 96×96 bitset of 500 m cells, 1152 bytes, stored
+ * Fog of Discovery. The world (±36 km) is a 144×144 bitset of 500 m cells, stored
  * base64 in the save. Flying reveals a disc around the aircraft whose radius grows with height
  * above ground; airfields go UNKNOWN → SIGHTED (inside sight radius) → DISCOVERED (close + low) →
  * VISITED (landed). Discovered airfields join `knownAirfieldIds`, which is what the contract
@@ -12,7 +12,8 @@ import { REGIONS } from '../content/regions';
  */
 
 export const FOG_CELL_M = 500;
-export const FOG_N = (2 * HALF_M) / FOG_CELL_M;
+export const FOG_N = (2 * WORLD_HALF_M) / FOG_CELL_M;
+const LEGACY_FOG_N = (2 * HALF_M) / FOG_CELL_M;
 const BYTES = Math.ceil((FOG_N * FOG_N) / 8);
 /** Close enough (and low enough) to read the windsock: the field becomes DISCOVERED. */
 export const DISCOVER_RADIUS_M = 1500;
@@ -39,7 +40,17 @@ export function decodeFog(fog: string): Uint8Array {
   const out = new Uint8Array(BYTES);
   if (!fog) return out;
   const bin = atob(fog);
-  for (let i = 0; i < Math.min(BYTES, bin.length); i++) out[i] = bin.charCodeAt(i);
+  if (bin.length === Math.ceil((LEGACY_FOG_N * LEGACY_FOG_N) / 8)) {
+    // Center the old 48 km chart in the expanded 72 km world without moving discovered cells.
+    const offset = (FOG_N - LEGACY_FOG_N) / 2;
+    for (let j = 0; j < LEGACY_FOG_N; j++) for (let i = 0; i < LEGACY_FOG_N; i++) {
+      const oldK = j * LEGACY_FOG_N + i;
+      if ((bin.charCodeAt(oldK >> 3) >> (oldK & 7)) & 1) {
+        const k = (j + offset) * FOG_N + i + offset;
+        out[k >> 3] |= 1 << (k & 7);
+      }
+    }
+  } else for (let i = 0; i < Math.min(BYTES, bin.length); i++) out[i] = bin.charCodeAt(i);
   return out;
 }
 export function encodeFog(bits: Uint8Array): string {
@@ -48,7 +59,7 @@ export function encodeFog(bits: Uint8Array): string {
   return btoa(s);
 }
 
-const cellOf = (x: number, z: number): [number, number] => [Math.floor((x + HALF_M) / FOG_CELL_M), Math.floor((z + HALF_M) / FOG_CELL_M)];
+const cellOf = (x: number, z: number): [number, number] => [Math.floor((x + WORLD_HALF_M) / FOG_CELL_M), Math.floor((z + WORLD_HALF_M) / FOG_CELL_M)];
 const getBit = (bits: Uint8Array, i: number, j: number): boolean => i >= 0 && j >= 0 && i < FOG_N && j < FOG_N && ((bits[(j * FOG_N + i) >> 3] >> ((j * FOG_N + i) & 7)) & 1) === 1;
 
 export const isCellRevealed = getBit;
@@ -59,7 +70,7 @@ export function revealDisc(bits: Uint8Array, x: number, z: number, r: number): n
   const [i0, j0] = cellOf(x - r, z - r), [i1, j1] = cellOf(x + r, z + r);
   let n = 0;
   for (let j = Math.max(0, j0); j <= Math.min(FOG_N - 1, j1); j++) for (let i = Math.max(0, i0); i <= Math.min(FOG_N - 1, i1); i++) {
-    const cx = -HALF_M + (i + 0.5) * FOG_CELL_M, cz = -HALF_M + (j + 0.5) * FOG_CELL_M;
+    const cx = -WORLD_HALF_M + (i + 0.5) * FOG_CELL_M, cz = -WORLD_HALF_M + (j + 0.5) * FOG_CELL_M;
     if (Math.hypot(cx - x, cz - z) > r) continue;
     const k = j * FOG_N + i;
     if (!((bits[k >> 3] >> (k & 7)) & 1)) { bits[k >> 3] |= 1 << (k & 7); n++; }
@@ -123,7 +134,9 @@ export function airfieldKnowledge(id: string, state: ExplorationState, known: Kn
 /** Fog as the map sees it: flown cells plus the charted surroundings of every known airfield. */
 export function chartedFog(state: ExplorationState, known: KnownSets, sites: WorldSites = worldSites()): Uint8Array {
   const bits = decodeFog(state.fog);
-  for (const a of sites.airfields) if (known.knownAirfieldIds.includes(a.id)) revealDisc(bits, a.x, a.z, KNOWN_AIRFIELD_CHART_M);
+  // The home aerodrome is an initial chart fact in legacy and migrated saves too.
+  const knownIds = new Set([...known.knownAirfieldIds, 'field_home']);
+  for (const a of sites.airfields) if (knownIds.has(a.id)) revealDisc(bits, a.x, a.z, KNOWN_AIRFIELD_CHART_M);
   return bits;
 }
 

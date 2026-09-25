@@ -90,6 +90,7 @@ export class FlightScene {
       terrainQuery?: TerrainQueryService;
       skipTerrainMesh?: boolean;
       remoteDestination?: { airfield: AirfieldDefinition; position: readonly [number, number, number] };
+      worldOffsetXZ?: readonly [number, number];
     },
   ) {
     this.worldRng = createSeededRandom('flight-scene-landmarks', region.id);
@@ -123,6 +124,10 @@ export class FlightScene {
     this.post = lowPowerMobile ? null : new PostProcessing(this.renderer, this.scene, this.camera);
     this.environment = new WorldEnvironment(region, worldEnvOptions);
     this.scene.add(this.environment.root);
+    const areaOffset = worldEnvOptions?.worldOffsetXZ;
+    if (areaOffset) {
+      this.environment.root.position.x += areaOffset[0]; this.environment.root.position.z += areaOffset[1];
+    }
     this.clouds = new CloudLayer(this.atmosphere.look, { baseY: this.environment.terrainQuery.getElevation(0, 0) + 1050, seed: region.id });
     this.scene.add(this.clouds.mesh);
     const fieldGrid = this.environment.fieldGrid;
@@ -135,6 +140,7 @@ export class FlightScene {
       if (rail) layout = clearCorridor(layout, rail, 12);
       this.fieldWorld = new FieldWorld(fieldGrid, layout, { seed: composition.seed, terrain: composition.terrain });
       this.scene.add(this.fieldWorld.root);
+      if (areaOffset) { this.fieldWorld.root.position.x += areaOffset[0]; this.fieldWorld.root.position.z += areaOffset[1]; }
       void this.fieldWorld.hydrate();
       // Presentation-only ground life: road traffic, the train, boats, birds.
       this.ambientNpcs = new AmbientNpcs(fieldGrid, layout.roads, {
@@ -143,6 +149,7 @@ export class FlightScene {
         lakes: buildWaterBodies(region.id, (x, z) => terrainQuery.getElevation(x, z)),
       });
       this.scene.add(this.ambientNpcs.root);
+      if (areaOffset) { this.ambientNpcs.root.position.x += areaOffset[0]; this.ambientNpcs.root.position.z += areaOffset[1]; }
     }
 
     // The visual runway must occupy the same graded airport pad as physics and spawn
@@ -153,7 +160,7 @@ export class FlightScene {
     const airfield = getFreeFlightAirfield(region.id);
     const regionAirfields = getRegionAirfields(region.id);
     if (regionAirfields.length === 0) this.buildRunway(undefined);
-    for (const field of regionAirfields) this.buildRunway(field);
+    for (const field of regionAirfields) this.buildRunway(areaOffset ? { ...field, position: [field.position[0] + areaOffset[0], field.position[1], field.position[2] + areaOffset[1]] } : field);
     if (worldEnvOptions?.remoteDestination) {
       const { airfield: destination, position } = worldEnvOptions.remoteDestination;
       this.buildRunway({ ...destination, position: [...position] as [number, number, number] });

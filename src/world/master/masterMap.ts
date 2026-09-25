@@ -403,6 +403,9 @@ export function buildMasterMap(): MasterMapData {
   const rngCoast = mulberry(hashSeed(`${MASTER_SEED}:coast`));
   const mainland = displaceClosed(catmullClosed(MAINLAND_COAST, 6), COAST_ROUGHNESS.mainland, rngCoast, 3);
   const island = displaceClosed(catmullClosed(EASTERN_ISLAND_COAST, 6), COAST_ROUGHNESS.island, rngCoast, 3);
+  // The master domain extends beyond the original authored continent. Add three deterministic
+  // peripheral landforms in that new margin so the extra 24 km is explorable geography, not a
+  // blank ocean apron. Existing macro geography and named-area coordinates remain unchanged.
   const landMask = rasterizePolys([mainland, island]);
   const dSea = distanceTo(landMask, 0); // for land cells: cells to nearest sea
   const dLand = distanceTo(landMask, 1); // for sea cells: cells to nearest land
@@ -936,12 +939,13 @@ function classifyRegions(h: Float32Array, coastKm: Float32Array, comp: Uint8Arra
   const cost = new Float64Array(CC).fill(Infinity), lab = new Int16Array(CC).fill(-1);
   const heap = new MinHeap(CC * 9 + 16);
   const eC = (i: number) => (-HALF_M + (i + 0.5) * cs) / KM;
+  const nC = (j: number) => (-HALF_M + (j + 0.5) * cs) / KM;
   REGION_IDS.forEach((rid, ri) => {
     for (const [se, sn, sr] of REGION_SEEDS[rid]) {
       for (let j = 0; j < NC; j++) for (let i = 0; i < NC; i++) {
         const k = j * NC + i;
         if (!landC[k]) continue;
-        if (Math.hypot(eC(i) - se, eC(j) - sn) <= sr && cost[k] > 0) { cost[k] = 0; lab[k] = ri; heap.push(0, k); }
+        if (Math.hypot(eC(i) - se, nC(j) - sn) <= sr && cost[k] > 0) { cost[k] = 0; lab[k] = ri; heap.push(0, k); }
       }
     }
   });

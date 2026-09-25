@@ -123,8 +123,8 @@ mantiene pendiente < 0.01 m de variación a lo largo de toda la pista (test `run
 [`src/world/master/masterStreaming.ts`](../../src/world/master/masterStreaming.ts):
 
 - **Quadtree de tiles cuadrados**, 33×33 vértices constantes por tile (presupuesto de GPU/collider proporcional al *número* de tiles, no a
-  su tamaño). L0 = 512 m (16 m de espaciado, grado físico) hasta L5 = 16.4 km (root). 3×3 roots L5 cubren el mundo entero (48 km) más
-  margen.
+  su tamaño). L0 = 512 m (16 m de espaciado, grado físico) hasta L5 = 16.4 km (root). El núcleo geográfico authored mantiene 48 km; cuatro
+  masas periféricas elevan el chart y el dominio de streaming a ±36 km (72 × 72 km). La retícula de 5×5 roots cubre esa extensión.
 - **Selección por distancia 3D con histéresis** (evita parpadeo en el borde de un umbral) y **balance 2:1** garantizado por construcción
   (un leaf nunca toca un leaf 2+ niveles más grueso) — el único fix de costura necesario es la clásica unión en T (vértices impares del
   borde = punto medio del vecino más grueso), implementado en `tileHeightGrid` y verificado por test byte-exacto.
@@ -134,7 +134,7 @@ mantiene pendiente < 0.01 m de variación a lo largo de toda la pista (test `run
   Se pasó por dos iteraciones de test antes de estabilizar el comportamiento (ver §7).
 - **Floating origin**: reutiliza `src/world/floatingOrigin.ts` (existente, extendido con `gridSnapM` en vez de reescrito) para que el
   rebase caiga siempre en una esquina de tile de 512 m — los buffers de vértices (relativos al origen) no necesitan recalcularse tras un
-  rebase. Umbral 3,072 m: la resolución de float32 a esa distancia es sub-milímetro (`float32ResolutionM`), deliberadamente conservador
+  rebase. Umbral 2,560 m: la resolución de float32 a esa distancia es sub-milímetro (`float32ResolutionM`), deliberadamente conservador
   frente al mínimo necesario, documentado como tal.
 - **No conectado a Three.js/Rapier todavía.** `masterStreaming.ts` es lógica pura y testeada (14 tests); construir la malla real, subir
   buffers a la GPU y crear/destruir colliders Rapier es la siguiente fase de trabajo (no pedida en esta entrega) — ver §6.

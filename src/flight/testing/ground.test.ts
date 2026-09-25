@@ -219,7 +219,7 @@ describe('takeoff yaw budget (telemetry for FLIGHT_MODEL_V2 audit)', () => {
       return headingError(0, s.headingDeg) * -1; // + = nose right
     };
     const all = await run(() => {});
-    const noProp = await run((d) => { d.propeller!.rotation = 0; d.propeller!.swirlGain = 0; d.propeller!.pFactor = 0; });
+    const noProp = await run((d) => { Object.assign(d.propeller!, { rotation: 0, swirlGain: 0, pFactor: 0 }); });
     expect(all).toBeLessThan(-0.5); // left, as a clockwise-from-cockpit prop should
     expect(all).toBeGreaterThan(-8); // correctable with rudder, not a runaway
     expect(Math.abs(noProp)).toBeLessThan(0.3); // gear/CG/colliders are symmetric

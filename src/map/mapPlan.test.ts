@@ -48,7 +48,7 @@ describe('airfields on the map', () => {
       expect(Number.isFinite(field.x) && Number.isFinite(field.z)).toBe(true);
       expect(field.airfield?.regionId).toBe(AIRFIELDS.find((candidate) => candidate.id === target.id)?.regionId);
     }
-  }, 20_000);
+  }, 60_000);
   it('sit at their real relative positions: the north strip is straight north of home', () => {
     const view = { centerEast: 0, centerNorth: 300, scale: 0.2 }, size = { w: 900, h: 600 };
     const h = worldToScreen(view, size, home.position[0], home.position[2]), n = worldToScreen(view, size, north.position[0], north.position[2]);

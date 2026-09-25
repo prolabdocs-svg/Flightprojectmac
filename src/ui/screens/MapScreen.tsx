@@ -47,6 +47,7 @@ export function MapScreen() {
   const goTo = useGameStore((s) => s.goTo);
   const selectMission = useGameStore((s) => s.selectMission);
   const selectWorldStart = useGameStore((s) => s.selectWorldStart);
+  const selectWorldDestination = useGameStore((s) => s.selectWorldDestination);
   const savedMapView = useGameStore((s) => s.mapViews.master);
   const setMapView = useGameStore((s) => s.setMapView);
   const selectionId = useGameStore((s) => s.mapSelectionId);
@@ -118,7 +119,7 @@ export function MapScreen() {
   const worldSelected = isWorldMap ? selected : null;
 
   const plan = useMemo<PanelPlan | null>(() => {
-    if (!selected || isOps) return null;
+    if (!selected || isOps || isWorldMap) return null;
     const terrain = isWorldMap ? createWorldTerrain() : regionTerrain(region.id);
     const dM = origin ? distanceM(origin.x, origin.z, selected.x, selected.z) : 0;
     const profileLine = origin && selected.id !== origin.id ? sampleRouteProfile(terrain, [origin.x, origin.z], [selected.x, selected.z]) : null;
@@ -254,11 +255,11 @@ export function MapScreen() {
               {worldSelected.revealed && <div><dt>Pista</dt><dd>{worldSelected.airfield.surface} · {worldSelected.airfield.runwayLengthM} m</dd></div>}
               {worldSelected.revealed && <div><dt>Elevación</dt><dd>{Math.round(worldSelected.airfield.position[1])} m</dd></div>}
             </dl>
-            <p className="wmap-note">{worldSelected.revealed ? 'Aeródromo descubierto. Puedes comenzar aquí en vuelo libre.' : 'Solo una franja vista a lo lejos. Vuela bajo y cerca para identificarla.'}</p>
-            {worldSelected.revealed && <button className="primary-btn" onClick={() => {
-              selectWorldStart(worldSelected.id, worldSelected.airfield!.regionId); goTo('run');
+            <p className="wmap-note">{worldSelected.revealed ? worldSelected.id === origin?.id ? 'Este es el aeródromo donde está estacionada tu aeronave.' : 'Aeródromo descubierto. Puedes trazar una ruta desde tu ubicación actual.' : 'Solo una franja vista a lo lejos. Vuela bajo y cerca para identificarla.'}</p>
+            {worldSelected.revealed && worldSelected.id !== origin?.id && <button className="primary-btn" onClick={() => {
+              selectWorldDestination(worldSelected.id, getAirfield(ops.locationId || 'field_home')?.regionId ?? 'the_field'); goTo('run');
             }}>
-              Volar a {worldSelected.airfield!.name}
+              Trazar ruta a {worldSelected.airfield!.name}
             </button>}
           </aside>
         )}

@@ -16,6 +16,7 @@
 
 export const MASTER_SEED = 'project-flight-master-map-v1';
 export const HALF_M = 24000;
+export const WORLD_HALF_M = 36000;
 export const GRID_N = 1000;
 export const CELL_M = (HALF_M * 2) / GRID_N; // 48 m
 

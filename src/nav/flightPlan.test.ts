@@ -9,6 +9,13 @@ const flat = () => 100;
 const at = (x: number, z: number, y = 300, headingDeg = 0) => ({ position: [x, y, z] as const, headingDeg });
 
 describe('FlightPlan', () => {
+  it('keeps a completed route stable when heading guidance updates', () => {
+    const plan = buildFlightPlan(A, B);
+    const completed = advancePlan(plan, B.x, B.z);
+    expect(completed.active).toBe(completed.points.length - 1);
+    expect(advancePlan(completed, B.x, B.z, 0)).toBe(completed);
+  });
+
   it('short route: one leg straight to the destination', () => {
     const plan = buildFlightPlan(A, B, { elevationAt: flat });
     expect(plan.points.map((p) => p.kind)).toEqual(['origin', 'destination']);

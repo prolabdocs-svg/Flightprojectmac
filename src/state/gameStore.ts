@@ -31,6 +31,8 @@ interface GameState {
   selectedFreeFlightRegionId: string;
   /** Optional globally charted aerodrome used as the free-flight start. */
   selectedWorldStartId: string | null;
+  /** Discovered destination for continuous-world free flight; spawn remains at operations.locationId. */
+  selectedWorldDestinationId: string | null;
   /** Last viewed campaign region, preserved when returning from a flight/result. */
   selectedMapRegionId: string;
   /** Map camera per region + the selected map target, kept across screens (spec: don't reset on every visit). */
@@ -48,6 +50,7 @@ interface GameState {
   selectMission: (missionId: string | null) => void;
   selectFreeFlight: (regionId: string) => void;
   selectWorldStart: (airfieldId: string, regionId: string) => void;
+  selectWorldDestination: (airfieldId: string, originRegionId: string) => void;
   selectMapRegion: (regionId: string) => void;
   setMapView: (regionId: string, view: MapView) => void;
   setMapSelection: (id: string | null) => void;
@@ -63,6 +66,7 @@ const RUNTIME_DEFAULTS = {
   selectedMissionId: null,
   selectedFreeFlightRegionId: 'the_field',
   selectedWorldStartId,
+  selectedWorldDestinationId: null,
   selectedMapRegionId: 'the_field',
   mapViews: {},
   mapSelectionId: null,
@@ -82,9 +86,10 @@ export const useGameStore = create<GameState>((set) => ({
       paused: false,
       flightSession: screen === 'run' ? state.flightSession + 1 : state.flightSession,
     })),
-  selectMission: (missionId) => { selectedWorldStartId = null; set({ selectedMissionId: missionId, selectedWorldStartId: null }); },
-  selectFreeFlight: (regionId) => { selectedWorldStartId = null; set({ selectedMissionId: null, selectedFreeFlightRegionId: regionId, selectedWorldStartId: null, selectedMapRegionId: 'master' }); },
-  selectWorldStart: (airfieldId, regionId) => { selectedWorldStartId = airfieldId; set({ selectedMissionId: null, selectedFreeFlightRegionId: regionId, selectedWorldStartId: airfieldId, selectedMapRegionId: 'master' }); },
+  selectMission: (missionId) => { selectedWorldStartId = null; set({ selectedMissionId: missionId, selectedWorldStartId: null, selectedWorldDestinationId: null }); },
+  selectFreeFlight: (regionId) => { selectedWorldStartId = null; set({ selectedMissionId: null, selectedFreeFlightRegionId: regionId, selectedWorldStartId: null, selectedWorldDestinationId: null, selectedMapRegionId: 'master' }); },
+  selectWorldStart: (airfieldId, regionId) => { selectedWorldStartId = airfieldId; set({ selectedMissionId: null, selectedFreeFlightRegionId: regionId, selectedWorldStartId: airfieldId, selectedWorldDestinationId: null, selectedMapRegionId: 'master' }); },
+  selectWorldDestination: (airfieldId, originRegionId) => { selectedWorldStartId = null; set({ selectedMissionId: null, selectedFreeFlightRegionId: originRegionId, selectedWorldStartId: null, selectedWorldDestinationId: airfieldId, selectedMapRegionId: 'master' }); },
   selectMapRegion: (regionId) => set({ selectedMapRegionId: regionId, mapSelectionId: null }),
   setMapView: (regionId, view) => set((s) => ({ mapViews: { ...s.mapViews, [regionId]: view } })),
   setMapSelection: (id) => set({ mapSelectionId: id }),

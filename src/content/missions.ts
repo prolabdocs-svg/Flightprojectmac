@@ -1,5 +1,4 @@
 import type { MissionDefinition, PlayerProfile } from '../core/types';
-import { getRegion, isRegionUnlocked } from './regions';
 
 /** Optional world-graph references, layered on top of MissionDefinition without
  * touching its existing local-coordinate fields (FlightScreen still consumes
@@ -356,7 +355,8 @@ export function getRegionMissions(regionId: string): MissionDefinition[] {
 /** A region's contracts unlock in authored array order. Keeping this in content instead
  * of duplicating it in screens makes the map and primary "Fly now" action agree. */
 export function isMissionAvailableToProfile(mission: MissionDefinition, profile: PlayerProfile): boolean {
-  if (!isRegionUnlocked(getRegion(mission.regionId), profile)) return false;
+  // Mission order remains within each authored campaign; geographic reach is governed by
+  // the continuous world and destination discovery, never by a region wall.
   const regionMissions = getRegionMissions(mission.regionId);
   const index = regionMissions.findIndex((candidate) => candidate.id === mission.id);
   if (index <= 0) return true;

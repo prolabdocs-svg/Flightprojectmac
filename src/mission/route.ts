@@ -4,10 +4,11 @@
 import { getAirfield, type AirfieldDefinition } from '../world/airfields';
 import { compassBearingDeg, headingToWorldDir as bearingToDir } from '../world/compass';
 import { distanceM } from '../map/mapProjection';
-import { regionTerrain } from '../map/mapPlan';
+import { createMasterWorldTerrain, getMasterTerrain } from '../world/master/masterRuntime';
 import { campaignLocalToMaster, masterToCampaignLocal } from '../world/master/masterGeography';
 import type { MissionWeather } from './types';
 import { buildFlightPlan, type FlightPlan } from '../nav/flightPlan';
+import { getRegion } from '../content/regions';
 
 export interface RouteContext {
   origin: AirfieldDefinition;
@@ -27,16 +28,13 @@ export function routeContext(originId: string, destinationId: string): RouteCont
   const [ox, oz] = campaignLocalToMaster(origin.regionId, origin.position[0], origin.position[2]);
   const [dx, dz] = campaignLocalToMaster(destination.regionId, destination.position[0], destination.position[2]);
   const [destLocalX, destLocalZ] = masterToCampaignLocal(origin.regionId, dx, dz);
-  const originTerrain = regionTerrain(origin.regionId);
-  const destinationTerrain = regionTerrain(destination.regionId);
-  const originElevationLocal = originTerrain.getElevation(origin.position[0], origin.position[2]);
-  const destElevationLocal = destinationTerrain.getElevation(destination.position[0], destination.position[2]);
+  const world = getMasterTerrain();
   return {
     origin, destination,
     distanceM: distanceM(ox, oz, dx, dz),
     bearingDeg: compassBearingDeg(dx - ox, dz - oz),
-    originElevM: originElevationLocal,
-    destElevM: destElevationLocal,
+    originElevM: world.groundAt(ox, oz),
+    destElevM: world.groundAt(dx, dz),
     // Origin-frame terrain sampling supplies the real remote runway elevation. Keep target y
     // neutral: destination and origin use distinct vertical datums in the master world.
     destinationPoint: [destLocalX, 0, destLocalZ] as const,
@@ -63,7 +61,7 @@ export function windComponents(weather: MissionWeather, bearingDeg: number): Win
 /** A contract's route as a FlightPlan (the same model free flight and the HUD use), in the origin
  * frame the flight streams. `knownIds` = the player's discovered airfields (Fog of Discovery). */
 export function routeFlightPlan(route: RouteContext, knownIds: readonly string[]): FlightPlan {
-  const terrain = regionTerrain(route.origin.regionId);
+  const terrain = createMasterWorldTerrain(getRegion(route.origin.regionId));
   const [dx, , dz] = route.destinationPoint;
   return buildFlightPlan(
     { id: route.origin.id, label: route.origin.name, known: true, x: route.origin.position[0], z: route.origin.position[2] },

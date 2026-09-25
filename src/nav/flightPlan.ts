@@ -44,7 +44,9 @@ export interface FlightPlan {
 }
 export interface PlanEndpoint { id: string; x: number; z: number; label: string; known: boolean }
 export type ElevationAt = (x: number, z: number) => number;
-const SAMPLE_STEP_M = 50;
+// Long world routes need a coarse but terrain-aware profile. 250 m still catches
+// meaningful ridge crossings while keeping a trans-island plan responsive.
+const SAMPLE_STEP_M = 250;
 const RIDGE_PROMINENCE_M = 80;
 const TERRAIN_CLEARANCE_M = 150;
 export const WAYPOINT_CAPTURE_M = 350;
@@ -125,7 +127,9 @@ export function advancePlan(plan: FlightPlan, x: number, z: number, headingDeg?:
       if (passedFix && d < 900) { active = i + 1; break; }
     }
   }
-  if (active === plan.active && headingDeg !== undefined) {
+  // A completed plan keeps pointing at its destination; there is no outbound leg after it.
+  // Guard before reading next because final capture sets active to the last array index.
+  if (active === plan.active && headingDeg !== undefined && active < plan.points.length - 1) {
     const target = plan.points[active], next = plan.points[active + 1];
     const inbound = headingToWorldDir(headingDeg), toX = next.x - target.x, toZ = next.z - target.z;
     const along = (x - target.x) * toX + (z - target.z) * toZ;

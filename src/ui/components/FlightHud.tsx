@@ -175,11 +175,19 @@ export function FlightHud({ telemetry, mission, freeFlightRegionName, freeFlight
         <div className="hud-mission-banner hud-free-flight-banner">
           <strong>VUELO LIBRE — {freeFlightRegionName}</strong>
           <span>Salida: {freeFlightAirfieldName ?? 'pista local'} · Explora y aterriza donde quieras</span>
+          {nav && navVis.hudName && (
+            <span className="hud-nav" data-testid="hud-nav">
+              <b>{nav.phase === 'go-around' ? 'GO AROUND' : nav.phase === 'final' ? 'FINAL' : nav.phase === 'approach' ? 'APROX.' : nav.legCount > 1 ? `WP ${nav.legIndex}/${nav.legCount}` : 'DEST.'}</b>
+              {' '}{nav.targetLabel} · {formatDistance(nav.distanceM)}
+              {navVis.hudArrow && ` · RUMBO ${String(Math.round(nav.bearingDeg)).padStart(3, '0')}°`}
+            </span>
+          )}
           <span>{telemetry.elapsedS.toFixed(1)} s</span>
         </div>
       )}
 
       <div className="hud-state-banner">
+        {telemetry.outOfFuel && !telemetry.crashed && <span className="banner-objective-missed" data-testid="hud-out-of-fuel">SIN COMBUSTIBLE — recarga en un aeródromo</span>}
         {contractState === 'FAILED' && <span className="banner-crash">CONTRATO FALLIDO</span>}
         {contractState === 'OBJECTIVE_MET' && <span className="banner-landed">CONTRATO COMPLETADO — calidad {(telemetry.landingQuality * 100).toFixed(0)}%</span>}
         {contractState === 'ABORTED' && <span className="banner-objective-missed">CONTRATO ABORTADO</span>}

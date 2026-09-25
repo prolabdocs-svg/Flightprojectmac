@@ -7,6 +7,33 @@ import { useProfileStore } from './profileStore';
 import { MAX_HOME_BASE_LEVEL } from '../content/homeBase';
 import { createDefaultProfile } from '../save/save';
 
+describe('free-flight airport arrival', () => {
+  it('parks at the routed destination and persists the remaining fuel and visit', () => {
+    useProfileStore.getState().parkAtAirfield('field_north_strip', 5.25);
+    const ops = useProfileStore.getState().profile.operations;
+    expect(ops.locationId).toBe('field_north_strip');
+    expect(ops.fuelL).toBeCloseTo(5.25);
+    expect(ops.knownAirfieldIds).toContain('field_north_strip');
+    expect(ops.visitedAirfieldIds).toContain('field_north_strip');
+  });
+});
+
+describe('aircraft refueling', () => {
+  it('restores fuel up to installed capacity and charges for the purchase', () => {
+    useProfileStore.setState((s) => ({ profile: { ...s.profile, cash: 200, operations: { ...s.profile.operations, fuelL: 0 } } }));
+    expect(useProfileStore.getState().refuel()).toBe(true);
+    expect(useProfileStore.getState().profile.operations.fuelL).toBe(8);
+    expect(useProfileStore.getState().profile.cash).toBe(168);
+  });
+
+  it('does not change fuel when full or when the pilot cannot afford the fill', () => {
+    expect(useProfileStore.getState().refuel()).toBe(false);
+    useProfileStore.setState((s) => ({ profile: { ...s.profile, cash: 0, operations: { ...s.profile.operations, fuelL: 0 } } }));
+    expect(useProfileStore.getState().refuel()).toBe(false);
+    expect(useProfileStore.getState().profile.operations.fuelL).toBe(0);
+  });
+});
+
 beforeEach(() => {
   useProfileStore.setState({ profile: createDefaultProfile() });
 });

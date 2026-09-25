@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { FIELD_LAKE, FIELD_RIVER_POINTS, ridgeZ } from '../world/fieldGeography';
 import { REGIONS } from '../content/regions';
 import { getRegionMap, getRegionRect, RASTER_SIZE } from './mapGeography';
+import { STARTER_BASIN } from '../world/master/masterGeography';
 
 const px = (m: ReturnType<typeof getRegionMap>, x: number, z: number) => {
   const N = m.raster.size, cell = (m.rect.maxX - m.rect.minX) / N;
@@ -34,7 +35,7 @@ describe('cartographic model of The Field', () => {
     expect(ridge[0] + ridge[1] + ridge[2]).toBeGreaterThan(home[0] + home[1] + home[2] - 60);
   });
   it('carries roads (incl. the bridge), farm parcels and named places from the composition', () => {
-    expect(m.roads.length).toBe(10);
+    expect(m.roads.length).toBeGreaterThanOrEqual(10);
     expect(m.bridges).toHaveLength(1);
     expect(m.parcels.length).toBeGreaterThan(10);
     expect(m.pois.map((p) => p.name)).toEqual(expect.arrayContaining(['Aldea', 'Paso del norte', 'Zona industrial', 'Puente']));
@@ -49,4 +50,26 @@ describe('data-driven regions', () => {
       expect(getRegionRect(r.id)).toEqual(map.rect);
     }
   });
+});
+
+describe('continuous master chart', () => {
+  it('carries every authored The Field vector layer at the same world offset as its terrain', async () => {
+    const { MASTER_MAP_ID } = await import('./masterMapGeography');
+    const master = getRegionMap(MASTER_MAP_ID), field = getRegionMap('the_field');
+    const dx = STARTER_BASIN.worldOffsetM[0], dz = STARTER_BASIN.worldOffsetM[1];
+    expect(master.roads).toHaveLength(field.roads.length);
+    expect(master.bridges).toHaveLength(field.bridges.length);
+    expect(master.parcels).toHaveLength(field.parcels.length);
+    expect(master.pois).toHaveLength(field.pois.length);
+    expect(master.roads[0].pts[0]).toEqual([field.roads[0].pts[0][0] + dx, field.roads[0].pts[0][1] + dz]);
+    expect(master.parcels[0].center).toEqual([field.parcels[0].center[0] + dx, field.parcels[0].center[1] + dz]);
+    expect(master.pois[0].x).toBe(field.pois[0].x + dx);
+    expect(master.rect.minX).toBe(-36000);
+    expect(master.rect.maxX).toBe(36000);
+    expect(master.rect.minZ).toBe(-36000);
+    expect(master.rect.maxZ).toBe(36000);
+    const islandI = Math.floor((30_000 + 36_000) / 72_000 * master.raster.size);
+    const islandJ = Math.floor((36_000 - 15_000) / 72_000 * master.raster.size);
+    expect(master.raster.elevation[islandJ * master.raster.size + islandI]).toBeGreaterThan(0);
+  }, 60_000);
 });

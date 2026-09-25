@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { createDefaultProfile, migrateProfile } from '../save/save';
 import { airfieldKnowledge, applyExploration, chartedFog, createExploration, decodeFog, explore, isRevealed, worldSites, type ExploreInput } from './exploration';
+import { FOG_N } from './exploration';
 import { getMasterTerrain } from './master/masterRuntime';
 
 const known = { knownAirfieldIds: ['field_home'], visitedAirfieldIds: ['field_home'] };
@@ -20,7 +21,24 @@ describe('Fog of Discovery', () => {
     expect(isRevealed(bits, 3000, 0)).toBe(true);
     expect(isRevealed(bits, 3000, 9000)).toBe(false); // off the track stays under cloud
     expect(counts.every((n) => n > 0)).toBe(true);
-    expect(s.fog.length).toBeLessThan(2000); // a bitset, not a point cloud
+    expect(s.fog.length).toBeLessThan(4000); // a bitset, not a point cloud
+  });
+
+  it('expands legacy fog saves into the larger world without moving discovered cells', () => {
+    const legacy = new Uint8Array(1152);
+    const i = 37, j = 42, k = j * 96 + i;
+    legacy[k >> 3] |= 1 << (k & 7);
+    let binary = ''; for (const byte of legacy) binary += String.fromCharCode(byte);
+    const migrated = decodeFog(btoa(binary));
+    expect(FOG_N).toBe(144);
+    expect(isRevealed(migrated, -24000 + (i + 0.5) * 500, -24000 + (j + 0.5) * 500)).toBe(true);
+    expect(migrated.length).toBe(2592);
+  });
+
+  it('supports reveal cells throughout the expanded world bounds', () => {
+    const s = createExploration();
+    const r = explore(s, known, { x: 33000, z: -33000, aglM: 100, onGround: false }, { airfields: [], landmarks: [], regions: [] });
+    expect(isRevealed(decodeFog(r.state.fog), 33000, -33000)).toBe(true);
   });
 
   it('walks an airfield UNKNOWN -> SIGHTED -> DISCOVERED -> VISITED as the aircraft closes in and lands', () => {

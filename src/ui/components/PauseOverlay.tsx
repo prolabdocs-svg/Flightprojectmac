@@ -19,6 +19,7 @@ export function PauseOverlay() {
   const [showControls, setShowControls] = useState(false);
 
   return (
+    <>
     <div className="pause-overlay">
       <div className={`pause-panel paper${showControls ? ' is-wide' : ''}`} role="dialog" aria-modal="true" aria-label="Pausa">
         <span className="kicker">Vuelo en pausa</span>
@@ -41,6 +42,7 @@ export function PauseOverlay() {
         <button className="secondary-btn" aria-expanded={showControls} onClick={() => setShowControls((v) => !v)}>
           <UiIcon name="settings" size={18} />{showControls ? 'Ocultar controles' : 'Controles'}
         </button>
+        <button className="secondary-btn" onClick={() => window.dispatchEvent(new Event('project-flight-open-mobile-controller'))}>Control móvil</button>
         <button
           className="secondary-btn"
           onClick={() => {
@@ -72,5 +74,6 @@ export function PauseOverlay() {
         )}
       </div>
     </div>
+    </>
   );
 }

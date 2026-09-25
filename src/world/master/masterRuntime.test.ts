@@ -5,6 +5,7 @@ import { REGIONS, getRegion } from '../../content/regions';
 import { fieldElevation } from '../fieldGeography';
 import { createTerrainQueryService } from '../terrainQuery';
 import { NAMED_AREA_ANCHORS, STARTER_BASIN, geoToWorld, namedAreaToWorld, worldToNamedArea } from './masterGeography';
+import { CELL_M, GRID_N, HALF_M } from './masterGeography';
 import { MasterTerrain, bicubicWorld, createMasterRegionTerrain } from './masterRuntime';
 
 let W: MasterTerrain;
@@ -38,8 +39,9 @@ describe('Phase 2 — runtime authority: terrain', () => {
     let worstE = 0, worstS = 0, padMismatch = 0, n = 0;
     for (let z = -3900; z <= 3900; z += 173) for (let x = -3900; x <= 3900; x += 173) {
       const [wx, wz] = W.localToWorld('the_field', x, z);
-      // Water differs by design: the Field's own sea/estuary sits 230 m up (dry) in the master, and rivers aren't collidable.
-      if (W.waterAt(wx, wz) || legacy.getWaterDepth(x, z) > 0) continue;
+      // The compatibility adapter retains its documented region-local elevation and runway grading contract.
+      if (W.waterAt(wx, wz)) continue;
+      if (legacy.getWaterDepth(x, z) > 0) continue;
       worstE = Math.max(worstE, Math.abs(master.getElevation(x, z) - legacy.getElevation(x, z)));
       worstS = Math.max(worstS, Math.abs(master.getSlopeDeg(x, z) - legacy.getSlopeDeg(x, z)));
       if (master.isOnGradedRunway(x, z) !== legacy.isOnGradedRunway(x, z)) padMismatch++;
@@ -62,10 +64,10 @@ describe('Phase 2 — runtime authority: terrain', () => {
 
   it('bicubic resampling interpolates the master grid exactly at cell centres and is continuous', () => {
     for (const [e, n] of [[-3, 5], [4.2, -9.1], [-9.4, 14.9], [20, -1]] as const) {
-      const i = Math.round((e * 1000 + 24000) / 48 - 0.5), j = Math.round((n * 1000 + 24000) / 48 - 0.5);
-      const ce = (-24000 + (i + 0.5) * 48) / 1000, cn = (-24000 + (j + 0.5) * 48) / 1000;
+      const i = Math.round((e * 1000 + HALF_M) / CELL_M - 0.5), j = Math.round((n * 1000 + HALF_M) / CELL_M - 0.5);
+      const ce = (-HALF_M + (i + 0.5) * CELL_M) / 1000, cn = (-HALF_M + (j + 0.5) * CELL_M) / 1000;
       const [wx, wz] = geoToWorld(ce, cn);
-      expect(bicubicWorld(W.map.heightM, wx, wz)).toBeCloseTo(W.map.heightM[j * 1000 + i], 3);
+      expect(bicubicWorld(W.map.heightM, wx, wz)).toBeCloseTo(W.map.heightM[j * GRID_N + i], 3);
     }
     let maxJump = 0;
     for (let x = 0; x < 3000; x += 1.7) maxJump = Math.max(maxJump, Math.abs(W.elevationAt(-5000 - x, 8000) - W.elevationAt(-5000 - x - 1.7, 8000)));

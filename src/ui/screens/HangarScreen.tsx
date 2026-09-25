@@ -22,6 +22,7 @@ export function HangarScreen() {
   const selectMission = useGameStore((s) => s.selectMission);
   const profile = useProfileStore((s) => s.profile);
   const upgradeHomeBase = useProfileStore((s) => s.upgradeHomeBase);
+  const refuel = useProfileStore((s) => s.refuel);
   const abandonMission = useProfileStore((s) => s.abandonMission);
   const recoverAircraft = useProfileStore((s) => s.recoverAircraft);
   const startRepair = useProfileStore((s) => s.startRepair);
@@ -107,6 +108,11 @@ export function HangarScreen() {
             <span><b>{resumable ? 'Continuar' : 'Volar'}</b><small>{resumable ? ops.active!.contract.title : `Mapa del mundo · desde ${location?.name ?? 'la pista'}`}</small></span>
             <UiIcon name="chevron" size={20} />
           </button>
+          <button className="hub-action" onClick={() => window.dispatchEvent(new Event('project-flight-open-mobile-controller'))} data-testid="mobile-controller">
+            <span className="hub-action-icon"><UiIcon name="flight" size={22} /></span>
+            <span><b>Control móvil</b><small>Mostrar enlace para el teléfono</small></span>
+            <UiIcon name="chevron" size={18} />
+          </button>
           {actions.map((a) => (
             <button key={a.screen} className="hub-action" onClick={() => goTo(a.screen)}>
               <span className="hub-action-icon"><UiIcon name={a.icon} size={22} /></span>
@@ -150,6 +156,9 @@ export function HangarScreen() {
             <b data-testid="hangar-fuel">{ops.fuelL.toFixed(1)}<small>/ {aircraft.fuelCapacityL} L</small></b>
             <div className={`meter${fuelFrac < 0.25 ? ' is-bad' : fuelFrac < 0.5 ? ' is-warn' : ''}`} aria-hidden="true"><i style={{ width: `${fuelFrac * 100}%` }} /></div>
           </div>
+          <button className="secondary-btn" data-testid="refuel-aircraft" onClick={() => refuel()} disabled={fuelFrac >= 1 || profile.cash < Math.ceil((aircraft.fuelCapacityL - ops.fuelL) * 4)}>
+            Repostar · ${Math.ceil(Math.max(0, aircraft.fuelCapacityL - ops.fuelL) * 4)}
+          </button>
           <div className="hub-gauge">
             <span>Alcance útil</span>
             <b data-testid="hangar-range">{bestUsableKm.toFixed(1)}<small>km</small></b>

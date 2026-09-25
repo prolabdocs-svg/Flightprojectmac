@@ -20,9 +20,10 @@ describe('tile lattice', () => {
     expect(tileMinZ(kids[2])).toBe(tileMinZ(p) + s / 2);
   });
 
-  it('the map half-extent (24 km) is fully inside the tile lattice', () => {
+  it('the map half-extent (36 km) is fully inside the tile lattice', () => {
     const half = -WORLD_MIN_M;
-    expect(half).toBeGreaterThanOrEqual(24000);
+    expect(half).toBeGreaterThanOrEqual(36000);
+    expect(ROOTS_PER_AXIS).toBe(5);
   });
 });
 
@@ -44,10 +45,10 @@ describe('LOD selection', () => {
   });
 
   it('refines toward the aircraft (nearest tile is always L0) and respects maxTiles', () => {
-    const s = new MasterStreamer({ maxTiles: 200 });
+    const s = new MasterStreamer({ maxTiles: 220 });
     const plan = s.update({ x: 0, z: 0, vx: 0, vz: 0, aglM: 50 });
     const drawn = plan.tiles.filter((t) => !t.prefetch);
-    expect(drawn.length).toBeLessThanOrEqual(200);
+    expect(drawn.length).toBeLessThanOrEqual(220);
     const nearest = drawn.reduce((a, b) => (distanceToTile(a.key, 0, 0) <= distanceToTile(b.key, 0, 0) ? a : b));
     expect(nearest.key.level).toBe(0);
   });
@@ -129,16 +130,19 @@ describe('tile heights and stitching', () => {
 
 describe('floating origin', () => {
   it('rebases only past the threshold, and snaps to the tile grid so vertex buffers stay valid', () => {
-    const cfg = { rebaseThresholdM: 3072, gridSnapM: 512 };
+    const cfg = { rebaseThresholdM: 2560, gridSnapM: 512 };
     expect(rebaseOrigin([0, 0], [1000, 0], cfg)).toEqual([0, 0]);
     const [ox, oz] = rebaseOrigin([0, 0], [4000, -500], cfg);
     expect(Math.abs(ox % 512)).toBe(0);
     expect(Math.abs(oz % 512)).toBe(0);
-    expect(Math.hypot(ox - 4000, oz - (-500))).toBeLessThan(3072);
+    expect(Math.hypot(ox - 4000, oz - (-500))).toBeLessThan(2560);
+    const afterPriorRebase = rebaseOrigin([3584, 0], [7050, 0], cfg);
+    expect(afterPriorRebase[0] % 512).toBe(0);
+    expect(Math.abs(7050 - afterPriorRebase[0])).toBeLessThan(2560);
   });
 
   it('float32 resolution stays sub-millimetre within the rebase threshold', () => {
-    expect(float32ResolutionM(3072)).toBeLessThan(0.001);
+    expect(float32ResolutionM(2560)).toBeLessThan(0.001);
     expect(float32ResolutionM(24000)).toBeLessThan(0.01);
   });
 });

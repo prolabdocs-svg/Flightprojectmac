@@ -1,4 +1,4 @@
-import { useEffect, useRef, Suspense, lazy } from 'react';
+import { useEffect, useRef, useState, Suspense, lazy } from 'react';
 import { useGameStore } from './state/gameStore';
 import { useProfileStore } from './state/profileStore';
 import { audioService } from './audio/audioService';
@@ -19,6 +19,7 @@ const PilotScreen = lazy(() => import('./ui/screens/PilotScreen').then((m) => ({
 const SettingsScreen = lazy(() => import('./ui/screens/SettingsScreen').then((m) => ({ default: m.SettingsScreen })));
 const FlightScreen = lazy(() => import('./ui/screens/FlightScreen').then((m) => ({ default: m.FlightScreen })));
 const ResultsScreen = lazy(() => import('./ui/screens/ResultsScreen').then((m) => ({ default: m.ResultsScreen })));
+const MobileControllerPanel = lazy(() => import('./ui/components/MobileControllerPanel').then((m) => ({ default: m.MobileControllerPanel })));
 
 export default function App() {
   const screen = useGameStore((s) => s.screen);
@@ -33,6 +34,14 @@ export default function App() {
   const textSize = useProfileStore((s) => s.profile.settings.textSize);
   const handedness = useProfileStore((s) => s.profile.settings.handedness);
   const screenMounted = useRef(false);
+  const [mobilePanelMounted, setMobilePanelMounted] = useState(false);
+  const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
+
+  useEffect(() => {
+    const open = () => { setMobilePanelMounted(true); setMobilePanelOpen(true); };
+    window.addEventListener('project-flight-open-mobile-controller', open);
+    return () => window.removeEventListener('project-flight-open-mobile-controller', open);
+  }, []);
 
   // Developer-only visual-tour entry point. `?qaRegion=coast_run` (and the other
   // authored region ids) starts a free flight immediately, making it possible to
@@ -161,6 +170,7 @@ export default function App() {
         {screen === 'results' && <ResultsScreen />}
       </Suspense>
       {screen === 'run' && paused && <PauseOverlay />}
+      {mobilePanelMounted && <Suspense fallback={null}><MobileControllerPanel open={mobilePanelOpen} onClose={() => setMobilePanelOpen(false)} /></Suspense>}
     </div>
   );
 }

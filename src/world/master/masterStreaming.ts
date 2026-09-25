@@ -1,4 +1,4 @@
-import { HALF_M } from './masterGeography';
+import { WORLD_HALF_M } from './masterGeography';
 
 /**
  * MASTER WORLD STREAMING / LOD / FLOATING ORIGIN (Phase 2) — pure logic, no THREE, no Rapier, no I/O.
@@ -17,12 +17,13 @@ import { HALF_M } from './masterGeography';
 export const TILE_BASE_M = 512;
 export const TILE_VERTS = 33;
 export const MAX_LEVEL = 5;
-/** The world is 48 km; a 3x3 grid of level-5 roots (49,152 m) covers it, centred on the origin. */
-export const WORLD_SPAN_M = 3 * TILE_BASE_M * 2 ** MAX_LEVEL;
+/** The 72 km chart and surrounding sea fit within a 5x5 grid of level-5 roots. */
+// 81.92 km domain extends well past the visible 72 km chart into open sea.
+export const WORLD_SPAN_M = Math.ceil((WORLD_HALF_M * 2) / (TILE_BASE_M * 2 ** MAX_LEVEL)) * TILE_BASE_M * 2 ** MAX_LEVEL;
 export const WORLD_MIN_M = -WORLD_SPAN_M / 2;
-export const ROOTS_PER_AXIS = 3;
-/** The map itself is HALF_M = 24,000; anything beyond is open sea and never needs a mesh. */
-export const MAP_HALF_M = HALF_M;
+export const ROOTS_PER_AXIS = WORLD_SPAN_M / (TILE_BASE_M * 2 ** MAX_LEVEL);
+/** The map itself is ±36 km; roots extend beyond the chart as open sea. */
+export const MAP_HALF_M = WORLD_HALF_M;
 
 export interface TileKey { level: number; ix: number; iz: number }
 export const tileId = (t: TileKey): string => `${t.level}:${t.ix}:${t.iz}`;
@@ -162,7 +163,8 @@ export class MasterStreamer {
       return d3 < size * k * (was ? 1 + this.cfg.hysteresis : 1 - this.cfg.hysteresis);
     };
     const visit = (t: TileKey): void => { if (shouldSplit(t)) { split.add(tileId(t)); for (const c of childrenOf(t)) visit(c); } };
-    for (let iz = 0; iz < ROOTS_PER_AXIS; iz++) for (let ix = 0; ix < ROOTS_PER_AXIS; ix++) visit({ level: MAX_LEVEL, ix, iz });
+    const rootsPerAxis = WORLD_SPAN_M / tileSizeM(MAX_LEVEL);
+    for (let iz = 0; iz < rootsPerAxis; iz++) for (let ix = 0; ix < rootsPerAxis; ix++) visit({ level: MAX_LEVEL, ix, iz });
     // 2:1 balance: a leaf may not touch a leaf that is 2+ levels coarser
     for (let pass = 0; pass < 16; pass++) {
       let changed = false;
@@ -180,7 +182,8 @@ export class MasterStreamer {
   private leavesOf(split: Set<string>): TileKey[] {
     const out: TileKey[] = [];
     const walk = (t: TileKey): void => { if (t.level > 0 && split.has(tileId(t))) for (const c of childrenOf(t)) walk(c); else out.push(t); };
-    for (let iz = 0; iz < ROOTS_PER_AXIS; iz++) for (let ix = 0; ix < ROOTS_PER_AXIS; ix++) walk({ level: MAX_LEVEL, ix, iz });
+    const rootsPerAxis = WORLD_SPAN_M / tileSizeM(MAX_LEVEL);
+    for (let iz = 0; iz < rootsPerAxis; iz++) for (let ix = 0; ix < rootsPerAxis; ix++) walk({ level: MAX_LEVEL, ix, iz });
     return out;
   }
   private leafAt(split: Set<string>, x: number, z: number): TileKey | null {
@@ -233,7 +236,7 @@ export function tileHeightGrid(h: HeightFn, t: TileKey, stitch: TilePlanEntry['s
  * of physics/particles rather than out of necessity, and it snaps to the 512 m tile lattice so tile vertex buffers (which hold
  * origin-relative positions) are reused unchanged after a rebase.
  */
-export const FLOATING_ORIGIN_CONFIG = { rebaseThresholdM: 3072, gridSnapM: TILE_BASE_M } as const;
+export const FLOATING_ORIGIN_CONFIG = { rebaseThresholdM: 2560, gridSnapM: TILE_BASE_M } as const;
 
 export function float32ResolutionM(distanceM: number): number { return Math.abs(distanceM) * 2 ** -24; }
 
@@ -242,5 +245,5 @@ export function rebaseOrigin(origin: readonly [number, number], world: readonly 
   const dx = world[0] - origin[0], dz = world[1] - origin[1];
   if (Math.hypot(dx, dz) < cfg.rebaseThresholdM) return [origin[0], origin[1]];
   const g = cfg.gridSnapM;
-  return [Math.round(world[0] / g) * g, Math.round(world[1] / g) * g];
+  return [origin[0] + Math.round(dx / g) * g, origin[1] + Math.round(dz / g) * g];
 }

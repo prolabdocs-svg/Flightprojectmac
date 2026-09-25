@@ -34,7 +34,14 @@ export class FloatingOrigin {
 
     if (this.gridSnapM > 0) {
       const g = this.gridSnapM;
-      local.set(Math.round((this.origin.x + local.x) / g) * g - this.origin.x, local.y, Math.round((this.origin.z + local.z) / g) * g - this.origin.z);
+      // Keep the origin on the shared tile lattice. Snap the proposed new global
+      // origin, not the local displacement, so rebases never move the aircraft.
+      const targetX = this.origin.x + local.x;
+      const targetZ = this.origin.z + local.z;
+      local.set(
+        Math.round(targetX / g) * g - this.origin.x, local.y,
+        Math.round(targetZ / g) * g - this.origin.z,
+      );
     }
     this.origin.add(local);
     for (const object of this.registered) object.position.sub(local);
